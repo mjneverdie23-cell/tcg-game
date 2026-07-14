@@ -54,3 +54,21 @@ python model/build_all.py
 Every dimension and curve lives in `model/viking_boat_3d.py` — hull length,
 beam, sheer/keel curves, recess depth, shield count, sail stripes and the
 dragon-head profile are all parametric.
+
+---
+
+# Design 2 — Flat Bottom + Skeleton
+
+A second design: only the **flat hexagonal bottom** and the **skeleton**
+(keel spine + separate ribs), built like the Skuldelev construction drawing.
+
+| Part | Description |
+| --- | --- |
+| Flat bottom | Elongated hexagon: pointed bow & stern, straight parallel sides amidships (560 × 180 × 12 mm) |
+| Keel spine | One long vertical plate with integrated 2D-extruded **dragon head** (bow, with eye hole and open jaw) and **spiral tail volute** (stern, cut-through spiral groove); 3 tabs drop into the bottom plate |
+| Ribs × 5 | Separate floor-timber frames with up-swept arms and limber holes; each cross-laps over the spine (egg-crate half-lap, meeting plane z = 30) and stands on the bottom |
+
+Renders: `renders/skeleton_01..07_*.png` (hero, side, top, bow, stern,
+exploded, parts laid flat). 3D: `cad/skeleton_boat.glb/.stl` and
+`cad/skeleton_boat_parts_flat.glb/.stl`. Source: `model/skeleton_boat.py`
+(parametric), `model/skeleton_build.py` (regenerates everything).
