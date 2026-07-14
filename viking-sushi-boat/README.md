@@ -72,3 +72,13 @@ Renders: `renders/skeleton_01..07_*.png` (hero, side, top, bow, stern,
 exploded, parts laid flat). 3D: `cad/skeleton_boat.glb/.stl` and
 `cad/skeleton_boat_parts_flat.glb/.stl`. Source: `model/skeleton_boat.py`
 (parametric), `model/skeleton_build.py` (regenerates everything).
+
+## v2 blueprint (CNC)
+
+Corrected per review: rounded bottom sides (pointed lens), graded ribs
+(centre longest), Urnes-style dragon head, continuous koru tail spiral.
+
+- `blueprints/sheet1..4_*.png` — dimensioned drawings of every part
+- `cnc/*.dxf` — cut-ready profiles (mm, dogbone reliefs R3.1 for a 6 mm bit)
+- `model/blueprint.py` — parametric 2D geometry
+- `model/blueprint_sheets.py` — regenerates sheets + DXFs
