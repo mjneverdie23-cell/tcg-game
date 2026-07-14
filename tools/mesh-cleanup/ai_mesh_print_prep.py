@@ -17,7 +17,7 @@
 bl_info = {
     "name": "AI Mesh Print Prep",
     "author": "tcg-game",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > Print Prep",
     "description": "One-click cleanup + remesh of AI-generated models for 3D printing",
@@ -49,23 +49,26 @@ def _apply_object_scale(obj):
 
 
 def _face_islands(bm):
-    """Connected components of faces (linked through shared vertices)."""
-    bm.faces.ensure_lookup_table()
-    seen = [False] * len(bm.faces)
+    """Connected components of faces (linked through shared vertices).
+
+    Visited state lives in the faces' tag flag: face.index is stale after
+    earlier bmesh.ops calls, so indexing an array by it is unsafe."""
+    for face in bm.faces:
+        face.tag = False
     islands = []
     for face in bm.faces:
-        if seen[face.index]:
+        if face.tag:
             continue
+        face.tag = True
         stack = [face]
-        seen[face.index] = True
         component = []
         while stack:
             current = stack.pop()
             component.append(current)
             for vert in current.verts:
                 for linked in vert.link_faces:
-                    if not seen[linked.index]:
-                        seen[linked.index] = True
+                    if not linked.tag:
+                        linked.tag = True
                         stack.append(linked)
         islands.append(component)
     return islands
@@ -90,16 +93,17 @@ def clean_mesh(obj, *, merge_distance=0.0001, remove_floaters=True,
     if merge_distance > 0:
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
 
-    # 2. Delete wire edges and isolated vertices.
+    # 2. Collapse zero-area faces / zero-length edges. Runs before the
+    #    loose-geometry sweep because dissolving can orphan vertices.
+    bmesh.ops.dissolve_degenerate(bm, dist=merge_distance, edges=bm.edges)
+
+    # 3. Delete wire edges and isolated vertices.
     wire_edges = [e for e in bm.edges if not e.link_faces]
     if wire_edges:
         bmesh.ops.delete(bm, geom=wire_edges, context="EDGES")
     loose_verts = [v for v in bm.verts if not v.link_faces]
     if loose_verts:
         bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
-
-    # 3. Collapse zero-area faces / zero-length edges.
-    bmesh.ops.dissolve_degenerate(bm, dist=merge_distance, edges=bm.edges)
 
     # 4. Remove floating islands ("polygons in the air"): any connected
     #    component smaller than floater_ratio * largest component.
@@ -144,9 +148,9 @@ def _apply_modifier(obj, modifier):
 def remesh_for_print(obj, *, mode="VOXEL", voxel_percent=0.4,
                      quad_target_faces=20000, smooth_iterations=3,
                      target_faces=0):
-    """Remesh + smooth + optional decimate. Returns a stats dict."""
+    """Remesh (unless mode is NONE) + smooth + optional decimate.
+    Returns a stats dict."""
     stats = {"voxel_size": 0.0}
-    _apply_object_scale(obj)
 
     if mode == "VOXEL":
         diagonal = obj.dimensions.length
@@ -164,7 +168,8 @@ def remesh_for_print(obj, *, mode="VOXEL", voxel_percent=0.4,
                                        selected_objects=[obj],
                                        selected_editable_objects=[obj]):
             bpy.ops.object.quadriflow_remesh(target_faces=quad_target_faces,
-                                             mode="FACES")
+                                             mode="FACES",
+                                             use_mesh_symmetry=False)
 
     if smooth_iterations > 0:
         mod = obj.modifiers.new("AIMC_Smooth", "SMOOTH")
@@ -182,10 +187,14 @@ def remesh_for_print(obj, *, mode="VOXEL", voxel_percent=0.4,
 
 
 def manifold_report(obj):
-    """Return (non_manifold_edges, boundary_edges, is_watertight)."""
+    """Return (interior_non_manifold_edges, boundary_edges, is_watertight).
+
+    Boundary edges are non-manifold too in BMesh terms; they are counted
+    separately here so the two numbers never overlap."""
     bm = bmesh.new()
     bm.from_mesh(obj.data)
-    non_manifold = sum(1 for e in bm.edges if not e.is_manifold)
+    non_manifold = sum(1 for e in bm.edges
+                       if not e.is_manifold and not e.is_boundary)
     boundary = sum(1 for e in bm.edges if e.is_boundary)
     bm.free()
     return non_manifold, boundary, (non_manifold == 0 and boundary == 0)
@@ -194,6 +203,13 @@ def manifold_report(obj):
 def process_object(obj, settings):
     """Full pipeline on one object. settings is any object with the
     attributes defined on AIMC_Settings. Returns a human-readable summary."""
+    if obj.data.users > 1:
+        obj.data = obj.data.copy()  # modifier_apply rejects multi-user data
+
+    # Bake scale first so merge distance and voxel size are in world units,
+    # and so a negative scale can't flip normals after cleanup fixed them.
+    _apply_object_scale(obj)
+
     clean_stats = clean_mesh(
         obj,
         merge_distance=settings.merge_distance,
@@ -202,16 +218,14 @@ def process_object(obj, settings):
         fill_holes=settings.fill_holes,
         recalc_normals=True,
     )
-    remesh_stats = {"voxel_size": 0.0}
-    if settings.remesh_mode != "NONE":
-        remesh_stats = remesh_for_print(
-            obj,
-            mode=settings.remesh_mode,
-            voxel_percent=settings.voxel_percent,
-            quad_target_faces=settings.quad_target_faces,
-            smooth_iterations=settings.smooth_iterations,
-            target_faces=settings.target_faces,
-        )
+    remesh_stats = remesh_for_print(
+        obj,
+        mode=settings.remesh_mode,
+        voxel_percent=settings.voxel_percent,
+        quad_target_faces=settings.quad_target_faces,
+        smooth_iterations=settings.smooth_iterations,
+        target_faces=settings.target_faces,
+    )
     non_manifold, boundary, watertight = manifold_report(obj)
 
     summary = (
@@ -257,8 +271,8 @@ class AIMC_Settings(bpy.types.PropertyGroup):
              "Watertight manifold output — best for printing"),
             ("QUAD", "Quadriflow (animation/edit)",
              "Clean quad topology — slower, better for further editing"),
-            ("NONE", "None (cleanup only)",
-             "Only run the cleanup passes"),
+            ("NONE", "None (no remesh)",
+             "Skip remeshing — cleanup, smoothing and decimate still run"),
         ],
         default="VOXEL")
     voxel_percent: bpy.props.FloatProperty(
@@ -438,6 +452,9 @@ def _join_imported_meshes():
                                        selected_objects=meshes,
                                        selected_editable_objects=meshes):
             bpy.ops.object.join()
+    # Drop imported modifiers (glTF/FBX rigs bring armature modifiers):
+    # the print prep works on the rest pose.
+    active.modifiers.clear()
     return active
 
 
@@ -464,6 +481,10 @@ def _run_cli(argv):
                         help="Skip floating-island removal")
     parser.add_argument("--no-fill-holes", action="store_true")
     args = parser.parse_args(argv)
+    if args.voxel_percent <= 0:
+        parser.error("--voxel-percent must be > 0")
+    out_path = os.path.abspath(args.output)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     # Start from an empty scene.
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -472,7 +493,7 @@ def _run_cli(argv):
     obj = _join_imported_meshes()
     summary = process_object(obj, _CliSettings(args))
     print("[AI Mesh Print Prep]", summary)
-    _export_model(obj, os.path.abspath(args.output))
+    _export_model(obj, out_path)
     print(f"[AI Mesh Print Prep] wrote {args.output}")
 
 
