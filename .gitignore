@@ -1,0 +1,38 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# test coverage
+/coverage
+
+# pipeline download cache (raw upstream datasets)
+/.cache/
+
+# Pipeline-generated artifacts — rebuilt by `npm run pipeline` (do not commit).
+# The SessionStart hook regenerates these automatically for web sessions.
+/prisma/*.db
+/prisma/*.db-journal
+/public/data/
+/public/flags/

@@ -1,0 +1,121 @@
+// World Atlas database schema.
+// SQLite is used for the demo; switch `provider` to "postgresql" (and DATABASE_URL)
+// for production — no model changes required. Array/object fields are stored as
+// JSON strings for cross-database portability.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Country {
+  id           Int     @id @default(autoincrement())
+  slug         String  @unique
+  cca2         String  @unique
+  cca3         String  @unique
+  ccn3         String?
+  name         String
+  officialName String
+  nativeNames  String  @default("{}") // JSON: { lang: { official, common } }
+  altSpellings String  @default("[]") // JSON: string[]
+
+  capital    String @default("[]") // JSON: string[]
+  capitalLat Float?
+  capitalLng Float?
+
+  region     String
+  subregion  String?
+  continents String @default("[]") // JSON: string[]
+
+  population        Int
+  area              Float
+  populationDensity Float?
+
+  latitude  Float
+  longitude Float
+  labelLat  Float?
+  labelLng  Float?
+  bbox      String? // JSON: [west, south, east, north]
+
+  landlocked   Boolean @default(false)
+  borders      String  @default("[]") // JSON: cca3[]
+  languages    String  @default("{}") // JSON: { code: name }
+  currencies   String  @default("{}") // JSON: { code: { name, symbol } }
+  timezones    String  @default("[]") // JSON: string[]
+  tld          String  @default("[]") // JSON: string[]
+  callingCodes String  @default("[]") // JSON: string[]
+  demonyms     String? // JSON: { eng: { m, f } }
+
+  flagEmoji     String  @default("")
+  coatOfArmsUrl String?
+  unMember      Boolean @default(false)
+  independent   Boolean @default(true)
+  status        String  @default("officially-assigned")
+  gini          String? // JSON: { year: value }
+  carSide       String?
+  startOfWeek   String?
+  fifa          String?
+  maps          String? // JSON: { googleMaps, openStreetMaps }
+
+  // Enrichment (samayo/country-json open datasets)
+  governmentType   String?
+  religion         String?
+  nationalDish     String?
+  nationalSymbol   String?
+  independenceDate String?
+  lifeExpectancy   Float?
+  avgTemperature   Float?
+  elevation        Float?
+
+  // Curated encyclopedic enrichment (see scripts/pipeline/knowledge.ts). All JSON.
+  summaryText   String? // authored overview paragraph
+  destinations  String  @default("[]") // JSON: { name, blurb, image?, lat?, lng? }[]
+  inventions    String  @default("[]") // JSON: { name, blurb, year? }[]
+  foods         String  @default("[]") // JSON: { name, blurb, image? }[]
+  festivals     String  @default("[]") // JSON: { name, blurb, when? }[]
+  timeline      String  @default("[]") // JSON: { when, era: "BCE"|"CE", title, description }[]
+  gallery       String  @default("[]") // JSON: { src, alt, caption? }[]
+  heroImage     String?
+
+  // Precomputed lowercase haystack for fast search
+  searchText String @default("")
+
+  cities   City[]
+  sections Section[]
+
+  updatedAt DateTime @updatedAt
+
+  @@index([region])
+  @@index([name])
+}
+
+model City {
+  id         Int     @id @default(autoincrement())
+  countryId  Int
+  country    Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  name       String
+  lat        Float
+  lng        Float
+  population Int?
+  isCapital  Boolean @default(false)
+  rank       Int     @default(10)
+
+  @@index([countryId])
+}
+
+model Section {
+  id        Int     @id @default(autoincrement())
+  countryId Int
+  country   Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  key       String
+  title     String
+  order     Int
+  blocks    String // JSON: ContentBlock[] — see src/lib/types.ts
+
+  @@unique([countryId, key])
+  @@index([countryId])
+}
