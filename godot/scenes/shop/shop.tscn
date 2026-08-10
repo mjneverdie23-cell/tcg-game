@@ -69,7 +69,7 @@ theme_override_font_sizes/font_size = 12
 text = "Win battles (+50 coins) to afford premium packs."
 horizontal_alignment = 1
 
-[node name="RevealPanel" type="CenterContainer" parent="."]
+[node name="RevealPanel" type="Control" parent="."]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -79,26 +79,46 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="RevealBox" type="PanelContainer" parent="RevealPanel"]
-layout_mode = 2
+[node name="RevealBackdrop" type="ColorRect" parent="RevealPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
 
-[node name="RevealColumn" type="VBoxContainer" parent="RevealPanel/RevealBox"]
+[node name="RevealCenter" type="CenterContainer" parent="RevealPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="RevealBox" type="PanelContainer" parent="RevealPanel/RevealCenter"]
+layout_mode = 2
+mouse_filter = 1
+
+[node name="RevealColumn" type="VBoxContainer" parent="RevealPanel/RevealCenter/RevealBox"]
 layout_mode = 2
 theme_override_constants/separation = 14
 
-[node name="RevealTitle" type="Label" parent="RevealPanel/RevealBox/RevealColumn"]
+[node name="RevealTitle" type="Label" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "Dawn Pack opened!"
 horizontal_alignment = 1
 
-[node name="RevealRow" type="HBoxContainer" parent="RevealPanel/RevealBox/RevealColumn"]
+[node name="RevealRow" type="HBoxContainer" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="DoneButton" type="Button" parent="RevealPanel/RevealBox/RevealColumn"]
+[node name="DoneButton" type="Button" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Done"

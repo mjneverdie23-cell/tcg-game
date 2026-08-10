@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://scenes/cards/card_viewer.gd" id="1"]
 
 [node name="CardViewer" type="Control"]
+script = ExtResource("1")
 visible = false
 layout_mode = 3
 anchors_preset = 15

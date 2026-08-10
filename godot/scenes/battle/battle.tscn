@@ -260,6 +260,67 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 10
 alignment = 1
 
+[node name="CoinPanel" type="Control" parent="UI/Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CoinBackdrop" type="ColorRect" parent="UI/Root/CoinPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.7)
+
+[node name="CoinCenter" type="CenterContainer" parent="UI/Root/CoinPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="CoinBox" type="PanelContainer" parent="UI/Root/CoinPanel/CoinCenter"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="CoinColumn" type="VBoxContainer" parent="UI/Root/CoinPanel/CoinCenter/CoinBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="CoinTitle" type="Label" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Coin Toss"
+horizontal_alignment = 1
+
+[node name="CoinResult" type="Label" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 38
+text = "HEADS"
+horizontal_alignment = 1
+
+[node name="CoinDetail" type="Label" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "You go first."
+horizontal_alignment = 1
+
+[node name="CoinButton" type="Button" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Begin Battle"
+
 [node name="TurnBanner" type="Label" parent="UI/Root/HUD"]
 unique_name_in_owner = true
 modulate = Color(1, 1, 1, 0)

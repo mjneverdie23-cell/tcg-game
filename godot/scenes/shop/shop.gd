@@ -22,6 +22,8 @@ var _dragging := false
 func _ready() -> void:
 	%BackButton.pressed.connect(SceneRouter.back)
 	%DoneButton.pressed.connect(func() -> void: %RevealPanel.visible = false)
+	# Click or swipe anywhere on the dimmed backdrop to reveal the next card.
+	%RevealBackdrop.gui_input.connect(_on_reveal_input)
 	PlayerData.coins_changed.connect(func(_amount: int) -> void: _refresh_buttons())
 	_build_pack_panels()
 	_refresh_coins()
@@ -223,10 +225,12 @@ func _make_reveal_card(card: CardData, card_scale: float) -> Control:
 	return holder
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	# During single-card reveals, any click/tap advances to the next card.
+## Advances the one-at-a-time reveal. Bound to the backdrop's gui_input
+## because the reveal panel's Controls consume clicks before they could ever
+## reach _unhandled_input — which is what froze the sequence on card 1.
+func _on_reveal_input(event: InputEvent) -> void:
 	if _reveal_phase != "card":
 		return
-	if event is InputEventMouseButton and event.pressed:
-		get_viewport().set_input_as_handled()
+	# Release (rather than press) so a swipe and a tap both land here.
+	if event is InputEventMouseButton and not event.pressed:
 		_show_next_card()

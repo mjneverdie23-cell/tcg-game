@@ -13,20 +13,20 @@ extends RefCounted
 ##   match) and optionally up to 3 more basics onto the Back slots.
 ## - Energy is auto-generated: 1 unit of the player's element per turn,
 ##   attachable to one dinosaur. Attack costs are paid by energy count.
-## - Turn 1 (starting player): energy + Spell cards only, no attack.
-##   Turn 2 (second player): energy + Spells + one Support + may attack.
-##   Turn 3+: draw 1, then the full flow (energy, Spells, one Support,
+## - Every turn begins with a draw. Turn 1 (the player who won the toss):
+##   energy + Spell cards, place basics — no attack and no Support.
+##   Turn 2 onward: the full flow (draw, energy, Spells, one Support,
 ##   Environment replacement, evolve, retreat once, attack once).
 ## - Each player's Environment passively buffs their own Active while its
 ##   type matches; it stays until replaced.
 ## - Damage: base + boosts, x2 weakness, -20 resistance. Statuses:
 ##   poisoned / asleep / paralyzed via signature attacks.
-## - Win: knock out 3 opposing Dinosaurs, or the opponent cannot promote a
+## - Win: knock out 2 opposing Dinosaurs, or the opponent cannot promote a
 ##   replacement Active.
 
 signal log_line(text: String)
 
-const POINTS_TO_WIN := 3
+const POINTS_TO_WIN := 2
 const BENCH_SIZE := 3
 const OPENING_HAND := 6
 
@@ -45,6 +45,10 @@ const ATTACK_STATUS: Dictionary = {
 
 ## Every log line so far — lets the UI catch up on setup events.
 var log_history := PackedStringArray()
+
+## Coin-toss outcome, surfaced to the UI: who called Heads and who starts.
+var heads_player: int = 0
+var first_player: int = 0
 
 var players: Array[BattlePlayerState] = []
 var current: int = 0
@@ -67,6 +71,8 @@ func _init(deck_a: Array, deck_b: Array, seed_value: int) -> void:
 
 	# Coin flip: one player is Heads, the other Tails; Heads starts.
 	var heads := 0 if _rng.randf() < 0.5 else 1
+	heads_player = heads
+	first_player = heads
 	current = heads
 	_log("Coin flip — %s is Heads, %s is Tails. %s starts." % [
 		_name(heads), _name(opponent_of(heads)), _name(heads)])
@@ -347,7 +353,7 @@ func _begin_turn() -> void:
 	player.reset_turn_flags()
 	_log("%s gains 1 %s energy." % [
 		_name(current), CardCatalogTypes.TYPE_NAMES[player.element]])
-	if turn_number >= 3 and player.draw() > 0:
+	if player.draw() > 0:
 		_log("%s draws a card." % _name(current))
 
 

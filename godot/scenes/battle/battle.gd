@@ -46,6 +46,7 @@ func _ready() -> void:
 	%RetreatButton.pressed.connect(_on_retreat_pressed)
 	%EnergyButton.pressed.connect(_on_energy_pressed)
 	%TargetCancel.pressed.connect(func() -> void: %TargetPopup.visible = false)
+	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
 	_populate_deck_choices()
 
@@ -82,10 +83,30 @@ func _on_start_pressed() -> void:
 	_reward_granted = false
 	%SetupPanel.visible = false
 	%HUD.visible = true
-	_last_turn_owner = -1
+	_last_turn_owner = _engine.current  # banner waits until after the toss
 	_previous_hand = []
 	_intro_camera()
 	_animate_hud_entrance()
+	_refresh()
+	_show_coin_toss()
+
+
+## The toss decides who acts first, so the player sees it before any card
+## moves. Play only begins once it is dismissed.
+func _show_coin_toss() -> void:
+	var player_called_heads := _engine.heads_player == 0
+	%CoinResult.text = "HEADS" if player_called_heads else "TAILS"
+	%CoinResult.add_theme_color_override(
+		"font_color", CardStyle.GOLD if _engine.first_player == 0 else Color("ff8a7a"))
+	%CoinDetail.text = (
+		"You called %s and go first." if _engine.first_player == 0
+		else "Rival called %s and goes first.") % ("Heads" if player_called_heads else "Tails")
+	%CoinPanel.visible = true
+
+
+func _on_coin_dismissed() -> void:
+	%CoinPanel.visible = false
+	_last_turn_owner = -1  # let the turn banner announce the opening turn
 	_refresh()
 	if _engine.current == 1:
 		_run_ai_turn()
