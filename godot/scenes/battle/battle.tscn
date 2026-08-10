@@ -1,0 +1,409 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scenes/battle/battle.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/cards/card_viewer.tscn" id="2"]
+
+[sub_resource type="Environment" id="Environment_night"]
+background_mode = 1
+background_color = Color(0.0235, 0.0353, 0.0745, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.35, 0.4, 0.55, 1)
+ambient_light_energy = 0.6
+
+[sub_resource type="StandardMaterial3D" id="Material_table"]
+albedo_color = Color(0.102, 0.145, 0.278, 1)
+roughness = 0.85
+
+[sub_resource type="BoxMesh" id="BoxMesh_table"]
+size = Vector3(11, 0.3, 6.5)
+
+[sub_resource type="StandardMaterial3D" id="Material_divider"]
+albedo_color = Color(0.96, 0.725, 0.259, 1)
+emission_enabled = true
+emission = Color(0.96, 0.725, 0.259, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_bar"]
+bg_color = Color(0.031, 0.047, 0.098, 0.88)
+corner_radius_top_left = 0
+corner_radius_top_right = 0
+corner_radius_bottom_left = 14
+corner_radius_bottom_right = 14
+content_margin_left = 16.0
+content_margin_right = 16.0
+content_margin_top = 8.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
+bg_color = Color(0.043, 0.063, 0.125, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_left = 14
+corner_radius_bottom_right = 14
+content_margin_left = 14.0
+content_margin_right = 14.0
+content_margin_top = 12.0
+content_margin_bottom = 12.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_dock"]
+bg_color = Color(0.024, 0.035, 0.075, 0.92)
+border_width_top = 1
+border_color = Color(1, 1, 1, 0.08)
+corner_radius_top_left = 18
+corner_radius_top_right = 18
+content_margin_left = 14.0
+content_margin_right = 14.0
+content_margin_top = 10.0
+content_margin_bottom = 10.0
+
+[node name="Battle" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_night")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = true
+transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 7.2, 7.2)
+fov = 46.0
+
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.643, 0.766, 0, -0.766, 0.643, 0, 8, 4)
+light_energy = 1.2
+
+[node name="Table" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_table")
+surface_material_override/0 = SubResource("Material_table")
+
+[node name="CenterLine" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.1, 0, 0, 0, 0.008, 0, 0.16, 0)
+mesh = SubResource("BoxMesh_table")
+surface_material_override/0 = SubResource("Material_divider")
+
+[node name="Board" type="Node3D" parent="."]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="HUD" type="Control" parent="UI/Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TopBar" type="PanelContainer" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 12.0
+offset_right = -12.0
+offset_bottom = 60.0
+grow_horizontal = 2
+theme_override_styles/panel = SubResource("StyleBox_bar")
+
+[node name="TopRow" type="HBoxContainer" parent="UI/Root/HUD/TopBar"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="BackButton" type="Button" parent="UI/Root/HUD/TopBar/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+text = "Menu"
+
+[node name="TurnLabel" type="Label" parent="UI/Root/HUD/TopBar/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 18
+text = "Your turn"
+
+[node name="PointsLabel" type="Label" parent="UI/Root/HUD/TopBar/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
+text = "You 0 — 0 Rival"
+horizontal_alignment = 1
+
+[node name="FieldLabel" type="Label" parent="UI/Root/HUD/TopBar/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 13
+text = "Env — You: none  ·  Rival: none"
+horizontal_alignment = 2
+
+[node name="RivalStatsLabel" type="Label" parent="UI/Root/HUD/TopBar/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 13
+text = "Rival · hand 6 · deck 12"
+horizontal_alignment = 2
+
+[node name="ActionPanel" type="PanelContainer" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -262.0
+offset_top = -170.0
+offset_right = -14.0
+offset_bottom = 170.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="ActionColumn" type="VBoxContainer" parent="UI/Root/HUD/ActionPanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AttackTitle" type="Label" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "ATTACKS"
+
+[node name="AttackScroll" type="ScrollContainer" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="AttackList" type="VBoxContainer" parent="UI/Root/HUD/ActionPanel/ActionColumn/AttackScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Divider" type="HSeparator" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+layout_mode = 2
+
+[node name="EnergyButton" type="Button" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Attach energy"
+
+[node name="RetreatButton" type="Button" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Retreat"
+
+[node name="EndTurnButton" type="Button" parent="UI/Root/HUD/ActionPanel/ActionColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "End Turn"
+
+[node name="LogPanel" type="PanelContainer" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 14.0
+offset_top = -238.0
+offset_right = 454.0
+offset_bottom = -160.0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="LogLabel" type="Label" parent="UI/Root/HUD/LogPanel"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 0
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="HandDock" type="PanelContainer" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -150.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBox_dock")
+
+[node name="HandScroll" type="ScrollContainer" parent="UI/Root/HUD/HandDock"]
+layout_mode = 2
+vertical_scroll_mode = 0
+
+[node name="Hand" type="HBoxContainer" parent="UI/Root/HUD/HandDock/HandScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="TurnBanner" type="Label" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -40.0
+offset_right = 260.0
+offset_bottom = 40.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 44
+text = "Your Turn"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SetupPanel" type="CenterContainer" parent="UI/Root"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SetupBox" type="PanelContainer" parent="UI/Root/SetupPanel"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="SetupColumn" type="VBoxContainer" parent="UI/Root/SetupPanel/SetupBox"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="SetupTitle" type="Label" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "Battle the Rival"
+horizontal_alignment = 1
+
+[node name="SetupHint" type="Label" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Choose a battle-ready deck (23 cards)."
+horizontal_alignment = 1
+
+[node name="DeckDropdown" type="OptionButton" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="StartButton" type="Button" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Start Battle"
+
+[node name="SetupBackButton" type="Button" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back to menu"
+
+[node name="NoDeckLabel" type="Label" parent="UI/Root/SetupPanel/SetupBox/SetupColumn"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "No battle-ready deck — build a legal 23-card deck first."
+horizontal_alignment = 1
+
+[node name="TargetPopup" type="CenterContainer" parent="UI/Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TargetBox" type="PanelContainer" parent="UI/Root/TargetPopup"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="TargetColumn" type="VBoxContainer" parent="UI/Root/TargetPopup/TargetBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TargetTitle" type="Label" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "Choose a target"
+horizontal_alignment = 1
+
+[node name="TargetButtons" type="VBoxContainer" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TargetCancel" type="Button" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cancel"
+
+[node name="ResultPanel" type="CenterContainer" parent="UI/Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResultBox" type="PanelContainer" parent="UI/Root/ResultPanel"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="ResultColumn" type="VBoxContainer" parent="UI/Root/ResultPanel/ResultBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ResultLabel" type="Label" parent="UI/Root/ResultPanel/ResultBox/ResultColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+text = "Victory!"
+horizontal_alignment = 1
+
+[node name="RewardLabel" type="Label" parent="UI/Root/ResultPanel/ResultBox/ResultColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "+50 coins"
+horizontal_alignment = 1
+
+[node name="ReturnButton" type="Button" parent="UI/Root/ResultPanel/ResultBox/ResultColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back to menu"
+
+[node name="BattleViewer" parent="UI/Root" instance=ExtResource("2")]
+unique_name_in_owner = true
+layout_mode = 1

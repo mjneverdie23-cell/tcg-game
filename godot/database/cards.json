@@ -1,0 +1,1497 @@
+{
+  "version": 1,
+  "dinos": [
+    {
+      "id": "dino:velociraptor",
+      "name": "Velociraptor",
+      "type": "carnivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Bone Crusher",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A cunning pack hunter with a lethal sickle claw on each foot.",
+      "image": ""
+    },
+    {
+      "id": "dino:dilophosaurus",
+      "name": "Dilophosaurus",
+      "type": "carnivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Apex Strike",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A crested Jurassic predator, fast and unpredictable.",
+      "image": ""
+    },
+    {
+      "id": "dino:ceratosaurus",
+      "name": "Ceratosaurus",
+      "type": "carnivore",
+      "rarity": "common",
+      "hp": 80,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Savage Bite",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A horned carnivore that ambushes prey near riverbanks.",
+      "image": ""
+    },
+    {
+      "id": "dino:herrerasaurus",
+      "name": "Herrerasaurus",
+      "type": "carnivore",
+      "rarity": "common",
+      "hp": 80,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Bone Crusher",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Blood Frenzy",
+          "cost": [
+            "carnivore",
+            "carnivore",
+            "carnivore"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "One of the earliest dinosaurs \u2014 a Triassic pioneer of the hunt.",
+      "image": ""
+    },
+    {
+      "id": "dino:ornitholestes",
+      "name": "Ornitholestes",
+      "type": "carnivore",
+      "rarity": "common",
+      "hp": 60,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Savage Bite",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A small, nimble thief that snatches prey and vanishes.",
+      "image": ""
+    },
+    {
+      "id": "dino:allosaurus",
+      "name": "Allosaurus",
+      "type": "carnivore",
+      "rarity": "rare",
+      "hp": 90,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ambush",
+          "cost": [
+            "carnivore",
+            "carnivore"
+          ],
+          "damage": 10
+        },
+        {
+          "name": "Blood Frenzy",
+          "cost": [
+            "carnivore",
+            "neutral",
+            "carnivore"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "The lion of the Jurassic, striking with axe-like jaws.",
+      "image": ""
+    },
+    {
+      "id": "dino:carnotaurus",
+      "name": "Carnotaurus",
+      "type": "carnivore",
+      "rarity": "rare",
+      "hp": 100,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Blood Frenzy",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Rending Claws",
+          "cost": [
+            "carnivore",
+            "carnivore",
+            "carnivore"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "The horned \"meat-eating bull\", built for terrifying sprints.",
+      "image": ""
+    },
+    {
+      "id": "dino:baryonyx",
+      "name": "Baryonyx",
+      "type": "carnivore",
+      "rarity": "rare",
+      "hp": 90,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Bone Crusher",
+          "cost": [
+            "carnivore",
+            "carnivore"
+          ],
+          "damage": 10
+        },
+        {
+          "name": "Rending Claws",
+          "cost": [
+            "carnivore",
+            "neutral",
+            "neutral"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A fish-hooking riverside hunter with a crocodilian snout.",
+      "image": ""
+    },
+    {
+      "id": "dino:spinosaurus",
+      "name": "Spinosaurus",
+      "type": "carnivore",
+      "rarity": "epic",
+      "hp": 120,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ambush",
+          "cost": [
+            "carnivore",
+            "carnivore"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Blood Frenzy",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A sail-backed giant, at home in water and on land alike.",
+      "image": ""
+    },
+    {
+      "id": "dino:giganotosaurus",
+      "name": "Giganotosaurus",
+      "type": "carnivore",
+      "rarity": "epic",
+      "hp": 140,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ambush",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Bone Crusher",
+          "cost": [
+            "carnivore",
+            "neutral",
+            "carnivore"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A southern colossus that hunted the largest prey ever known.",
+      "image": ""
+    },
+    {
+      "id": "dino:acrocanthosaurus",
+      "name": "Acrocanthosaurus",
+      "type": "carnivore",
+      "rarity": "legendary",
+      "hp": 150,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Blood Frenzy",
+          "cost": [
+            "carnivore"
+          ],
+          "damage": 50
+        },
+        {
+          "name": "Ambush",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 70
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "A high-spined apex predator of Early Cretaceous floodplains.",
+      "image": ""
+    },
+    {
+      "id": "dino:tyrannosaurus-rex",
+      "name": "Tyrannosaurus rex",
+      "type": "carnivore",
+      "rarity": "mythic",
+      "hp": 180,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Bone Crusher",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Savage Bite",
+          "cost": [
+            "carnivore",
+            "neutral"
+          ],
+          "damage": 70
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "The tyrant lizard king. Its bite could crush bone outright.",
+      "image": ""
+    },
+    {
+      "id": "dino:gallimimus",
+      "name": "Gallimimus",
+      "type": "herbivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ground Shaker",
+          "cost": [
+            "herbivore"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "An ostrich-like sprinter that outruns nearly everything.",
+      "image": ""
+    },
+    {
+      "id": "dino:pachycephalosaurus",
+      "name": "Pachycephalosaurus",
+      "type": "herbivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Thorned Hide",
+          "cost": [
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A dome-headed brawler that settles disputes head-first.",
+      "image": ""
+    },
+    {
+      "id": "dino:iguanodon",
+      "name": "Iguanodon",
+      "type": "herbivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ground Shaker",
+          "cost": [
+            "herbivore"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Horn Charge",
+          "cost": [
+            "herbivore",
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A sturdy grazer whose thumb spikes double as daggers.",
+      "image": ""
+    },
+    {
+      "id": "dino:parasaurolophus",
+      "name": "Parasaurolophus",
+      "type": "herbivore",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Thorned Hide",
+          "cost": [
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "Its swept-back crest trumpets calls across the herd.",
+      "image": ""
+    },
+    {
+      "id": "dino:corythosaurus",
+      "name": "Corythosaurus",
+      "type": "herbivore",
+      "rarity": "common",
+      "hp": 80,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Stampede",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Tail Slam",
+          "cost": [
+            "herbivore",
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A helmet-crested duckbill with a chorus of low bellows.",
+      "image": ""
+    },
+    {
+      "id": "dino:stegosaurus",
+      "name": "Stegosaurus",
+      "type": "herbivore",
+      "rarity": "rare",
+      "hp": 100,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ground Shaker",
+          "cost": [
+            "herbivore"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Tail Slam",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "Plated and patient \u2014 its thagomizer answers all arguments.",
+      "image": ""
+    },
+    {
+      "id": "dino:ankylosaurus",
+      "name": "Ankylosaurus",
+      "type": "herbivore",
+      "rarity": "rare",
+      "hp": 100,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Ground Shaker",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Canopy Crush",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A living fortress swinging a bone-shattering tail club.",
+      "image": ""
+    },
+    {
+      "id": "dino:styracosaurus",
+      "name": "Styracosaurus",
+      "type": "herbivore",
+      "rarity": "rare",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Stampede",
+          "cost": [
+            "herbivore"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Horn Charge",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A spiked-frill charger with a temper to match its horns.",
+      "image": ""
+    },
+    {
+      "id": "dino:triceratops",
+      "name": "Triceratops",
+      "type": "herbivore",
+      "rarity": "epic",
+      "hp": 130,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Stampede",
+          "cost": [
+            "herbivore"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Horn Charge",
+          "cost": [
+            "herbivore",
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "Three horns, one shield, zero retreat.",
+      "image": ""
+    },
+    {
+      "id": "dino:therizinosaurus",
+      "name": "Therizinosaurus",
+      "type": "herbivore",
+      "rarity": "epic",
+      "hp": 130,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Tail Slam",
+          "cost": [
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Thorned Hide",
+          "cost": [
+            "herbivore",
+            "neutral",
+            "herbivore"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A towering leaf-eater wielding metre-long scythe claws.",
+      "image": ""
+    },
+    {
+      "id": "dino:brachiosaurus",
+      "name": "Brachiosaurus",
+      "type": "herbivore",
+      "rarity": "legendary",
+      "hp": 150,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Canopy Crush",
+          "cost": [
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Horn Charge",
+          "cost": [
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "A long-necked giant grazing the forest canopy itself.",
+      "image": ""
+    },
+    {
+      "id": "dino:argentinosaurus",
+      "name": "Argentinosaurus",
+      "type": "herbivore",
+      "rarity": "mythic",
+      "hp": 180,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Tail Slam",
+          "cost": [
+            "herbivore",
+            "herbivore"
+          ],
+          "damage": 50
+        },
+        {
+          "name": "Stampede",
+          "cost": [
+            "herbivore",
+            "herbivore",
+            "neutral"
+          ],
+          "damage": 80
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "Perhaps the largest land animal ever \u2014 the earth shakes.",
+      "image": ""
+    },
+    {
+      "id": "dino:dimorphodon",
+      "name": "Dimorphodon",
+      "type": "pterosaur",
+      "rarity": "common",
+      "hp": 80,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Updraft",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Wing Slash",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A puffin-faced flapper darting through coastal cliffs.",
+      "image": ""
+    },
+    {
+      "id": "dino:rhamphorhynchus",
+      "name": "Rhamphorhynchus",
+      "type": "pterosaur",
+      "rarity": "common",
+      "hp": 60,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Talon Snatch",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A long-tailed fisher skimming waves with needle teeth.",
+      "image": ""
+    },
+    {
+      "id": "dino:pterodactylus",
+      "name": "Pterodactylus",
+      "type": "pterosaur",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Wing Slash",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "The original \"pterodactyl\" \u2014 small, quick and curious.",
+      "image": ""
+    },
+    {
+      "id": "dino:anhanguera",
+      "name": "Anhanguera",
+      "type": "pterosaur",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Updraft",
+          "cost": [
+            "pterosaur",
+            "neutral"
+          ],
+          "damage": 10
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A keel-snouted glider riding thermals over open sea.",
+      "image": ""
+    },
+    {
+      "id": "dino:tapejara",
+      "name": "Tapejara",
+      "type": "pterosaur",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 20
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A sail-crested show-off with dazzling display flights.",
+      "image": ""
+    },
+    {
+      "id": "dino:tupandactylus",
+      "name": "Tupandactylus",
+      "type": "pterosaur",
+      "rarity": "rare",
+      "hp": 100,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Wing Slash",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "Its towering crest is half banner, half rudder.",
+      "image": ""
+    },
+    {
+      "id": "dino:dsungaripterus",
+      "name": "Dsungaripterus",
+      "type": "pterosaur",
+      "rarity": "rare",
+      "hp": 90,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Updraft",
+          "cost": [
+            "pterosaur"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Talon Snatch",
+          "cost": [
+            "pterosaur",
+            "neutral",
+            "neutral"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "Upturned jaws pry shellfish from tidal rocks.",
+      "image": ""
+    },
+    {
+      "id": "dino:zhejiangopterus",
+      "name": "Zhejiangopterus",
+      "type": "pterosaur",
+      "rarity": "rare",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Gale Force",
+          "cost": [
+            "pterosaur",
+            "neutral"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "neutral",
+            "pterosaur"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A silent, storky wanderer of Cretaceous wetlands.",
+      "image": ""
+    },
+    {
+      "id": "dino:pteranodon",
+      "name": "Pteranodon",
+      "type": "pterosaur",
+      "rarity": "epic",
+      "hp": 130,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Wing Slash",
+          "cost": [
+            "pterosaur",
+            "neutral"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "pterosaur",
+            "neutral"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "The iconic ocean soarer with a seven-metre wingspan.",
+      "image": ""
+    },
+    {
+      "id": "dino:tropeognathus",
+      "name": "Tropeognathus",
+      "type": "pterosaur",
+      "rarity": "epic",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Gale Force",
+          "cost": [
+            "pterosaur"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A keeled predator snapping fish from the wave crests.",
+      "image": ""
+    },
+    {
+      "id": "dino:hatzegopteryx",
+      "name": "Hatzegopteryx",
+      "type": "pterosaur",
+      "rarity": "legendary",
+      "hp": 170,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Sky Screech",
+          "cost": [
+            "pterosaur"
+          ],
+          "damage": 60
+        },
+        {
+          "name": "Updraft",
+          "cost": [
+            "pterosaur",
+            "pterosaur",
+            "pterosaur"
+          ],
+          "damage": 80
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "An island giant that stalks prey on foot like a titan stork.",
+      "image": ""
+    },
+    {
+      "id": "dino:quetzalcoatlus",
+      "name": "Quetzalcoatlus",
+      "type": "pterosaur",
+      "rarity": "mythic",
+      "hp": 170,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Sky Screech",
+          "cost": [
+            "pterosaur"
+          ],
+          "damage": 60
+        },
+        {
+          "name": "Dive Bomb",
+          "cost": [
+            "pterosaur",
+            "pterosaur",
+            "neutral"
+          ],
+          "damage": 70
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "A giraffe-sized flier \u2014 the largest wings in history.",
+      "image": ""
+    },
+    {
+      "id": "dino:diplocaulus",
+      "name": "Diplocaulus",
+      "type": "amphibian",
+      "rarity": "common",
+      "hp": 60,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Deep Lurk",
+          "cost": [
+            "amphibian",
+            "neutral"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Drowning Grip",
+          "cost": [
+            "amphibian",
+            "neutral"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A boomerang-headed lurker gliding through murky streams.",
+      "image": ""
+    },
+    {
+      "id": "dino:metoposaurus",
+      "name": "Metoposaurus",
+      "type": "amphibian",
+      "rarity": "common",
+      "hp": 60,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Mud Spray",
+          "cost": [
+            "amphibian"
+          ],
+          "damage": 20
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A flat-headed ambusher buried in the Triassic mud.",
+      "image": ""
+    },
+    {
+      "id": "dino:mastodonsaurus",
+      "name": "Mastodonsaurus",
+      "type": "amphibian",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Deep Lurk",
+          "cost": [
+            "amphibian",
+            "neutral"
+          ],
+          "damage": 10
+        },
+        {
+          "name": "River Rush",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A giant salamander whose tusks pierce its own snout.",
+      "image": ""
+    },
+    {
+      "id": "dino:champsosaurus",
+      "name": "Champsosaurus",
+      "type": "amphibian",
+      "rarity": "common",
+      "hp": 60,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Tidal Snap",
+          "cost": [
+            "amphibian"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A slender-jawed swimmer weaving through reed beds.",
+      "image": ""
+    },
+    {
+      "id": "dino:rutiodon",
+      "name": "Rutiodon",
+      "type": "amphibian",
+      "rarity": "common",
+      "hp": 70,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Drowning Grip",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "River Rush",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "A phytosaur that wears the river like armor.",
+      "image": ""
+    },
+    {
+      "id": "dino:kaprosuchus",
+      "name": "Kaprosuchus",
+      "type": "amphibian",
+      "rarity": "rare",
+      "hp": 90,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "River Rush",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 20
+        },
+        {
+          "name": "Mud Spray",
+          "cost": [
+            "amphibian",
+            "neutral"
+          ],
+          "damage": 30
+        }
+      ],
+      "retreat_cost": 1,
+      "description": "The \"boar croc\" \u2014 tusked, fast and fearless on land.",
+      "image": ""
+    },
+    {
+      "id": "dino:nothosaurus",
+      "name": "Nothosaurus",
+      "type": "amphibian",
+      "rarity": "rare",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Swamp Ambush",
+          "cost": [
+            "amphibian"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Tidal Snap",
+          "cost": [
+            "amphibian",
+            "neutral",
+            "neutral"
+          ],
+          "damage": 60
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A seal-like fisher sliding between rock and surf.",
+      "image": ""
+    },
+    {
+      "id": "dino:koolasuchus",
+      "name": "Koolasuchus",
+      "type": "amphibian",
+      "rarity": "rare",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Drowning Grip",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "River Rush",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 40
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A cold-water survivor haunting polar rift valleys.",
+      "image": ""
+    },
+    {
+      "id": "dino:prionosuchus",
+      "name": "Prionosuchus",
+      "type": "amphibian",
+      "rarity": "epic",
+      "hp": 140,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Swamp Ambush",
+          "cost": [
+            "amphibian"
+          ],
+          "damage": 40
+        },
+        {
+          "name": "Mud Spray",
+          "cost": [
+            "amphibian",
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 70
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "The largest amphibian ever \u2014 a nine-metre river dragon.",
+      "image": ""
+    },
+    {
+      "id": "dino:deinosuchus",
+      "name": "Deinosuchus",
+      "type": "amphibian",
+      "rarity": "epic",
+      "hp": 110,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "River Rush",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 30
+        },
+        {
+          "name": "Mud Spray",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 50
+        }
+      ],
+      "retreat_cost": 2,
+      "description": "A bus-sized alligator that preys on dinosaurs at the shore.",
+      "image": ""
+    },
+    {
+      "id": "dino:sarcosuchus",
+      "name": "Sarcosuchus",
+      "type": "amphibian",
+      "rarity": "legendary",
+      "hp": 150,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Tidal Snap",
+          "cost": [
+            "amphibian",
+            "neutral"
+          ],
+          "damage": 50
+        },
+        {
+          "name": "Deep Lurk",
+          "cost": [
+            "amphibian",
+            "neutral",
+            "amphibian"
+          ],
+          "damage": 70
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "The super-croc: twelve metres of patient, armored death.",
+      "image": ""
+    },
+    {
+      "id": "dino:purussaurus",
+      "name": "Purussaurus",
+      "type": "amphibian",
+      "rarity": "mythic",
+      "hp": 190,
+      "stage": 1,
+      "evolves_from": "",
+      "attacks": [
+        {
+          "name": "Mud Spray",
+          "cost": [
+            "amphibian",
+            "amphibian"
+          ],
+          "damage": 50
+        },
+        {
+          "name": "Deep Lurk",
+          "cost": [
+            "amphibian",
+            "neutral",
+            "neutral"
+          ],
+          "damage": 90
+        }
+      ],
+      "retreat_cost": 3,
+      "description": "A monstrous caiman with the strongest bite of any animal.",
+      "image": ""
+    }
+  ],
+  "trainers": [
+    {
+      "id": "trainer:dino-berry",
+      "name": "Dino Berry",
+      "rarity": "common",
+      "trainer_kind": "spell",
+      "text": "Heal 30 damage from your active dinosaur.",
+      "effect": {
+        "type": "heal",
+        "amount": 30
+      }
+    },
+    {
+      "id": "trainer:amber-charm",
+      "name": "Amber Charm",
+      "rarity": "common",
+      "trainer_kind": "spell",
+      "text": "Draw 2 cards.",
+      "effect": {
+        "type": "draw",
+        "count": 2
+      }
+    },
+    {
+      "id": "trainer:fossil-whistle",
+      "name": "Fossil Whistle",
+      "rarity": "rare",
+      "trainer_kind": "spell",
+      "text": "Put a random basic dinosaur from your deck into your hand.",
+      "effect": {
+        "type": "search-dino"
+      }
+    },
+    {
+      "id": "trainer:adrenaline-gland",
+      "name": "Adrenaline Gland",
+      "rarity": "rare",
+      "trainer_kind": "spell",
+      "text": "Your attacks deal +20 damage this turn.",
+      "effect": {
+        "type": "damage-boost",
+        "amount": 20
+      }
+    },
+    {
+      "id": "trainer:park-ranger",
+      "name": "Park Ranger",
+      "rarity": "rare",
+      "trainer_kind": "support",
+      "text": "Heal 20 damage from each of your dinosaurs.",
+      "effect": {
+        "type": "heal-all",
+        "amount": 20
+      }
+    },
+    {
+      "id": "trainer:paleontologist",
+      "name": "Paleontologist",
+      "rarity": "epic",
+      "trainer_kind": "support",
+      "text": "Draw cards until you have 5 in hand.",
+      "effect": {
+        "type": "draw-to",
+        "hand_size": 5
+      }
+    },
+    {
+      "id": "trainer:dino-handler",
+      "name": "Dino Handler",
+      "rarity": "common",
+      "trainer_kind": "support",
+      "text": "Switch your active dinosaur with one on your bench.",
+      "effect": {
+        "type": "switch"
+      }
+    },
+    {
+      "id": "trainer:egg-incubator",
+      "name": "Egg Incubator",
+      "rarity": "epic",
+      "trainer_kind": "support",
+      "text": "You may attach one additional Energy this turn.",
+      "effect": {
+        "type": "bonus-energy"
+      }
+    }
+  ],
+  "fields": [
+    {
+      "id": "field:dense-jungle",
+      "name": "Dense Jungle",
+      "rarity": "rare",
+      "text": "Herbivore Environment \u2014 your matching Active gets +20 HP.",
+      "type": "herbivore",
+      "buff": {
+        "type": "hp-bonus",
+        "amount": 20
+      }
+    },
+    {
+      "id": "field:volcanic-plains",
+      "name": "Volcanic Plains",
+      "rarity": "rare",
+      "text": "Carnivore Environment \u2014 your matching Active deals +10 damage.",
+      "type": "carnivore",
+      "buff": {
+        "type": "damage-bonus",
+        "amount": 10
+      }
+    },
+    {
+      "id": "field:river-delta",
+      "name": "River Delta",
+      "rarity": "rare",
+      "text": "Amphibian Environment \u2014 your matching Active heals 10 each turn.",
+      "type": "amphibian",
+      "buff": {
+        "type": "heal-per-turn",
+        "amount": 10
+      }
+    },
+    {
+      "id": "field:mountain-cliffs",
+      "name": "Mountain Cliffs",
+      "rarity": "rare",
+      "text": "Pterosaur Environment \u2014 your matching Active retreats for free.",
+      "type": "pterosaur",
+      "buff": {
+        "type": "free-retreat",
+        "amount": 0
+      }
+    },
+    {
+      "id": "field:ancient-swamp",
+      "name": "Ancient Swamp",
+      "rarity": "epic",
+      "text": "Amphibian Environment \u2014 your matching Active deals +10 damage.",
+      "type": "amphibian",
+      "buff": {
+        "type": "damage-bonus",
+        "amount": 10
+      }
+    },
+    {
+      "id": "field:ice-valley",
+      "name": "Ice Valley",
+      "rarity": "epic",
+      "text": "Pterosaur Environment \u2014 your matching Active gets +20 HP.",
+      "type": "pterosaur",
+      "buff": {
+        "type": "hp-bonus",
+        "amount": 20
+      }
+    }
+  ],
+  "instincts": []
+}

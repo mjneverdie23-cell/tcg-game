@@ -1,0 +1,120 @@
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/*
+ * Primordia design tokens.
+ *
+ * - `night`      : the dark base palette every screen sits on.
+ * - class colors : the four dinosaur classes (Instinct energy types).
+ * - rarity colors: card rarity accents, reused by packs / collection / cards.
+ * - `gold`       : primary call-to-action accent.
+ */
+@theme {
+  --font-display: 'Outfit Variable', system-ui, sans-serif;
+  --font-body: 'Inter Variable', system-ui, sans-serif;
+
+  --color-night-950: #060913;
+  --color-night-900: #0a0f1f;
+  --color-night-800: #111a33;
+  --color-night-700: #1a2547;
+  --color-night-600: #263158;
+
+  --color-gold-300: #ffd166;
+  --color-gold-400: #f5b942;
+  --color-gold-500: #e0a22e;
+
+  --color-carnivore: #ff5a48;
+  --color-herbivore: #43d96b;
+  --color-amphibian: #38a8ff;
+  --color-pterosaur: #b18aff;
+
+  --color-rarity-common: #9aa4b8;
+  --color-rarity-rare: #3fa7ff;
+  --color-rarity-epic: #b45cff;
+  --color-rarity-legendary: #ffb938;
+  --color-rarity-mythic: #ff4fa0;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-night-950 font-body text-slate-100 antialiased;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  /* Frosted glass surface used across menus and panels. */
+  .glass {
+    @apply border border-white/10 bg-white/5 shadow-xl shadow-black/40 backdrop-blur-xl;
+  }
+
+  /* Respect user/system reduced-motion for the ambient background. */
+  @media (prefers-reduced-motion: reduce) {
+    .bg-blob {
+      animation: none !important;
+    }
+  }
+}
+
+/* Animated holographic effect for mythic cards (rings + art sweep). */
+@keyframes holo {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-holo {
+  animation: holo 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-holo {
+    animation: none;
+  }
+}
+
+:root[data-reduced-motion='true'] .animate-holo,
+:root[data-reduced-motion='true'] .bg-blob {
+  animation: none !important;
+}
+
+/* Slow ambient drift for background blobs (GPU-friendly: transform only). */
+@keyframes blob-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(8vw, -6vh, 0) scale(1.15);
+  }
+}
+
+@keyframes blob-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(-7vw, 8vh, 0) scale(0.95);
+  }
+}
+
+.bg-blob-a {
+  animation: blob-drift-a 26s ease-in-out infinite;
+}
+
+.bg-blob-b {
+  animation: blob-drift-b 32s ease-in-out infinite;
+}

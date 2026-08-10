@@ -1,0 +1,7 @@
+node_modules/
+dist/
+godot/.godot/
+dev-dist/
+coverage/
+*.local
+.DS_Store
