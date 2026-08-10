@@ -50,7 +50,7 @@ func show_card(card: CardData) -> void:
 		_render_face()
 
 
-## Status line floating under the card ("45/90 HP · 2 energy").
+## Status line floating above the card ("45/90 E2").
 func set_info(text: String, color: Color = Color.WHITE) -> void:
 	_info.text = text
 	_info.modulate = color
@@ -212,6 +212,7 @@ func _build_meshes() -> void:
 	_info.font_size = 40
 	_info.pixel_size = 0.004
 	_info.outline_size = 10
+	_info.no_depth_test = true  # always legible, never behind a nearer card
 	_info.position = Vector3(0, 0.34, 0)
 	add_child(_info)
 

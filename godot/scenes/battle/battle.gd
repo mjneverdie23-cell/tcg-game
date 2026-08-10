@@ -454,9 +454,9 @@ func _sync_environments() -> void:
 			node = Card3D.new()
 			node.card_data = card
 			_board.add_child(node)
-			node.transform = Transform3D(Basis.IDENTITY, Vector3(-4.6, 0.18, 0.9 * forward))
+			node.transform = Transform3D(Basis.IDENTITY, Vector3(-4.6, 0.18, 0.7 * forward))
 			node.clicked.connect(_on_board_card_clicked)
-			node.move_home(Transform3D(Basis.IDENTITY, Vector3(-3.6, 0.18, 0.9 * forward)))
+			node.move_home(Transform3D(Basis.IDENTITY, Vector3(-3.6, 0.18, 0.7 * forward)))
 			_env_nodes[side] = node
 		elif node.card_data != card:
 			node.show_card(card)
@@ -469,9 +469,9 @@ func _slot_transform(side: int, play_index: int) -> Transform3D:
 	var forward := 1.0 if side == 0 else -1.0
 	var pos: Vector3
 	if play_index == 0:
-		pos = Vector3(0, 0.18, 0.9 * forward)
+		pos = Vector3(0, 0.18, 0.7 * forward)
 	else:
-		pos = Vector3(-1.25 + (play_index - 1) * 1.25, 0.18, 1.9 * forward)
+		pos = Vector3(-1.25 + (play_index - 1) * 1.25, 0.18, 2.15 * forward)
 	# Both sides face the camera: an opponent's card the player cannot read
 	# is worse than the tabletop realism of rotating it.
 	return Transform3D(Basis.IDENTITY, pos)

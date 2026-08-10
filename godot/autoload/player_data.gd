@@ -9,8 +9,11 @@ signal coins_changed(new_amount: int)
 signal decks_changed
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 1
-const STARTING_COINS := 150
+const SAVE_VERSION := 2
+const STARTING_COINS := 290
+## One-off top-up applied when loading a save written before SAVE_VERSION 2,
+## so existing profiles can afford a premium pack like new ones can.
+const V2_COIN_GRANT := 140
 const DAILY_PACK_COOLDOWN_SECONDS := 24 * 60 * 60
 
 ## card_id -> copies owned.
@@ -115,7 +118,16 @@ func load_game() -> void:
 	coins = int(data.get("coins", STARTING_COINS))
 	last_daily_claim = int(data.get("last_daily_claim", 0))
 	decks = data.get("decks", [])
+	_migrate_save(int(data.get("version", 1)))
 	_migrate_decks()
+
+
+## Applies upgrades for saves written by an older SAVE_VERSION.
+func _migrate_save(loaded_version: int) -> void:
+	if loaded_version < 2:
+		coins += V2_COIN_GRANT
+		coins_changed.emit(coins)
+		save_game()
 
 
 ## Older saves may hold decks from previous rulesets (20 cards, energy
@@ -142,8 +154,8 @@ func reset_all() -> void:
 
 
 ## New players start with a playable base: commons and rares of every type
-## plus basic trainers, a couple of fields and Instinct energy. Everything
-## else comes from packs. Rule-based, so it adapts to the card catalog.
+## plus basic Spells/Supports and the rare Environments. Everything else
+## comes from packs. Rule-based, so it adapts to the card catalog.
 func _grant_starter_collection() -> void:
 	for card: DinoCardData in GameData.dinos:
 		if card.rarity == CardCatalogTypes.Rarity.COMMON:

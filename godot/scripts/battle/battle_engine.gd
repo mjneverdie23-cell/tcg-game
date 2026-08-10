@@ -8,9 +8,9 @@ extends RefCounted
 ## - 23-card decks (validated by DeckRules). Coin flip assigns Heads/Tails
 ##   and the first turn. Both players draw 6, redrawing until the hand holds
 ##   at least one Dinosaur and one Environment.
-## - Setup: each player places one Environment on their side, one basic
+## - Setup: each player places one Environment on their side and one basic
 ##   Dinosaur into the Active slot (Environment synergy applies when types
-##   match) and optionally up to 3 more basics onto the Back slots.
+##   match). Back slots are filled later, by each player on their own turn.
 ## - Energy is auto-generated: 1 unit of the player's element per turn,
 ##   attachable to one dinosaur. Attack costs are paid by energy count.
 ## - Every turn begins with a draw. Turn 1 (the player who won the toss):
@@ -539,11 +539,8 @@ func _auto_setup(player: BattlePlayerState, index: int) -> void:
 			== env_card.dino_type:
 		_log("%s's Environment empowers %s!" % [
 			_name(index), _card_name(player.active.card_id)])
-	for i in range(1, basics.size()):
-		if player.bench.size() >= BENCH_SIZE:
-			break
-		player.bench.append(DinoInPlay.new(basics[i], 0))
-		player.hand.erase(basics[i])
+	# Back slots stay empty here: a player fills their own bench during their
+	# own turn, so neither side sees the other develop before acting.
 
 
 func _search_basic_dino(player: BattlePlayerState) -> void:
