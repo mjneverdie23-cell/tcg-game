@@ -7,7 +7,8 @@ extends RefCounted
 ## Rules:
 ## - 23-card decks (validated by DeckRules). Coin flip assigns Heads/Tails
 ##   and the first turn. Both players draw 6, redrawing until the hand holds
-##   at least one Dinosaur and one Environment.
+##   an Environment and (deck permitting) two basic Dinosaurs, so a single
+##   knockout can never end the game on the spot.
 ## - Setup places only each player's Environment. Every dinosaur — the
 ##   Active included — is fielded by its owner during their own turn, so
 ##   neither side sees the other develop before acting.
@@ -22,13 +23,23 @@ extends RefCounted
 ## - Damage: base + boosts, x2 weakness, -20 resistance. Statuses:
 ##   poisoned / asleep / paralyzed via signature attacks.
 ## - Win: knock out 2 opposing Dinosaurs, or the opponent cannot promote a
-##   replacement Active.
+##   replacement Active. Promotion is judged at the START of the affected
+##   player's turn, after their draw — losing your last dinosaur leaves the
+##   Active slot empty (and unattackable) instead of ending the battle
+##   immediately, so an unlucky opening hand is survivable.
 
 signal log_line(text: String)
 
 const POINTS_TO_WIN := 2
 const BENCH_SIZE := 3
 const OPENING_HAND := 6
+## Basic Dinosaurs the opening hand aims for. One is the hard minimum (the
+## first turn must field an Active); the second is what keeps a knockout
+## from being an instant loss.
+const MIN_OPENING_BASICS := 2
+## Cap on redraws spent chasing MIN_OPENING_BASICS. A deck that simply does
+## not hold two basics would otherwise mulligan forever.
+const MULLIGAN_ATTEMPTS := 20
 
 const STATUS_POISONED := "poisoned"
 const STATUS_ASLEEP := "asleep"
@@ -379,6 +390,13 @@ func _begin_turn() -> void:
 		_name(current), CardCatalogTypes.TYPE_NAMES[player.element]])
 	if player.draw() > 0:
 		_log("%s draws a card." % _name(current))
+	# Promotion check. A player caught between dinosaurs keeps their empty
+	# Active slot until their own turn comes round, so the draw above is
+	# their last chance to find a replacement — only now can they truly be
+	# said to be unable to promote.
+	if player.active == null and not player.has_basic_in_hand():
+		_log("%s cannot send out a dinosaur — none left in hand!" % _name(current))
+		_declare_winner(opponent_of(current))
 
 
 func _end_turn() -> void:
@@ -417,7 +435,7 @@ func _checkup() -> void:
 			return
 
 
-## Every knockout scores exactly 1; 3 knockouts win the game.
+## Every knockout scores exactly 1; POINTS_TO_WIN of them win the game.
 func _check_ko(defender_index: int) -> void:
 	var defender := players[defender_index]
 	if defender.active == null \
@@ -435,8 +453,17 @@ func _check_ko(defender_index: int) -> void:
 		_declare_winner(opponent_of(defender_index))
 		return
 	if defender.bench.is_empty():
+		# Dinosaurs are fielded in-turn now, so an empty bench is a normal
+		# state early on rather than proof the player is finished. The slot
+		# simply stays empty — nothing can attack an empty Active — and the
+		# player sends out a replacement on their own turn. _begin_turn ends
+		# the battle if their draw still leaves them with nothing to field.
 		defender.active = null
-		_log("%s has no dinosaur to promote!" % _name(defender_index))
+		if defender.has_basic_in_hand() or not defender.deck.is_empty():
+			_log("%s must send out a new dinosaur next turn — nothing is in play!"
+				% _name(defender_index))
+			return
+		_log("%s cannot promote a replacement Active!" % _name(defender_index))
 		_declare_winner(opponent_of(defender_index))
 		return
 	var best := 0
@@ -510,14 +537,30 @@ func _dominant_type(deck: Array) -> int:
 	return best
 
 
-## Draw 6; redraw until the hand holds a basic Dinosaur AND an Environment.
+## Draws the opening hand.
+##
+## Hard requirement — deck legality guarantees it is reachable, so this loop
+## is unbounded: one basic Dinosaur (the first turn must field an Active)
+## and one Environment (setup places one).
+##
+## Soft requirement — retried at most MULLIGAN_ATTEMPTS times: a second basic
+## Dinosaur. Opening with a single dinosaur used to mean the first knockout
+## ended the battle outright, which reads as losing to the shuffle rather
+## than to the rival.
 func _draw_opening_hand(player: BattlePlayerState) -> void:
+	var mulligans := 0
 	player.draw(OPENING_HAND)
-	while not (player.has_basic_in_hand() and player.has_environment_in_hand()):
+	while not _hand_is_playable(player) or (mulligans < MULLIGAN_ATTEMPTS
+			and player.count_basics_in_hand() < MIN_OPENING_BASICS):
 		player.deck.append_array(player.hand)
 		player.hand.clear()
 		_shuffle(player.deck)
 		player.draw(OPENING_HAND)
+		mulligans += 1
+
+
+func _hand_is_playable(player: BattlePlayerState) -> bool:
+	return player.has_basic_in_hand() and player.has_environment_in_hand()
 
 
 ## Setup places only this player's Environment — preferring the one whose

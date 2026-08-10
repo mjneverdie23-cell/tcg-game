@@ -12,6 +12,16 @@ const ATTACK_SETTLE_DELAY := 0.55
 const AI_ACTION_CAP := 40
 const WIN_COINS := 50
 const LOSS_COINS := 10
+## Size of the card ghosts that fly between the piles, the hand and the board.
+const GHOST_SCALE := 0.3
+## Flight time deck -> hand. A drawn card only appears in the dock once its
+## ghost lands, so the two read as one movement.
+const DRAW_FLIGHT := 0.38
+## Flight time hand/board -> used pile.
+const DISCARD_FLIGHT := 0.45
+## Ghosts drawn for a single multi-card rival draw; more than this reads as
+## noise rather than information.
+const MAX_DRAW_GHOSTS := 3
 
 var _engine: BattleEngine = null
 var _ai := BattleAI.new()
@@ -28,7 +38,12 @@ var _previous_hand: Array = []
 var _base_fov := 46.0
 ## DinoInPlay -> Card3D on the board (identity-keyed; survives promotion).
 var _card_nodes: Dictionary = {}
+## DinoInPlay -> owning side, so a knocked-out card knows which used pile
+## to fly to after it has already been removed from the engine's zones.
+var _card_sides: Dictionary = {}
 var _env_nodes: Array = [null, null]  # per-player environment Card3D
+## Deck sizes at the previous refresh, per side — a shrink means a draw.
+var _previous_deck_sizes := PackedInt32Array([0, 0])
 @onready var _board: Node3D = $Board
 @onready var _camera: Camera3D = $Camera3D
 
@@ -84,7 +99,11 @@ func _on_start_pressed() -> void:
 	%SetupPanel.visible = false
 	%HUD.visible = true
 	_last_turn_owner = _engine.current  # banner waits until after the toss
-	_previous_hand = []
+	# The opening hand is already dealt, but the deal-in plays only once the
+	# coin panel is out of the way — otherwise it happens behind it.
+	_previous_hand = _engine.players[0].hand.duplicate()
+	_previous_deck_sizes[0] = _engine.players[0].deck.size()
+	_previous_deck_sizes[1] = _engine.players[1].deck.size()
 	_intro_camera()
 	_animate_hud_entrance()
 	_refresh()
@@ -107,6 +126,7 @@ func _show_coin_toss() -> void:
 func _on_coin_dismissed() -> void:
 	%CoinPanel.visible = false
 	_last_turn_owner = -1  # let the turn banner announce the opening turn
+	_previous_hand = []  # deal the opening hand out of the deck pile now
 	_refresh()
 	if _engine.current == 1:
 		_run_ai_turn()
@@ -207,7 +227,7 @@ func _describe_option(action: Dictionary) -> String:
 		"retreat":
 			return "Swap with %s" % player.bench[action["bench"]].card().display_name
 		"place_basic":
-			return "Place on bench"
+			return "Send out as your Active" if player.active == null else "Place on bench"
 		"environment":
 			return "Set as your Environment"
 		_:
@@ -229,8 +249,12 @@ func _refresh() -> void:
 	var rival := _engine.players[1]
 	var your_turn := _engine.current == 0 and not _engine.is_over()
 
-	%TurnLabel.text = "%s  ·  Turn %d" % [
+	var turn_text := "%s  ·  Turn %d" % [
 		"Your turn" if your_turn else "Rival's turn", _engine.turn_number]
+	if your_turn and you.active == null:
+		# The empty Active slot must be filled this turn or the battle is lost.
+		turn_text += "  ·  send out a dinosaur!"
+	%TurnLabel.text = turn_text
 	%PointsLabel.text = "You %d — %d Rival  (first to %d)" % [
 		you.points, rival.points, BattleEngine.POINTS_TO_WIN]
 	%RivalStatsLabel.text = "Rival · hand %d · deck %d" % [rival.hand.size(), rival.deck.size()]
@@ -238,6 +262,7 @@ func _refresh() -> void:
 		_env_name(you), _env_name(rival)]
 
 	_sync_board()
+	_refresh_piles()
 	_fill_hand(your_turn)
 	_fill_attacks(your_turn)
 	%EndTurnButton.disabled = not your_turn
@@ -391,6 +416,144 @@ func _show_result() -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
+# ── deck & used-card piles ────────────────────────────────────────────
+# The piles live in the HUD rather than on the 3D table on purpose: the
+# table's right-hand edge projects underneath the action panel at narrow
+# aspect ratios, and the piles double as fixed screen anchors for the draw
+# and discard flights below.
+
+
+func _refresh_piles() -> void:
+	var you := _engine.players[0]
+	var rival := _engine.players[1]
+	_set_pile_count(%YourDeckCount, you.deck.size(), true)
+	_set_pile_count(%YourUsedCount, you.discard.size(), false)
+	_set_pile_count(%RivalDeckCount, rival.deck.size(), true)
+	_set_pile_count(%RivalUsedCount, rival.discard.size(), false)
+	%YourDeckPile.tooltip_text = "Your deck — %d card(s) left to draw." % you.deck.size()
+	%RivalDeckPile.tooltip_text = "Rival deck — %d card(s) left to draw." % rival.deck.size()
+	%YourUsedPile.tooltip_text = _used_tooltip("Your used cards", you.discard)
+	%RivalUsedPile.tooltip_text = _used_tooltip("Rival used cards", rival.discard)
+
+	# The player's own draws are animated card by card as they land in the
+	# hand dock (_deal_in); the rival's hand is hidden, so its draws are only
+	# visible as cards leaving its deck.
+	var rival_drawn := _previous_deck_sizes[1] - rival.deck.size()
+	for i in range(mini(rival_drawn, MAX_DRAW_GHOSTS)):
+		_fly_card(null, _center_of(%RivalDeckPile), _rival_hand_anchor(),
+			DRAW_FLIGHT, i * 0.09)
+	_previous_deck_sizes[0] = you.deck.size()
+	_previous_deck_sizes[1] = rival.deck.size()
+
+
+## A deck running dry decides games, so the last few cards read as a warning.
+func _set_pile_count(label: Label, count: int, is_deck: bool) -> void:
+	label.text = str(count)
+	label.add_theme_color_override(
+		"font_color", Color("ff8a7a") if is_deck and count <= 3 else Color.WHITE)
+
+
+func _used_tooltip(title: String, discard: Array) -> String:
+	if discard.is_empty():
+		return "%s — empty." % title
+	var names := PackedStringArray()
+	for i in range(discard.size() - 1, maxi(-1, discard.size() - 7), -1):
+		names.append(GameData.get_card(discard[i]).display_name)
+	return "%s (%d), most recent first:\n%s" % [title, discard.size(), "\n".join(names)]
+
+
+func _center_of(control: Control) -> Vector2:
+	return control.global_position + control.size * 0.5
+
+
+## Where the rival's (hidden) hand conceptually sits — top centre of screen.
+func _rival_hand_anchor() -> Vector2:
+	return Vector2(%HUD.size.x * 0.5, 30.0)
+
+
+## Where a card being played leaves from: the actual hand card for the
+## player, the rival's unseen hand for the AI.
+func _hand_origin(side: int, hand_index: int) -> Vector2:
+	if side != 0:
+		return _rival_hand_anchor()
+	if hand_index >= 0 and hand_index < %Hand.get_child_count():
+		var button := %Hand.get_child(hand_index) as Control
+		return _center_of(button)
+	return _center_of(%HandDock)
+
+
+## Viewport position of a board card, so 3D cards can hand off to 2D piles.
+func _screen_of(node: Node3D) -> Vector2:
+	if node == null or not is_instance_valid(node):
+		return %HUD.size * 0.5
+	return _camera.unproject_position(node.global_position)
+
+
+## A card leaving the hand or the table lands on its owner's used pile.
+func _fly_to_used(card: CardData, from: Vector2, side: int) -> void:
+	var pile: Control = %YourUsedPile if side == 0 else %RivalUsedPile
+	_fly_card(card, from, _center_of(pile), DISCARD_FLIGHT, 0.0, _pile_thump.bind(pile))
+
+
+## Small card ghost gliding across the HUD — the visual link between a zone
+## and a pile. `card` renders the real face; null shows a card back.
+func _fly_card(card: CardData, from: Vector2, to: Vector2, duration: float,
+		delay: float = 0.0, landed: Callable = Callable()) -> void:
+	if Settings.reduced_motion:
+		if landed.is_valid():
+			landed.call()
+		return
+	var ghost := _make_ghost(card)
+	%HUD.add_child(ghost)
+	ghost.global_position = from - ghost.size * 0.5
+	ghost.scale = Vector2(0.7, 0.7)
+	ghost.modulate.a = 0.0
+	var tween := create_tween()
+	if delay > 0.0:
+		tween.tween_interval(delay)
+	tween.tween_property(ghost, "global_position", to - ghost.size * 0.5, duration) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tween.parallel().tween_property(ghost, "modulate:a", 1.0, duration * 0.3)
+	tween.parallel().tween_property(ghost, "scale", Vector2.ONE, duration * 0.5)
+	tween.tween_property(ghost, "scale", Vector2(0.55, 0.55), 0.12)
+	tween.parallel().tween_property(ghost, "modulate:a", 0.0, 0.12)
+	tween.tween_callback(ghost.queue_free)
+	if landed.is_valid():
+		tween.tween_callback(landed)
+
+
+func _make_ghost(card: CardData) -> Control:
+	var ghost := Control.new()
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ghost.custom_minimum_size = CardStyle.BASE_SIZE * GHOST_SCALE
+	ghost.size = CardStyle.BASE_SIZE * GHOST_SCALE
+	ghost.pivot_offset = ghost.size * 0.5
+	ghost.z_index = 10  # above the dock and the panels it flies over
+	if card == null:
+		var back := Panel.new()
+		back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		back.size = ghost.size
+		back.add_theme_stylebox_override("panel", CardStyle.make_panel(
+			Color("111a33"), 8, CardStyle.GOLD, 2))
+		ghost.add_child(back)
+		return ghost
+	var face: CardFace = CARD_FACE_SCENE.instantiate()
+	face.scale = Vector2(GHOST_SCALE, GHOST_SCALE)
+	ghost.add_child(face)
+	face.show_card(card)
+	return ghost
+
+
+## Small bump on a pile as a card lands on it.
+func _pile_thump(pile: Control) -> void:
+	if Settings.reduced_motion or not is_instance_valid(pile):
+		return
+	pile.pivot_offset = pile.size * 0.5
+	var tween := pile.create_tween()
+	tween.tween_property(pile, "scale", Vector2(1.18, 1.18), 0.09)
+	tween.tween_property(pile, "scale", Vector2.ONE, 0.16)
+
+
 # ── 3D board presentation ─────────────────────────────────────────────
 
 
@@ -416,15 +579,22 @@ func _sync_board() -> void:
 				card3d.transform = enter
 				card3d.clicked.connect(_on_board_card_clicked)
 				_card_nodes[dino] = card3d
+				_card_sides[dino] = side
 			elif card3d.card_data != dino.card():
 				card3d.show_card(dino.card())  # evolved into a new face
 			card3d.move_home(_slot_transform(side, i))
 			_update_card_info(card3d, dino)
 
+	# Leaving _card_nodes means leaving play, which only happens on a
+	# knockout: the body is cleared off the table and the card itself lands
+	# on its owner's used pile.
 	for dino: DinoInPlay in _card_nodes.keys():
 		if not alive.has(dino):
-			(_card_nodes[dino] as Card3D).vanish()
+			var node := _card_nodes[dino] as Card3D
+			_fly_to_used(dino.card(), _screen_of(node), int(_card_sides.get(dino, 0)))
+			node.vanish()
 			_card_nodes.erase(dino)
+			_card_sides.erase(dino)
 
 	_sync_environments()
 
@@ -511,10 +681,21 @@ func _animate_action(action: Dictionary, side: int) -> void:
 				var card3d := _card_nodes[dino] as Card3D
 				card3d.pulse()
 				card3d.flash(Color("ffd166") if action["type"] == "attach" else Color("6fd98a"))
+			if action["type"] == "evolve":
+				# The pre-evolution card is used up as the new stage lands.
+				_fly_to_used(dino.card(), _screen_of(_card_nodes.get(dino) as Node3D), side)
 		"trainer":
 			# Healing and draw effects read on the active dinosaur.
 			if _card_nodes.has(player.active):
 				(_card_nodes[player.active] as Card3D).flash(Color("6fd98a"))
+			# Spells and Supports are spent the moment they resolve.
+			_fly_to_used(GameData.get_card(player.hand[int(action["hand"])]),
+				_hand_origin(side, int(action["hand"])), side)
+		"environment":
+			# Setting an Environment discards the one it replaces.
+			if player.environment_id != "":
+				_fly_to_used(GameData.get_card(player.environment_id),
+					_screen_of(_env_nodes[side] as Node3D), side)
 
 
 ## Smooth descent from an overview to the play angle when a battle starts.
@@ -573,6 +754,7 @@ func _animate_hud_entrance() -> void:
 		return
 	var panels := {
 		%TopBar: Vector2(0, -80),
+		%PilesPanel: Vector2(300, 0),
 		%ActionPanel: Vector2(300, 0),
 		%LogPanel: Vector2(-300, 0),
 		%HandDock: Vector2(0, 180),
@@ -606,17 +788,31 @@ func _show_turn_banner(your_turn: bool) -> void:
 	tween.tween_property(banner, "modulate:a", 0.0, 0.25)
 
 
-## Newly drawn cards pop into the hand dock, staggered by draw order.
-## Scale and alpha only — an HBoxContainer owns its children's positions, so
-## animating `position` here would be overwritten on the next layout pass.
+## Newly drawn cards fly out of the deck pile and pop into the hand dock,
+## staggered by draw order. The button itself only animates scale and alpha —
+## an HBoxContainer owns its children's positions, so animating `position`
+## here would be overwritten on the next layout pass; the travel is carried
+## by a ghost that hands over exactly when the card appears.
 func _deal_in(button: Control, order: int) -> void:
 	if Settings.reduced_motion:
 		return
 	var target_alpha := button.modulate.a  # dimmed-if-unplayable tint is set already
 	button.modulate.a = 0.0
 	button.scale = Vector2(0.72, 0.72)
-	var delay := order * 0.07
-	var tween := create_tween().set_parallel()
-	tween.tween_property(button, "scale", Vector2.ONE, 0.32) \
-		.set_delay(delay).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "modulate:a", target_alpha, 0.26).set_delay(delay)
+	var delay := order * 0.09
+	# Tweens bound to the button, not the scene: a refresh rebuilds the hand,
+	# and a card that no longer exists must not keep animating.
+	var settle := button.create_tween()
+	settle.tween_interval(0.02)  # one frame, so the dock has placed the card
+	settle.tween_callback(_launch_draw_ghost.bind(button, delay))
+	var tween := button.create_tween().set_parallel()
+	tween.tween_property(button, "scale", Vector2.ONE, 0.3) \
+		.set_delay(delay + DRAW_FLIGHT).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "modulate:a", target_alpha, 0.24) \
+		.set_delay(delay + DRAW_FLIGHT)
+
+
+func _launch_draw_ghost(button: Control, delay: float) -> void:
+	if not is_instance_valid(button):
+		return
+	_fly_card(null, _center_of(%YourDeckPile), _center_of(button), DRAW_FLIGHT, delay)

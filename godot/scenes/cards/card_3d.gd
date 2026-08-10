@@ -8,6 +8,11 @@ extends Node3D
 ## The node owns polished micro-interactions: hover raise, selection lift,
 ## smooth homing to a slot transform, attack lunge and a pulse for energy
 ## attachments. All motion is tween-based and respects reduced motion.
+##
+## A dinosaur card may also carry a real 3D model that stands on the card
+## face (DinoCardData.model — see assets/models/README.md); the card is a
+## plain Node3D, so the model is simply another child that inherits every
+## slot move, lunge and knockout animation for free.
 
 signal clicked(card: Card3D)
 
@@ -17,6 +22,10 @@ const HEIGHT := 1.26
 const HOVER_RAISE := 0.14
 const SELECT_RAISE := 0.3
 const MOVE_TIME := 0.35
+## Height a dinosaur model stands at above the card face.
+const MODEL_LIFT := 0.06
+## Travel of the model's idle bob.
+const MODEL_BOB := 0.05
 
 var card_data: CardData = null
 ## Slot transform this card returns to after hover/selection.
@@ -27,6 +36,10 @@ var _face: CardFace
 var _viewport: SubViewport
 var _front: MeshInstance3D
 var _info: Label3D
+## Instanced DinoCardData.model, standing on the card face; null when the
+## card has no model configured.
+var _model: Node3D = null
+var _idle: Tween = null
 var _hovered := false
 var _motion: Tween = null
 ## Set once vanish() starts: the card is leaving play, so every other
@@ -246,6 +259,44 @@ func _render_face() -> void:
 	tween.tween_interval(0.2)
 	tween.tween_callback(func() -> void:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED)
+	_sync_model()
+
+
+## Rebuilds the optional 3D model standing on the card. Nothing in the
+## shipped catalog sets DinoCardData.model, so this is a no-op today; give a
+## dinosaur a model path in cards.json and it appears here — the card face
+## keeps rendering underneath it, unchanged.
+func _sync_model() -> void:
+	if _idle != null and _idle.is_valid():
+		_idle.kill()
+		_idle = null
+	if _model != null:
+		_model.queue_free()
+		_model = null
+	if not (card_data is DinoCardData):
+		return
+	var dino := card_data as DinoCardData
+	if dino.model == "" or not ResourceLoader.exists(dino.model):
+		return
+	var packed := load(dino.model) as PackedScene
+	if packed == null:
+		push_error("Card3D: %s is not a PackedScene" % dino.model)
+		return
+	_model = packed.instantiate() as Node3D
+	if _model == null:
+		push_error("Card3D: %s does not instantiate a Node3D" % dino.model)
+		return
+	add_child(_model)
+	_model.scale = Vector3.ONE * dino.model_scale
+	_model.position = Vector3(0, MODEL_LIFT, 0)
+	if Settings.reduced_motion:
+		return
+	# Slow idle bob so a model reads as alive rather than as scenery.
+	_idle = create_tween().set_loops()
+	_idle.tween_property(_model, "position:y", MODEL_LIFT + MODEL_BOB, 1.4) \
+		.set_trans(Tween.TRANS_SINE)
+	_idle.tween_property(_model, "position:y", MODEL_LIFT, 1.4) \
+		.set_trans(Tween.TRANS_SINE)
 
 
 # ── hover / selection ─────────────────────────────────────────────────

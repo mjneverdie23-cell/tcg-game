@@ -7,7 +7,8 @@ var hand: Array[String] = []
 var discard: Array[String] = []
 var active: DinoInPlay = null
 var bench: Array[DinoInPlay] = []
-## Opposing dinosaurs this player has knocked out (3 wins the game).
+## Opposing dinosaurs this player has knocked out
+## (BattleEngine.POINTS_TO_WIN of them win the game).
 var points: int = 0
 ## This player's Environment card id ("" until setup places one).
 var environment_id: String = ""
@@ -48,11 +49,18 @@ func dinos_in_play() -> Array[DinoInPlay]:
 
 
 func has_basic_in_hand() -> bool:
+	return count_basics_in_hand() > 0
+
+
+## Basic (stage 1) Dinosaurs held — how many dinosaurs this player could
+## still field, which is what decides whether a knockout is recoverable.
+func count_basics_in_hand() -> int:
+	var count := 0
 	for id: String in hand:
 		var card := GameData.get_card(id)
 		if card is DinoCardData and (card as DinoCardData).stage == 1:
-			return true
-	return false
+			count += 1
+	return count
 
 
 func has_environment_in_hand() -> bool:
