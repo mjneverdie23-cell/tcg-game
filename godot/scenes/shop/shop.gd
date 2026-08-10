@@ -209,6 +209,10 @@ func _show_summary() -> void:
 
 func _make_reveal_card(card: CardData, card_scale: float) -> Control:
 	var holder := Control.new()
+	# A bare Control defaults to MOUSE_FILTER_STOP, which swallowed clicks
+	# landing on the revealed card — the natural place to click — so the
+	# sequence froze after the first card.
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.custom_minimum_size = CardStyle.BASE_SIZE * card_scale
 	var face: CardFace = CARD_FACE_SCENE.instantiate()
 	face.scale = Vector2(card_scale, card_scale)

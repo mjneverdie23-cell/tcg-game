@@ -96,14 +96,15 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 1
+mouse_filter = 2
 
 [node name="RevealBox" type="PanelContainer" parent="RevealPanel/RevealCenter"]
 layout_mode = 2
-mouse_filter = 1
+mouse_filter = 2
 
 [node name="RevealColumn" type="VBoxContainer" parent="RevealPanel/RevealCenter/RevealBox"]
 layout_mode = 2
+mouse_filter = 2
 theme_override_constants/separation = 14
 
 [node name="RevealTitle" type="Label" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
@@ -116,6 +117,7 @@ horizontal_alignment = 1
 [node name="RevealRow" type="HBoxContainer" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
 unique_name_in_owner = true
 layout_mode = 2
+mouse_filter = 2
 theme_override_constants/separation = 12
 
 [node name="DoneButton" type="Button" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]

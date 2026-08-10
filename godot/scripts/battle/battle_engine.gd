@@ -8,9 +8,9 @@ extends RefCounted
 ## - 23-card decks (validated by DeckRules). Coin flip assigns Heads/Tails
 ##   and the first turn. Both players draw 6, redrawing until the hand holds
 ##   at least one Dinosaur and one Environment.
-## - Setup: each player places one Environment on their side and one basic
-##   Dinosaur into the Active slot (Environment synergy applies when types
-##   match). Back slots are filled later, by each player on their own turn.
+## - Setup places only each player's Environment. Every dinosaur — the
+##   Active included — is fielded by its owner during their own turn, so
+##   neither side sees the other develop before acting.
 ## - Energy is auto-generated: 1 unit of the player's element per turn,
 ##   attachable to one dinosaur. Attack costs are paid by energy count.
 ## - Every turn begins with a draw. Turn 1 (the player who won the toss):
@@ -101,6 +101,16 @@ func get_legal_actions() -> Array[Dictionary]:
 		return actions
 	var player := players[current]
 
+	# A player with an empty Active slot must field a dinosaur first.
+	if player.active == null:
+		for i in range(player.hand.size()):
+			var card := GameData.get_card(player.hand[i])
+			if card is DinoCardData and (card as DinoCardData).stage == 1:
+				actions.append({"type": "place_basic", "hand": i})
+		if actions.is_empty():
+			actions.append({"type": "end_turn"})  # nothing to field this turn
+		return actions
+
 	if player.energy_budget > 0:
 		for t in range(player.dinos_in_play().size()):
 			actions.append({"type": "attach", "target": t - 1})
@@ -169,6 +179,8 @@ func _add_retreat_actions(actions: Array[Dictionary], player: BattlePlayerState)
 func _add_attack_actions(actions: Array[Dictionary], player: BattlePlayerState) -> void:
 	if turn_number < 2:
 		return  # the starting player cannot attack on turn 1
+	if players[opponent_of(current)].active == null:
+		return  # nothing on the other side to hit yet
 	if player.active.has_status(STATUS_ASLEEP) or player.active.has_status(STATUS_PARALYZED):
 		return
 	for a: int in affordable_attacks(current):
@@ -218,6 +230,14 @@ func _do_attach(target: int) -> void:
 func _do_place_basic(hand_index: int) -> void:
 	var player := players[current]
 	var id: String = player.hand.pop_at(hand_index)
+	if player.active == null:
+		player.active = DinoInPlay.new(id, turn_number)
+		_log("%s sends out %s." % [_name(current), _card_name(id)])
+		if player.environment_id != "":
+			var env := GameData.get_card(player.environment_id) as FieldCardData
+			if (GameData.get_card(id) as DinoCardData).dino_type == env.dino_type:
+				_log("%s's Environment empowers %s!" % [_name(current), _card_name(id)])
+		return
 	player.bench.append(DinoInPlay.new(id, turn_number))
 	_log("%s benches %s." % [_name(current), _card_name(id)])
 
@@ -362,7 +382,7 @@ func _end_turn() -> void:
 	if is_over():
 		return
 	players[current].damage_boost = 0
-	if players[current].active.has_status(STATUS_PARALYZED):
+	if players[current].active != null and players[current].active.has_status(STATUS_PARALYZED):
 		players[current].active.statuses.erase(STATUS_PARALYZED)
 		_log("%s's %s recovers from paralysis." % [
 			_name(current), _card_name(players[current].active.card_id)])
@@ -376,6 +396,8 @@ func _end_turn() -> void:
 func _checkup() -> void:
 	for index in range(2):
 		var active := players[index].active
+		if active == null:
+			continue  # this player has not fielded an Active yet
 		if active.has_status(STATUS_POISONED):
 			active.damage += POISON_DAMAGE
 			_log("%s takes %d poison damage." % [_card_name(active.card_id), POISON_DAMAGE])
@@ -494,8 +516,9 @@ func _draw_opening_hand(player: BattlePlayerState) -> void:
 		player.draw(OPENING_HAND)
 
 
-## Setup: place the Environment, the best Active (preferring Environment
-## synergy, then HP) and up to 3 more basics on the Back slots.
+## Setup places only this player's Environment — preferring the one whose
+## type matches the most basics in hand. Dinosaurs, including the Active,
+## are fielded by their owner on their own turn.
 func _auto_setup(player: BattlePlayerState, index: int) -> void:
 	var environments: Array[String] = []
 	var basics: Array[String] = []
@@ -506,7 +529,6 @@ func _auto_setup(player: BattlePlayerState, index: int) -> void:
 		elif card is DinoCardData and (card as DinoCardData).stage == 1:
 			basics.append(id)
 
-	# Prefer the Environment whose type matches the most basics in hand.
 	var best_env := environments[0]
 	var best_matches := -1
 	for env_id: String in environments:
@@ -520,27 +542,7 @@ func _auto_setup(player: BattlePlayerState, index: int) -> void:
 			best_env = env_id
 	player.environment_id = best_env
 	player.hand.erase(best_env)
-	var env_card := GameData.get_card(best_env) as FieldCardData
-	_log("%s sets Environment: %s." % [_name(index), env_card.display_name])
-
-	basics.sort_custom(func(a: String, b: String) -> bool:
-		var card_a := GameData.get_card(a) as DinoCardData
-		var card_b := GameData.get_card(b) as DinoCardData
-		var match_a := 1 if card_a.dino_type == env_card.dino_type else 0
-		var match_b := 1 if card_b.dino_type == env_card.dino_type else 0
-		if match_a != match_b:
-			return match_a > match_b
-		return card_a.hp > card_b.hp)
-
-	player.active = DinoInPlay.new(basics[0], 0)
-	player.hand.erase(basics[0])
-	_log("%s sends out %s." % [_name(index), _card_name(player.active.card_id)])
-	if (GameData.get_card(player.active.card_id) as DinoCardData).dino_type \
-			== env_card.dino_type:
-		_log("%s's Environment empowers %s!" % [
-			_name(index), _card_name(player.active.card_id)])
-	# Back slots stay empty here: a player fills their own bench during their
-	# own turn, so neither side sees the other develop before acting.
+	_log("%s sets Environment: %s." % [_name(index), _card_name(best_env)])
 
 
 func _search_basic_dino(player: BattlePlayerState) -> void:

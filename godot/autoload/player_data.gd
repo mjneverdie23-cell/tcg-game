@@ -9,11 +9,13 @@ signal coins_changed(new_amount: int)
 signal decks_changed
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 2
-const STARTING_COINS := 290
+const SAVE_VERSION := 3
+const STARTING_COINS := 1290
 ## One-off top-up applied when loading a save written before SAVE_VERSION 2,
 ## so existing profiles can afford a premium pack like new ones can.
 const V2_COIN_GRANT := 140
+## Version 3 top-up, so an existing profile has room to open several packs.
+const V3_COIN_GRANT := 1000
 const DAILY_PACK_COOLDOWN_SECONDS := 24 * 60 * 60
 
 ## card_id -> copies owned.
@@ -124,8 +126,13 @@ func load_game() -> void:
 
 ## Applies upgrades for saves written by an older SAVE_VERSION.
 func _migrate_save(loaded_version: int) -> void:
+	var granted := 0
 	if loaded_version < 2:
-		coins += V2_COIN_GRANT
+		granted += V2_COIN_GRANT
+	if loaded_version < 3:
+		granted += V3_COIN_GRANT
+	if granted > 0:
+		coins += granted
 		coins_changed.emit(coins)
 		save_game()
 

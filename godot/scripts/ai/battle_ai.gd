@@ -24,6 +24,9 @@ const BENCH_TARGET := 2
 ## priority order; the first non-empty candidate wins.
 func choose_action(engine: BattleEngine) -> Dictionary:
 	var actions := engine.get_legal_actions()
+	# With an empty Active slot, fielding one is the only legal move.
+	if engine.players[engine.current].active == null:
+		return _pick_opening_active(engine, actions)
 	var candidates: Array[Dictionary] = [
 		_pick_ko_attack(engine, actions),
 		_pick_development(engine, actions),
@@ -37,6 +40,26 @@ func choose_action(engine: BattleEngine) -> Dictionary:
 		if not candidate.is_empty():
 			return candidate
 	return {"type": "end_turn"}
+
+
+## The opening Active: prefer a basic matching our Environment (its passive
+## buff only applies to a matching Active), then the toughest body.
+func _pick_opening_active(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
+	var me := engine.players[engine.current]
+	var env_type := -1
+	if me.environment_id != "":
+		env_type = (GameData.get_card(me.environment_id) as FieldCardData).dino_type
+	var best: Dictionary = {}
+	var best_score := -1
+	for action: Dictionary in actions:
+		if action["type"] != "place_basic":
+			continue
+		var card := GameData.get_card(me.hand[action["hand"]]) as DinoCardData
+		var score := card.hp + (500 if card.dino_type == env_type else 0)
+		if score > best_score:
+			best_score = score
+			best = action
+	return best if not best.is_empty() else {"type": "end_turn"}
 
 
 ## Evolutions always; bench a reserve basic while below the target.
@@ -61,6 +84,8 @@ func _pick_escape_if_doomed(engine: BattleEngine, actions: Array[Dictionary]) ->
 ## A KO-securing attack with the least overkill, if any.
 func _pick_ko_attack(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
 	var defender := engine.players[engine.opponent_of(engine.current)].active
+	if defender == null:
+		return {}
 	var remaining := engine.max_hp_of(defender) - defender.damage
 	var best: Dictionary = {}
 	var best_damage := 0
@@ -99,6 +124,8 @@ func _pick_best_attack(engine: BattleEngine, actions: Array[Dictionary]) -> Dict
 ## has attached right now — a fair, non-psychic estimate).
 func _incoming_threat(engine: BattleEngine) -> int:
 	var opponent := engine.opponent_of(engine.current)
+	if engine.players[opponent].active == null:
+		return 0
 	var threat := 0
 	for a: int in engine.affordable_attacks(opponent):
 		threat = maxi(threat, engine.preview_damage_for(opponent, a))
@@ -112,6 +139,8 @@ func _is_doomed(engine: BattleEngine) -> bool:
 	if _incoming_threat(engine) < remaining:
 		return false
 	var defender := engine.players[engine.opponent_of(engine.current)].active
+	if defender == null:
+		return false  # nothing can hit us yet
 	var their_remaining := engine.max_hp_of(defender) - defender.damage
 	for a: int in engine.affordable_attacks(engine.current):
 		if engine.preview_damage(a) >= their_remaining:

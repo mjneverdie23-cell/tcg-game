@@ -241,7 +241,8 @@ func _refresh() -> void:
 	_fill_hand(your_turn)
 	_fill_attacks(your_turn)
 	%EndTurnButton.disabled = not your_turn
-	var can_attach := your_turn and _engine.players[0].energy_budget > 0
+	var can_attach := your_turn and _engine.get_legal_actions().any(
+		func(action: Dictionary) -> bool: return action["type"] == "attach")
 	%EnergyButton.text = "Attach %s energy" % CardStyle.type_display_name(
 		_engine.players[0].element)
 	%EnergyButton.disabled = not can_attach
@@ -343,9 +344,14 @@ func _fill_attacks(your_turn: bool) -> void:
 			break
 	if not has_attack:
 		var hint := Label.new()
-		hint.text = (
-			"No attack on turn 1." if _engine.turn_number < 2
-			else "Not enough energy attached.")
+		if _engine.players[0].active == null:
+			hint.text = "Send out a dinosaur from your hand first."
+		elif _engine.players[1].active == null:
+			hint.text = "The rival has not fielded a dinosaur yet."
+		elif _engine.turn_number < 2:
+			hint.text = "No attack on turn 1."
+		else:
+			hint.text = "Not enough energy attached."
 		hint.add_theme_font_size_override("font_size", 12)
 		hint.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
