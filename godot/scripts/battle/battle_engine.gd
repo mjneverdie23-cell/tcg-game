@@ -359,6 +359,10 @@ func affordable_attacks(player_index: int) -> Array[int]:
 
 
 func max_hp_of(dino: DinoInPlay) -> int:
+	# A side that has not fielded an Active yet has no HP to report; callers
+	# probing the opposing board rely on this rather than crashing.
+	if dino == null:
+		return 0
 	for index in range(2):
 		if players[index].dinos_in_play().has(dino):
 			return _max_hp_of(dino, index)

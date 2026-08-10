@@ -241,6 +241,8 @@ func _trainer_is_worth_it(
 ## Only burn Adrenaline Gland when +N turns an available attack into a KO.
 func _boost_secures_ko(engine: BattleEngine, amount: int) -> bool:
 	var defender := engine.players[engine.opponent_of(engine.current)].active
+	if defender == null:
+		return false  # nothing to knock out yet — the boost would be wasted
 	var remaining := engine.max_hp_of(defender) - defender.damage
 	for a: int in engine.affordable_attacks(engine.current):
 		var damage := engine.preview_damage(a)
