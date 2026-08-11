@@ -43,7 +43,11 @@ func go_to(screen: String) -> void:
 		return
 	if TAB_SCREENS.has(screen):
 		# Tabs are siblings, not descendants: back from any tab means home.
-		_stack = [] if screen == "main_menu" else ["main_menu"]
+		# Rebuilt in place rather than reassigned — an array literal is an
+		# untyped Array, which cannot be assigned to an Array[String].
+		_stack.clear()
+		if screen != "main_menu":
+			_stack.append("main_menu")
 	else:
 		_stack.append(_current)
 	_change(screen)
