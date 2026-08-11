@@ -41,6 +41,9 @@ func go_to(screen: String) -> void:
 		return
 	if screen == _current:
 		return
+	var previous := _current
+	if not _change(screen):
+		return  # the visited path only records journeys that happened
 	if TAB_SCREENS.has(screen):
 		# Tabs are siblings, not descendants: back from any tab means home.
 		# Rebuilt in place rather than reassigned — an array literal is an
@@ -49,8 +52,7 @@ func go_to(screen: String) -> void:
 		if screen != "main_menu":
 			_stack.append("main_menu")
 	else:
-		_stack.append(_current)
-	_change(screen)
+		_stack.append(previous)
 
 
 func back() -> void:
@@ -58,6 +60,17 @@ func back() -> void:
 	_change(previous)
 
 
-func _change(screen: String) -> void:
+## Swaps in a screen. Returns false (and says why) when the scene cannot be
+## loaded: change_scene_to_file() reports that by return code rather than by
+## raising, so without this check a broken scene would leave the player
+## staring at an unchanged screen with nothing in the log — and `_current`
+## would still have advanced, making that screen permanently unreachable
+## because go_to() would then treat it as where we already are.
+func _change(screen: String) -> bool:
+	var path: String = SCREENS[screen]
+	var result := get_tree().change_scene_to_file(path)
+	if result != OK:
+		push_error("SceneRouter: cannot open '%s' (%s) — error %d." % [screen, path, result])
+		return false
 	_current = screen
-	get_tree().change_scene_to_file(SCREENS[screen])
+	return true
