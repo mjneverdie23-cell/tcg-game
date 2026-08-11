@@ -6,7 +6,6 @@ extends Control
 
 func _ready() -> void:
 	%BackButton.pressed.connect(SceneRouter.back)
-	%DeckButton.pressed.connect(func() -> void: SceneRouter.go_to("deck_builder"))
 	%CollectionButton.pressed.connect(func() -> void: SceneRouter.go_to("collection"))
 	%NameEdit.text_submitted.connect(_on_name_submitted)
 	%NameEdit.focus_exited.connect(func() -> void: _on_name_submitted(%NameEdit.text))
@@ -17,8 +16,7 @@ func _ready() -> void:
 func _style() -> void:
 	%IdentityPanel.add_theme_stylebox_override("panel", MenuStyle.panel())
 	%StatsPanel.add_theme_stylebox_override("panel", MenuStyle.panel())
-	MenuStyle.style_button(%DeckButton, true)
-	MenuStyle.style_button(%CollectionButton)
+	MenuStyle.style_button(%CollectionButton, true)
 	MenuStyle.style_button(%BackButton)
 	var avatar := NavIcon.new()
 	avatar.kind = NavIcon.PROFILE

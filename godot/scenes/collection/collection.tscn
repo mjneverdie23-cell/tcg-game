@@ -1,10 +1,10 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scenes/collection/collection.gd" id="1"]
-
 [ext_resource type="PackedScene" path="res://scenes/cards/card_viewer.tscn" id="2"]
-
 [ext_resource type="PackedScene" path="res://scenes/menus/nav_bar.tscn" id="3"]
+
+[sub_resource type="ButtonGroup" id="ModeGroup"]
 
 [node name="Collection" type="Control"]
 layout_mode = 3
@@ -44,18 +44,45 @@ theme_override_constants/separation = 12
 [node name="BackButton" type="Button" parent="Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 4
 text = "Back"
 
 [node name="TitleLabel" type="Label" parent="Layout/Header"]
+unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_vertical = 4
 theme_override_font_sizes/font_size = 26
 text = "Collection"
+
+[node name="ModeTabs" type="HBoxContainer" parent="Layout/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="BrowseTab" type="Button" parent="Layout/Header/ModeTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+button_group = SubResource("ModeGroup")
+text = "Browse"
+
+[node name="DecksTab" type="Button" parent="Layout/Header/ModeTabs"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+toggle_mode = true
+button_group = SubResource("ModeGroup")
+text = "Decks"
 
 [node name="ProgressLabel" type="Label" parent="Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
 text = "Collected 0 / 0"
 
 [node name="Filters" type="HBoxContainer" parent="Layout"]
@@ -77,18 +104,105 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Owned only"
 
-[node name="Scroll" type="ScrollContainer" parent="Layout"]
+[node name="Body" type="HBoxContainer" parent="Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="Scroll" type="ScrollContainer" parent="Layout/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Grid" type="GridContainer" parent="Layout/Body/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+columns = 7
+
+[node name="DeckPanel" type="PanelContainer" parent="Layout/Body"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 2
+
+[node name="DeckColumn" type="VBoxContainer" parent="Layout/Body/DeckPanel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DeckSelect" type="HBoxContainer" parent="Layout/Body/DeckPanel/DeckColumn"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="DeckDropdown" type="OptionButton" parent="Layout/Body/DeckPanel/DeckColumn/DeckSelect"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="NewDeckButton" type="Button" parent="Layout/Body/DeckPanel/DeckColumn/DeckSelect"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "+"
+
+[node name="NameEdit" type="LineEdit" parent="Layout/Body/DeckPanel/DeckColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Deck name"
+
+[node name="CountLabel" type="Label" parent="Layout/Body/DeckPanel/DeckColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "0 / 23"
+horizontal_alignment = 1
+
+[node name="BreakdownLabel" type="Label" parent="Layout/Body/DeckPanel/DeckColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="IssuesLabel" type="Label" parent="Layout/Body/DeckPanel/DeckColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+
+[node name="DeckScroll" type="ScrollContainer" parent="Layout/Body/DeckPanel/DeckColumn"]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Grid" type="GridContainer" parent="Layout/Scroll"]
+[node name="DeckList" type="VBoxContainer" parent="Layout/Body/DeckPanel/DeckColumn/DeckScroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/h_separation = 12
-theme_override_constants/v_separation = 12
-columns = 6
+theme_override_constants/separation = 4
+
+[node name="Actions" type="HBoxContainer" parent="Layout/Body/DeckPanel/DeckColumn"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AutoBuildButton" type="Button" parent="Layout/Body/DeckPanel/DeckColumn/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Auto-build"
+
+[node name="SaveButton" type="Button" parent="Layout/Body/DeckPanel/DeckColumn/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Save"
+
+[node name="DeleteButton" type="Button" parent="Layout/Body/DeckPanel/DeckColumn/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Delete"
 
 [node name="NavBar" parent="." instance=ExtResource("3")]
 

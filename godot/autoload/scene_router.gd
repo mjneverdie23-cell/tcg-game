@@ -11,7 +11,6 @@ const SCREENS: Dictionary = {
 	"settings": "res://scenes/menus/settings.tscn",
 	"profile": "res://scenes/menus/profile.tscn",
 	"collection": "res://scenes/collection/collection.tscn",
-	"deck_builder": "res://scenes/deckbuilder/deck_builder.tscn",
 	"shop": "res://scenes/shop/shop.tscn",
 	"packs": "res://scenes/packs/packs.tscn",
 	"battle": "res://scenes/battle/battle.tscn",

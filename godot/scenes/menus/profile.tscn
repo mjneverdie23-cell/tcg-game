@@ -108,15 +108,10 @@ horizontal_alignment = 1
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="DeckButton" type="Button" parent="Layout/Columns/IdentityPanel/IdentityColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Deck Builder"
-
 [node name="CollectionButton" type="Button" parent="Layout/Columns/IdentityPanel/IdentityColumn"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "View Collection"
+text = "Collection & Decks"
 
 [node name="StatsPanel" type="PanelContainer" parent="Layout/Columns"]
 unique_name_in_owner = true

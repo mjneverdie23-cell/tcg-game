@@ -75,6 +75,19 @@ static func style_button(button: Button, primary: bool = false) -> void:
 		button.add_theme_font_size_override("font_size", 20)
 
 
+## Segmented-tab look for a toggle Button: quiet when off, gold when on.
+## Unlike style_button, the pressed state is a persistent selection here, so
+## it has to read as "you are here" rather than as a click flash.
+static func style_tab(button: Button) -> void:
+	button.add_theme_stylebox_override("normal", panel(12, 10, PANEL, EDGE))
+	button.add_theme_stylebox_override("hover", panel(12, 10, PANEL_SOFT, ACCENT))
+	button.add_theme_stylebox_override("pressed", panel(12, 10, ACCENT, ACCENT))
+	button.add_theme_stylebox_override("focus", panel(12, 10, Color(0, 0, 0, 0), ACCENT))
+	button.add_theme_color_override("font_color", TEXT_DIM)
+	button.add_theme_color_override("font_hover_color", TEXT)
+	button.add_theme_color_override("font_pressed_color", Color("1a1205"))
+
+
 ## Pill used for the coin / trophy readouts.
 static func style_pill(panel_container: PanelContainer) -> void:
 	panel_container.add_theme_stylebox_override(
