@@ -1,0 +1,130 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/packs/packs.gd" id="1"]
+
+[ext_resource type="PackedScene" path="res://scenes/menus/nav_bar.tscn" id="2"]
+
+[node name="Packs" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.0235, 0.0353, 0.0745, 1)
+
+[node name="Layout" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 16.0
+offset_right = -20.0
+offset_bottom = -104.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+
+[node name="Header" type="HBoxContainer" parent="Layout"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="BackButton" type="Button" parent="Layout/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back"
+
+[node name="TitleLabel" type="Label" parent="Layout/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 26
+text = "Card Packs"
+
+[node name="CoinsLabel" type="Label" parent="Layout/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "150 coins"
+
+[node name="PackCenter" type="CenterContainer" parent="Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="PackRow" type="HBoxContainer" parent="Layout/PackCenter"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="HintLabel" type="Label" parent="Layout"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Win battles and clear daily quests to afford premium packs."
+horizontal_alignment = 1
+
+[node name="NavBar" parent="." instance=ExtResource("2")]
+
+[node name="RevealPanel" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RevealBackdrop" type="ColorRect" parent="RevealPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="RevealCenter" type="CenterContainer" parent="RevealPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="RevealBox" type="PanelContainer" parent="RevealPanel/RevealCenter"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="RevealColumn" type="VBoxContainer" parent="RevealPanel/RevealCenter/RevealBox"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 14
+
+[node name="RevealTitle" type="Label" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Dawn Pack opened!"
+horizontal_alignment = 1
+
+[node name="RevealRow" type="HBoxContainer" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 12
+
+[node name="DoneButton" type="Button" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Done"

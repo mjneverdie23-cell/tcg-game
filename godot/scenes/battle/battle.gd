@@ -29,6 +29,8 @@ var _log_lines: PackedStringArray = []
 ## Indices into PlayerData.decks that pass validation, aligned with dropdown.
 var _valid_decks: Array[int] = []
 var _reward_granted := false
+## Ladder swing from this battle, shown on the result panel (0 in practice).
+var _trophy_delta := 0
 ## Last player index seen as current — drives the turn-change banner.
 var _last_turn_owner := -1
 ## Card ids in the hand at the previous refresh, for deal-in animation.
@@ -96,6 +98,7 @@ func _on_start_pressed() -> void:
 	_log_lines = _engine.log_history.duplicate()  # setup events (coin flip…)
 	_engine.log_line.connect(_on_log_line)
 	_reward_granted = false
+	_trophy_delta = 0
 	%SetupPanel.visible = false
 	%HUD.visible = true
 	_last_turn_owner = _engine.current  # banner waits until after the toss
@@ -401,7 +404,12 @@ func _show_result() -> void:
 	if not _reward_granted:
 		_reward_granted = true
 		PlayerData.earn_coins(WIN_COINS if won else LOSS_COINS)
-	%RewardLabel.text = "+%d coins" % (WIN_COINS if won else LOSS_COINS)
+		# Ranked stakes trophies; practice counts toward quests but not the
+		# ladder. The mode was chosen on the home screen.
+		_trophy_delta = PlayerData.record_battle(won, SceneRouter.battle_ranked)
+	%RewardLabel.text = "+%d coins%s" % [
+		WIN_COINS if won else LOSS_COINS,
+		"" if _trophy_delta == 0 else "  ·  %+d trophies" % _trophy_delta]
 	if %ResultPanel.visible:
 		return  # already shown; don't replay the entrance
 	%ResultPanel.visible = true

@@ -117,7 +117,7 @@ static func breakdown(card_ids: Array) -> String:
 ## `forced_type` (or the type the player owns the most dinosaurs of):
 ## dinos first, then environments matching the type, spells, supports.
 static func auto_build(owned: Dictionary, forced_type: int = -1) -> Array:
-	var primary := forced_type if forced_type != -1 else _primary_type(owned)
+	var primary := forced_type if forced_type != -1 else primary_type(owned)
 	var deck: Array = []
 
 	var dinos: Array[DinoCardData] = []
@@ -164,7 +164,9 @@ static func auto_build(owned: Dictionary, forced_type: int = -1) -> Array:
 	return deck
 
 
-static func _primary_type(owned: Dictionary) -> int:
+## The dinosaur type the player owns the most of. auto_build() centres a
+## generated deck on it; the home screen picks its hero emblem from it.
+static func primary_type(owned: Dictionary) -> int:
 	var totals: Dictionary = {}
 	for card: DinoCardData in GameData.dinos:
 		var copies := int(owned.get(card.id, 0))

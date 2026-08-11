@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scenes/shop/shop.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/menus/nav_bar.tscn" id="2"]
 
 [node name="Shop" type="Control"]
 layout_mode = 3
@@ -18,109 +19,141 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.0235, 0.0353, 0.0745, 1)
+color = Color(0.024, 0.035, 0.075, 1)
 
 [node name="Layout" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 20.0
-offset_top = 16.0
-offset_right = -20.0
-offset_bottom = -16.0
+offset_left = 24.0
+offset_top = 18.0
+offset_right = -24.0
+offset_bottom = -104.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 16
+theme_override_constants/separation = 18
 
 [node name="Header" type="HBoxContainer" parent="Layout"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/separation = 14
 
 [node name="BackButton" type="Button" parent="Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_vertical = 4
 text = "Back"
 
 [node name="TitleLabel" type="Label" parent="Layout/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 26
-text = "Shop & Packs"
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 28
+text = "Shop"
 
-[node name="CoinsLabel" type="Label" parent="Layout/Header"]
+[node name="CoinsPill" type="PanelContainer" parent="Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
-text = "150 coins"
+size_flags_vertical = 4
 
-[node name="PackCenter" type="CenterContainer" parent="Layout"]
+[node name="CoinsRow" type="HBoxContainer" parent="Layout/Header/CoinsPill"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CoinsLabel" type="Label" parent="Layout/Header/CoinsPill/CoinsRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "1290"
+
+[node name="CoinsSuffix" type="Label" parent="Layout/Header/CoinsPill/CoinsRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "coins"
+
+[node name="DailyPanel" type="PanelContainer" parent="Layout"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="DailyRow" type="HBoxContainer" parent="Layout/DailyPanel"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="DailyText" type="VBoxContainer" parent="Layout/DailyPanel/DailyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="DailyTitle" type="Label" parent="Layout/DailyPanel/DailyRow/DailyText"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Daily stipend"
+
+[node name="DailyStatus" type="Label" parent="Layout/DailyPanel/DailyRow/DailyText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Ready to collect."
+
+[node name="DailyReward" type="Label" parent="Layout/DailyPanel/DailyRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 20
+text = "+200 coins"
+
+[node name="ClaimButton" type="Button" parent="Layout/DailyPanel/DailyRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Claim"
+
+[node name="SellPanel" type="PanelContainer" parent="Layout"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SellRow" type="HBoxContainer" parent="Layout/SellPanel"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="SellText" type="VBoxContainer" parent="Layout/SellPanel/SellRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="SellTitle" type="Label" parent="Layout/SellPanel/SellRow/SellText"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Convert spare copies"
+
+[node name="SellSummary" type="Label" parent="Layout/SellPanel/SellRow/SellText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "No surplus copies right now."
+
+[node name="SellHint" type="Label" parent="Layout/SellPanel/SellRow/SellText"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "A deck may hold 2 copies of a card. Anything beyond that is unplayable, so it converts to coins — the two you can play are never touched."
+autowrap_mode = 3
+
+[node name="SellButton" type="Button" parent="Layout/SellPanel/SellRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+size_flags_vertical = 4
+text = "Convert"
+
+[node name="Filler" type="Control" parent="Layout"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="PackRow" type="HBoxContainer" parent="Layout/PackCenter"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_constants/separation = 24
-
-[node name="HintLabel" type="Label" parent="Layout"]
+[node name="FootNote" type="Label" parent="Layout"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
-text = "Win battles (+50 coins) to afford premium packs."
+text = "Coins also come from battles (+50 a win, +10 a loss) and the daily quest chain on the Battle tab."
 horizontal_alignment = 1
 
-[node name="RevealPanel" type="Control" parent="."]
-unique_name_in_owner = true
-visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="RevealBackdrop" type="ColorRect" parent="RevealPanel"]
-unique_name_in_owner = true
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(0, 0, 0, 0.72)
-
-[node name="RevealCenter" type="CenterContainer" parent="RevealPanel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-
-[node name="RevealBox" type="PanelContainer" parent="RevealPanel/RevealCenter"]
-layout_mode = 2
-mouse_filter = 2
-
-[node name="RevealColumn" type="VBoxContainer" parent="RevealPanel/RevealCenter/RevealBox"]
-layout_mode = 2
-mouse_filter = 2
-theme_override_constants/separation = 14
-
-[node name="RevealTitle" type="Label" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 24
-text = "Dawn Pack opened!"
-horizontal_alignment = 1
-
-[node name="RevealRow" type="HBoxContainer" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-mouse_filter = 2
-theme_override_constants/separation = 12
-
-[node name="DoneButton" type="Button" parent="RevealPanel/RevealCenter/RevealBox/RevealColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Done"
+[node name="NavBar" parent="." instance=ExtResource("2")]

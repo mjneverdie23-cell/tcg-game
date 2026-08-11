@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scenes/menus/settings_menu.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/menus/nav_bar.tscn" id="2"]
 
 [node name="SettingsMenu" type="Control"]
 layout_mode = 3
@@ -28,9 +29,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -200.0
-offset_top = -160.0
+offset_top = -204.0
 offset_right = 200.0
-offset_bottom = 160.0
+offset_bottom = 116.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 16
@@ -65,3 +66,5 @@ text = "Reset save data"
 unique_name_in_owner = true
 layout_mode = 2
 text = "Back"
+
+[node name="NavBar" parent="." instance=ExtResource("2")]

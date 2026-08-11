@@ -1,240 +1,86 @@
 extends Control
-## Shop & packs: coin balance, the free daily pack (24 h cooldown) and the
-## premium pack, with a simple five-card reveal (fancy opening animations
-## are post-demo polish by design).
+## Shop tab — where coins come from.
+##
+## This build has no payment backend, so coins are earned rather than bought:
+## a free daily stipend on a 24 h timer, and a conversion that turns surplus
+## card copies (anything beyond the two a deck may legally hold) into coins.
+## Packs are spent on the Packs tab; nothing here consumes coins.
 
-const CARD_FACE_SCENE := preload("res://scenes/cards/card_face.tscn")
-const REVEAL_SCALE := 0.55
+const DAILY_COINS := 200
 
-## pack id -> its status Button, for the once-a-second state refresh.
-var _pack_buttons: Dictionary = {}
 var _tick_accumulator := 0.0
-
-# Pack-opening sequence state (see the reveal section below).
-var _reveal_cards: Array[CardData] = []
-var _owned_before: Dictionary = {}
-var _reveal_index := 0
-var _reveal_phase := "idle"  # idle | pack | card | summary
-var _drag_start_x := 0.0
-var _dragging := false
 
 
 func _ready() -> void:
 	%BackButton.pressed.connect(SceneRouter.back)
-	%DoneButton.pressed.connect(func() -> void: %RevealPanel.visible = false)
-	# Click or swipe anywhere on the dimmed backdrop to reveal the next card.
-	%RevealBackdrop.gui_input.connect(_on_reveal_input)
-	PlayerData.coins_changed.connect(func(_amount: int) -> void: _refresh_buttons())
-	_build_pack_panels()
-	_refresh_coins()
-	_refresh_buttons()
+	%ClaimButton.pressed.connect(_on_claim_pressed)
+	%SellButton.pressed.connect(_on_sell_pressed)
+	PlayerData.coins_changed.connect(func(_amount: int) -> void: _refresh())
+	PlayerData.collection_changed.connect(_refresh)
+	_style()
+	_refresh()
 
 
 func _process(delta: float) -> void:
 	_tick_accumulator += delta
-	if _tick_accumulator >= 1.0:  # countdown only needs second resolution
+	if _tick_accumulator >= 1.0:  # the countdown only needs second resolution
 		_tick_accumulator = 0.0
-		_refresh_buttons()
+		_refresh_claim()
 
 
-func _build_pack_panels() -> void:
-	for pack: Dictionary in PackRules.PACKS:
-		var panel := PanelContainer.new()
-		var column := VBoxContainer.new()
-		column.add_theme_constant_override("separation", 10)
-		column.custom_minimum_size = Vector2(300, 0)
-		panel.add_child(column)
-
-		var title := Label.new()
-		title.text = pack["name"]
-		title.add_theme_font_size_override("font_size", 22)
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		column.add_child(title)
-
-		var description := Label.new()
-		description.text = pack["description"]
-		description.add_theme_font_size_override("font_size", 12)
-		description.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
-		description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		column.add_child(description)
-
-		var button := Button.new()
-		button.pressed.connect(_open_pack.bind(pack))
-		column.add_child(button)
-		_pack_buttons[pack["id"]] = button
-		%PackRow.add_child(panel)
+func _style() -> void:
+	%DailyPanel.add_theme_stylebox_override("panel", MenuStyle.panel())
+	%SellPanel.add_theme_stylebox_override("panel", MenuStyle.panel())
+	MenuStyle.style_pill(%CoinsPill)
+	MenuStyle.style_button(%ClaimButton, true)
+	MenuStyle.style_button(%SellButton, true)
+	MenuStyle.style_button(%BackButton)
+	%DailyReward.text = "+%d coins" % DAILY_COINS
 
 
-func _refresh_coins() -> void:
-	%CoinsLabel.text = "%d coins" % PlayerData.coins
+func _refresh() -> void:
+	%CoinsLabel.text = "%d" % PlayerData.coins
+	_refresh_claim()
+	_refresh_sell()
 
 
-func _refresh_buttons() -> void:
-	_refresh_coins()
+func _refresh_claim() -> void:
 	var now := int(Time.get_unix_time_from_system())
-	for pack: Dictionary in PackRules.PACKS:
-		var button: Button = _pack_buttons[pack["id"]]
-		if int(pack["price"]) == 0:
-			if PlayerData.is_daily_pack_ready(now):
-				button.text = "Open free pack"
-				button.disabled = false
-			else:
-				var wait := PlayerData.last_daily_claim \
-					+ PlayerData.DAILY_PACK_COOLDOWN_SECONDS - now
-				button.text = "Next in %s" % _format_countdown(wait)
-				button.disabled = true
-		else:
-			button.text = "Open — %d coins" % int(pack["price"])
-			button.disabled = PlayerData.coins < int(pack["price"])
+	if PlayerData.is_daily_coins_ready(now):
+		%ClaimButton.text = "Claim"
+		%ClaimButton.disabled = false
+		%DailyStatus.text = "Ready to collect."
+		return
+	var wait := PlayerData.last_coin_claim + PlayerData.DAILY_PACK_COOLDOWN_SECONDS - now
+	%ClaimButton.text = "Collected"
+	%ClaimButton.disabled = true
+	%DailyStatus.text = "Next stipend in %s." % _format_countdown(wait)
+
+
+func _refresh_sell() -> void:
+	var surplus := CollectionEconomy.surplus_of(PlayerData.owned_cards)
+	var copies := int(surplus["copies"])
+	%SellSummary.text = (
+		"No surplus copies right now."
+		if copies == 0
+		else "%d spare copy(s) worth %d coins." % [copies, int(surplus["value"])])
+	%SellButton.disabled = copies == 0
+	%SellButton.text = "Convert" if copies == 0 else "Convert for %d" % int(surplus["value"])
+
+
+func _on_claim_pressed() -> void:
+	if PlayerData.claim_daily_coins(int(Time.get_unix_time_from_system()), DAILY_COINS):
+		%DailyStatus.text = "+%d coins collected." % DAILY_COINS
+
+
+func _on_sell_pressed() -> void:
+	var sold := PlayerData.sell_surplus()
+	if int(sold["copies"]) > 0:
+		%SellSummary.text = "Converted %d copy(s) into %d coins." % [
+			int(sold["copies"]), int(sold["value"])]
 
 
 func _format_countdown(seconds: int) -> String:
 	seconds = maxi(0, seconds)
 	@warning_ignore("integer_division")
 	return "%dh %02dm %02ds" % [seconds / 3600, (seconds % 3600) / 60, seconds % 60]
-
-
-func _open_pack(pack: Dictionary) -> void:
-	var now := int(Time.get_unix_time_from_system())
-	if int(pack["price"]) == 0:
-		if not PlayerData.is_daily_pack_ready(now):
-			return
-		PlayerData.claim_daily_pack(now)
-	elif not PlayerData.spend_coins(int(pack["price"])):
-		return
-
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var owned_before := PlayerData.owned_cards.duplicate()
-	var cards := PackRules.open_pack(pack, owned_before, rng)
-	for card: CardData in cards:
-		PlayerData.add_card(card.id)
-	_begin_reveal(pack, cards, owned_before)
-	_refresh_buttons()
-
-
-# ── pack opening sequence ─────────────────────────────────────────────
-# Pack appears center screen; drag it sideways (mouse or touch — Godot
-# emulates mouse from touch by default) or tap to tear it open, then cards
-# reveal one at a time with slide transitions, ending on a summary row.
-# The phases are plain state + tweens, so premium animations can replace
-# each stage later without touching the flow.
-
-func _begin_reveal(pack: Dictionary, cards: Array[CardData], owned_before: Dictionary) -> void:
-	_reveal_cards = cards
-	_owned_before = owned_before
-	_reveal_index = 0
-	_reveal_phase = "pack"
-	%RevealTitle.text = pack["name"]
-	%DoneButton.visible = false
-	_clear_reveal_row()
-	%RevealRow.add_child(_make_pack_visual())
-	%RevealPanel.visible = true
-
-
-func _clear_reveal_row() -> void:
-	for child in %RevealRow.get_children():
-		child.queue_free()
-
-
-func _make_pack_visual() -> Control:
-	var pack := PanelContainer.new()
-	pack.custom_minimum_size = Vector2(170, 240)
-	pack.add_theme_stylebox_override("panel", CardStyle.make_panel(
-		CardStyle.SURFACE_LIGHT, 14, CardStyle.GOLD, 2))
-	var label := Label.new()
-	label.text = "PRIMORDIA\n\nswipe or tap\nto open"
-	label.add_theme_font_size_override("font_size", 14)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pack.add_child(label)
-	pack.gui_input.connect(_on_pack_input.bind(pack))
-	return pack
-
-
-func _on_pack_input(event: InputEvent, pack: Control) -> void:
-	if event is InputEventMouseButton:
-		if event.pressed:
-			_dragging = true
-			_drag_start_x = pack.get_global_mouse_position().x
-		else:
-			if not _dragging:
-				return
-			_dragging = false
-			var travelled: float = pack.get_global_mouse_position().x - _drag_start_x
-			if absf(travelled) > 70.0 or absf(travelled) < 8.0:
-				_tear_open(pack)  # decisive swipe, or a plain tap
-			else:
-				var back := create_tween()
-				back.tween_property(pack, "position:x", 0.0, 0.2)
-	elif event is InputEventMouseMotion and _dragging:
-		pack.position.x += event.relative.x
-
-
-func _tear_open(pack: Control) -> void:
-	_dragging = false
-	var tween := create_tween()
-	tween.tween_property(pack, "scale", Vector2(1.15, 0.02), 0.18) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_callback(_show_next_card)
-
-
-func _show_next_card() -> void:
-	_clear_reveal_row()
-	if _reveal_index >= _reveal_cards.size():
-		_show_summary()
-		return
-	_reveal_phase = "card"
-	var card := _reveal_cards[_reveal_index]
-	_reveal_index += 1
-	var holder := _make_reveal_card(card, 0.8)
-	%RevealRow.add_child(holder)
-	holder.modulate.a = 0.0
-	holder.position.x += 60.0
-	var tween := create_tween()
-	tween.tween_property(holder, "modulate:a", 1.0, 0.2)
-	tween.parallel().tween_property(holder, "position:x", holder.position.x - 60.0, 0.25) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-
-func _show_summary() -> void:
-	_reveal_phase = "summary"
-	_clear_reveal_row()
-	for card: CardData in _reveal_cards:
-		%RevealRow.add_child(_make_reveal_card(card, REVEAL_SCALE))
-	%RevealTitle.text += "  —  all cards"
-	%DoneButton.visible = true
-
-
-func _make_reveal_card(card: CardData, card_scale: float) -> Control:
-	var holder := Control.new()
-	# A bare Control defaults to MOUSE_FILTER_STOP, which swallowed clicks
-	# landing on the revealed card — the natural place to click — so the
-	# sequence froze after the first card.
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.custom_minimum_size = CardStyle.BASE_SIZE * card_scale
-	var face: CardFace = CARD_FACE_SCENE.instantiate()
-	face.scale = Vector2(card_scale, card_scale)
-	holder.add_child(face)
-	face.show_card(card)
-	if not _owned_before.has(card.id):
-		var badge := Label.new()
-		badge.text = "NEW"
-		badge.add_theme_font_size_override("font_size", 12)
-		badge.add_theme_color_override("font_color", CardStyle.GOLD)
-		badge.z_index = 1
-		holder.add_child(badge)
-		badge.position = Vector2(6, -18)
-	return holder
-
-
-## Advances the one-at-a-time reveal. Bound to the backdrop's gui_input
-## because the reveal panel's Controls consume clicks before they could ever
-## reach _unhandled_input — which is what froze the sequence on card 1.
-func _on_reveal_input(event: InputEvent) -> void:
-	if _reveal_phase != "card":
-		return
-	# Release (rather than press) so a swipe and a tap both land here.
-	if event is InputEventMouseButton and not event.pressed:
-		_show_next_card()
