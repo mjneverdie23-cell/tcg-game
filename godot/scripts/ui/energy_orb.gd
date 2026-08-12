@@ -33,7 +33,10 @@ var _dragging := false
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(64, 64)
+	# Only the default: _ready() runs on add_child, so a caller that sized
+	# the ball first (the small ones on a zoomed card) must not be overruled.
+	if custom_minimum_size == Vector2.ZERO:
+		custom_minimum_size = Vector2(64, 64)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	resized.connect(queue_redraw)
 

@@ -15,7 +15,7 @@ extends RefCounted
 ## - Energy is auto-generated: 1 unit of the player's element per turn,
 ##   attachable to one dinosaur. Attack costs are paid by energy count.
 ## - Every turn begins with a draw. Turn 1 (the player who won the toss):
-##   energy + Spell cards, place basics — no attack and no Support.
+##   energy + Spell cards, place basics, retreat — no attack, no Support.
 ##   Turn 2 onward: the full flow (draw, energy, Spells, one Support,
 ##   Environment replacement, evolve, retreat once, attack once).
 ## - Each player's Environment passively buffs their own Active while its
@@ -166,9 +166,10 @@ func _add_trainer_actions(
 			return  # Supports unlock on turn 2, one per turn
 	match card.effect["type"]:
 		"switch":
-			if turn_number >= 2:
-				for b in range(player.bench.size()):
-					actions.append({"type": "trainer", "hand": hand_index, "target": b})
+			# Same as retreat: the turn-1 rule is about attacks and Supports,
+			# and a Support has already been filtered out above.
+			for b in range(player.bench.size()):
+				actions.append({"type": "trainer", "hand": hand_index, "target": b})
 		"heal":
 			if player.active.damage > 0:
 				actions.append({"type": "trainer", "hand": hand_index})
@@ -177,7 +178,10 @@ func _add_trainer_actions(
 
 
 func _add_retreat_actions(actions: Array[Dictionary], player: BattlePlayerState) -> void:
-	if turn_number < 2 or player.retreated or player.bench.is_empty():
+	# Turn 1 withholds attacks and Supports, nothing else. Retreating costs
+	# energy and a card's place on the Active slot, so there is no reason to
+	# lock it out of the opening turn as well.
+	if player.retreated or player.bench.is_empty():
 		return
 	if player.active.has_status(STATUS_ASLEEP) or player.active.has_status(STATUS_PARALYZED):
 		return

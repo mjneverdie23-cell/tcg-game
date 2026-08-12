@@ -31,7 +31,7 @@ const ZOOM_CARD_SCALE := 1.05
 ## Energy balls in the zoomed card's bottom-left corner: where they sit in
 ## the card's own 250x350 design space, and how big each one is.
 const ZOOM_ENERGY_CORNER := Vector2(14, 300)
-const ZOOM_ENERGY_SIZE := 22
+const ZOOM_ENERGY_SIZE := 11
 ## Slack around a row so its hit target is comfortable to click.
 const ZOOM_HIT_PADDING := 3.0
 ## Returned by _attach_target_of for a dinosaur that is not the player's.
@@ -585,11 +585,17 @@ func _zoom_hit_target(holder: Control, over: Control, enabled: bool) -> Button:
 	hit.disabled = not enabled
 	if enabled:
 		for state: String in ["normal", "hover", "pressed"]:
+			var lit := state != "normal"
 			var box := StyleBoxFlat.new()
-			box.bg_color = Color(CardStyle.GOLD, 0.0 if state == "normal" else 0.2)
+			box.bg_color = Color(CardStyle.GOLD, 0.0 if not lit else 0.2)
 			box.set_corner_radius_all(6)
-			box.set_border_width_all(2)
-			box.border_color = Color(CardStyle.GOLD, 0.55 if state == "normal" else 1.0)
+			box.set_border_width_all(3 if lit else 2)
+			box.border_color = Color(CardStyle.GOLD, 0.55 if not lit else 1.0)
+			if lit:
+				# A soft bloom off the border, so hovering a cell reads as
+				# "this is the button" rather than just a colour change.
+				box.shadow_color = Color(CardStyle.GOLD, 0.45)
+				box.shadow_size = 7
 			hit.add_theme_stylebox_override(state, box)
 	holder.add_child(hit)
 	var rect := over.get_global_rect().grow(ZOOM_HIT_PADDING)
