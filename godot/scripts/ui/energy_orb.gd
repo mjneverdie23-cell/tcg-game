@@ -1,6 +1,6 @@
 class_name EnergyOrb
 extends Control
-## The turn's energy, drawn as a lit dome and dragged onto a dinosaur.
+## The turn's energy, drawn as a lit sphere and dragged onto a dinosaur.
 ##
 ## Drag-and-drop is hand-rolled rather than Godot's Control drag: the drop
 ## targets are 3D cards on the table, and the built-in system only ever hands
@@ -33,7 +33,7 @@ var _dragging := false
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(96, 62)
+	custom_minimum_size = Vector2(64, 64)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	resized.connect(queue_redraw)
 
@@ -61,25 +61,17 @@ func _input(event: InputEvent) -> void:
 		dropped.emit(get_global_mouse_position())
 
 
+## A ball: a rim, a body, and an off-centre specular cap. Concentric discs
+## rather than a gradient texture, so it re-tints with the element for free
+## and stays crisp at any size.
 func _draw() -> void:
-	var base := Vector2(size.x * 0.5, size.y - 6.0)
-	var radius := minf(size.x * 0.5, size.y - 10.0)
+	var center := size * 0.5
+	var radius := minf(size.x, size.y) * 0.5 - 2.0
+	if radius <= 0.0:
+		return
 	var fill := color if not spent else color.darkened(0.55)
-	draw_colored_polygon(_dome(base, radius), fill.darkened(0.25))
-	draw_colored_polygon(_dome(base, radius * 0.86), fill)
-	# Specular cap, offset up-left, so the dome reads as a lit sphere.
-	draw_colored_polygon(
-		_dome(base - Vector2(radius * 0.22, radius * 0.34), radius * 0.34),
-		HIGHLIGHT if not spent else Color(1, 1, 1, 0.12))
-	var rim := _dome(base, radius)
-	rim.append(rim[0])
-	draw_polyline(rim, fill.lightened(0.35), 2.0, true)
-
-
-## Closed polygon for the top half of a circle, flat side down.
-func _dome(center: Vector2, radius: float) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for i in range(25):
-		var angle := PI + PI * float(i) / 24.0
-		points.append(center + Vector2(cos(angle), sin(angle)) * radius)
-	return points
+	draw_circle(center, radius, fill.darkened(0.35))
+	draw_circle(center, radius * 0.88, fill)
+	draw_circle(center - Vector2(radius * 0.26, radius * 0.3), radius * 0.34,
+		HIGHLIGHT if not spent else Color(1, 1, 1, 0.1))
+	draw_arc(center, radius, 0.0, TAU, 48, fill.lightened(0.4), 2.0, true)

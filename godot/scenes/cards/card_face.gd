@@ -16,6 +16,9 @@ const FIELD_ART: Dictionary = {
 }
 
 var _card: CardData
+## Rebuilt with the face; see attack_row() / retreat_cell().
+var _attack_rows: Array[Control] = []
+var _retreat_cell: Control = null
 
 
 func _ready() -> void:
@@ -34,7 +37,21 @@ func show_card(card: CardData) -> void:
 		_rebuild()
 
 
+## Attack rows and the retreat cell, kept so a battle screen can lay an
+## invisible hit target exactly over each one instead of guessing at pixels.
+func attack_row(index: int) -> Control:
+	if index < 0 or index >= _attack_rows.size():
+		return null
+	return _attack_rows[index]
+
+
+func retreat_cell() -> Control:
+	return _retreat_cell
+
+
 func _rebuild() -> void:
+	_attack_rows.clear()
+	_retreat_cell = null
 	for child in get_children():
 		child.queue_free()
 
@@ -197,6 +214,7 @@ func _build_dino_body(dino: DinoCardData) -> Control:
 		row.add_child(attack_label)
 		row.add_child(_label(str(attack.damage), 16, Color.WHITE))
 		body.add_child(row)
+		_attack_rows.append(row)
 
 	if dino.description != "":
 		var flavor := _label(dino.description, 9, CardStyle.TEXT_DIM)
@@ -213,11 +231,12 @@ func _build_footer() -> Control:
 	match _card.kind:
 		CardCatalogTypes.CardKind.DINO:
 			var dino := _card as DinoCardData
-			info_text = "Weak %s  ·  Res %s  ·  Retreat %d" % [
+			# Retreat is split into its own cell so it can carry a hit target.
+			info_text = "Weak %s  ·  Res %s" % [
 				CardStyle.type_display_name(dino.weakness),
 				CardStyle.type_display_name(dino.resistance),
-				dino.retreat_cost,
 			]
+			_retreat_cell = _label("Retreat %d" % dino.retreat_cost, 9, CardStyle.TEXT_DIM)
 		CardCatalogTypes.CardKind.TRAINER:
 			var trainer := _card as TrainerCardData
 			info_text = (
@@ -231,6 +250,8 @@ func _build_footer() -> Control:
 	var info := _label(info_text, 9, CardStyle.TEXT_DIM)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer.add_child(info)
+	if _retreat_cell != null:
+		footer.add_child(_retreat_cell)
 	footer.add_child(_label(
 		CardStyle.rarity_display_name(_card.rarity), 10, CardStyle.RARITY_COLORS[_card.rarity]))
 	return footer

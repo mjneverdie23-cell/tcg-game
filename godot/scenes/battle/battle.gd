@@ -27,7 +27,13 @@ const USED_CARD_SCALE := 0.34
 const LOG_OPEN_TOP := -282.0
 const LOG_SHUT_TOP := -215.0
 ## Card face scale inside the action zoom.
-const ZOOM_CARD_SCALE := 0.72
+const ZOOM_CARD_SCALE := 1.05
+## Energy balls in the zoomed card's bottom-left corner: where they sit in
+## the card's own 250x350 design space, and how big each one is.
+const ZOOM_ENERGY_CORNER := Vector2(14, 300)
+const ZOOM_ENERGY_SIZE := 22
+## Slack around a row so its hit target is comfortable to click.
+const ZOOM_HIT_PADDING := 3.0
 ## Returned by _attach_target_of for a dinosaur that is not the player's.
 const INVALID_TARGET := -99
 ## Reach of the pointer ray used to find the card under the energy well.
@@ -83,8 +89,8 @@ func _ready() -> void:
 	%EnergyOrb.drag_started.connect(_on_energy_drag_started)
 	%EnergyOrb.dragged.connect(_on_energy_dragged)
 	%EnergyOrb.dropped.connect(_on_energy_dropped)
-	%ZoomClose.pressed.connect(func() -> void: %CardZoom.visible = false)
-	%ZoomRetreat.pressed.connect(_on_retreat_pressed)
+	# No close button: the card is the panel, so clicking off it dismisses.
+	%ZoomBackdrop.gui_input.connect(_on_zoom_backdrop_input)
 	%TargetCancel.pressed.connect(func() -> void: %TargetPopup.visible = false)
 	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
@@ -318,9 +324,9 @@ func _refresh() -> void:
 		func(action: Dictionary) -> bool: return action["type"] == "attach")
 	%EnergyOrb.color = CardStyle.TYPE_COLORS[you.element]
 	%EnergyOrb.spent = not can_attach
-	%EnergyLabel.text = (
-		"Drag onto a dinosaur" if can_attach
-		else ("%s energy spent" % CardStyle.type_display_name(you.element)))
+	%EnergyOrb.tooltip_text = (
+		"Drag onto one of your dinosaurs" if can_attach
+		else "%s energy already attached this turn" % CardStyle.type_display_name(you.element))
 	if %CardZoom.visible:
 		_refresh_card_zoom()
 
@@ -402,13 +408,13 @@ func _on_energy_drag_started() -> void:
 	_energy_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_energy_ghost.z_index = 20
 	%HUD.add_child(_energy_ghost)
-	_energy_ghost.size = Vector2(72, 46)
+	_energy_ghost.size = Vector2(58, 58)
 	_on_energy_dragged(get_viewport().get_mouse_position())
 
 
 func _on_energy_dragged(at: Vector2) -> void:
 	if _energy_ghost != null:
-		_energy_ghost.global_position = at - _energy_ghost.size * Vector2(0.5, 0.9)
+		_energy_ghost.global_position = at - _energy_ghost.size * 0.5
 	# Light up whatever the energy is hovering, so the drop target reads.
 	var target := _dino_under(at)
 	for dino: DinoInPlay in _card_nodes:
@@ -479,16 +485,17 @@ func _open_card_zoom(dino: DinoInPlay) -> void:
 	_refresh_card_zoom()
 
 
-## Rebuilt rather than patched, so it can never show a stale attack after the
-## board changes underneath it — an attack ends the turn, for instance.
+## Everything lives on the card itself: the energy attached to it sits in the
+## bottom-left corner, and each attack row and the retreat cell carry an
+## invisible hit target. Nothing is repeated in rows underneath — the card
+## already says what every attack costs and does.
 func _refresh_card_zoom() -> void:
 	if _zoomed == null or not _engine.players[0].dinos_in_play().has(_zoomed):
 		%CardZoom.visible = false
 		_zoomed = null
 		return
 	var card := _zoomed.card()
-	var you := _engine.players[0]
-	var is_active := _zoomed == you.active
+	var is_active := _zoomed == _engine.players[0].active
 	var your_turn := _engine.current == 0 and not _engine.is_over()
 
 	%ZoomTitle.text = "%s  ·  %d / %d HP" % [
@@ -506,88 +513,107 @@ func _refresh_card_zoom() -> void:
 	face.show_card(card)
 	%ZoomFaceBox.add_child(holder)
 
-	_fill_zoom_energy()
-	_fill_zoom_attacks(is_active, your_turn)
-
-	var cost := _engine.retreat_cost(0) if is_active else 0
-	var can_retreat := your_turn and is_active and _engine.get_legal_actions().any(
-		func(action: Dictionary) -> bool: return action["type"] == "retreat")
-	%ZoomRetreat.visible = is_active
-	%ZoomRetreat.disabled = not can_retreat
-	%ZoomRetreat.text = (
-		"Retreat  ·  %d energy" % cost if can_retreat
-		else "Retreat  ·  needs %d energy" % cost)
+	# The card face and its rows are Containers: a child added to them gets
+	# laid out, not positioned. So the overlays are parented to the plain
+	# holder and placed over the rows' rects — which only exist after a
+	# layout pass, hence the one-frame wait.
+	var settle := holder.create_tween()
+	settle.tween_interval(0.02)
+	settle.tween_callback(_place_zoom_overlays.bind(holder, face, is_active, your_turn))
 
 
-## Energy row: one dome per attached unit, the same shape as the well the
-## player dragged them from and as the domes on the card itself.
-func _fill_zoom_energy() -> void:
-	for child in %ZoomEnergy.get_children():
-		child.queue_free()
-	var label := Label.new()
-	label.text = "Energy %d" % _zoomed.energy
-	label.add_theme_font_size_override("font_size", 15)
-	%ZoomEnergy.add_child(label)
-	for i in range(_zoomed.energy):
-		var pip := EnergyOrb.new()
-		pip.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
-		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pip.custom_minimum_size = Vector2(30, 22)
-		%ZoomEnergy.add_child(pip)
-	if _zoomed.energy == 0:
-		var none := Label.new()
-		none.text = "—  drag the energy well onto this card"
-		none.add_theme_font_size_override("font_size", 12)
-		none.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
-		%ZoomEnergy.add_child(none)
+func _place_zoom_overlays(
+		holder: Control, face: CardFace, is_active: bool, your_turn: bool) -> void:
+	if not (is_instance_valid(holder) and is_instance_valid(face)) or _zoomed == null:
+		return
+	_add_zoom_energy(holder)
 
-
-## One button per attack, showing its cost and damage, enabled only when the
-## engine actually offers that attack right now.
-func _fill_zoom_attacks(is_active: bool, your_turn: bool) -> void:
-	for child in %ZoomAttacks.get_children():
-		child.queue_free()
 	var legal: Dictionary = {}
 	if is_active and your_turn:
 		for action: Dictionary in _engine.get_legal_actions():
 			if action["type"] == "attack":
 				legal[int(action["index"])] = action
 
-	var attacks := _zoomed.card().attacks
-	for index in range(attacks.size()):
-		var attack := attacks[index]
-		var cost: int = attack.cost.size()
-		var button := Button.new()
-		button.custom_minimum_size = Vector2(0, 42)
-		button.disabled = not legal.has(index)
+	for index in range(_zoomed.card().attacks.size()):
+		var row := face.attack_row(index)
+		if row == null:
+			continue
+		var hit := _zoom_hit_target(holder, row, legal.has(index))
 		if legal.has(index):
-			button.text = "%s   %s   %d damage" % [
-				attack.attack_name, "●".repeat(cost), _engine.preview_damage(index)]
-			button.pressed.connect(_on_zoom_attack.bind(legal[index]))
+			hit.tooltip_text = "Attack for %d damage" % _engine.preview_damage(index)
+			hit.pressed.connect(_on_zoom_attack.bind(legal[index]))
 		else:
-			# Filled pips for energy present, hollow for what is still missing.
-			var have: int = mini(cost, _zoomed.energy)
-			button.text = "%s   %s%s   %d" % [
-				attack.attack_name, "●".repeat(have), "○".repeat(cost - have), attack.damage]
-		%ZoomAttacks.add_child(button)
+			hit.tooltip_text = _attack_block_reason(is_active, your_turn)
 
-	var hint := Label.new()
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if not is_active:
-		hint.text = "Only your Active dinosaur can attack."
-	elif not your_turn:
-		hint.text = "Wait for your turn."
-	elif _engine.turn_number < 2:
-		hint.text = "No attack on turn 1."
-	elif _engine.players[1].active == null:
-		hint.text = "The rival has not fielded a dinosaur yet."
-	elif legal.is_empty():
-		hint.text = "Not enough energy attached."
+	var cell := face.retreat_cell()
+	if cell == null:
+		return
+	var can_retreat := your_turn and is_active and _engine.get_legal_actions().any(
+		func(action: Dictionary) -> bool: return action["type"] == "retreat")
+	var retreat_hit := _zoom_hit_target(holder, cell, can_retreat)
+	if can_retreat:
+		retreat_hit.tooltip_text = "Retreat for %d energy" % _engine.retreat_cost(0)
+		retreat_hit.pressed.connect(_on_retreat_pressed)
 	else:
-		return  # an attack is available; nothing to explain
-	%ZoomAttacks.add_child(hint)
+		retreat_hit.tooltip_text = (
+			"Only your Active dinosaur can retreat" if not is_active
+			else "Not enough energy to retreat")
+
+
+## Energy attached to this dinosaur, as balls in the card's bottom-left
+## corner — the same ball the player dragged off the well.
+func _add_zoom_energy(holder: Control) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(row)
+	row.position = ZOOM_ENERGY_CORNER * ZOOM_CARD_SCALE
+	for i in range(_zoomed.energy):
+		var ball := EnergyOrb.new()
+		ball.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
+		ball.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ball.custom_minimum_size = Vector2.ONE * ZOOM_ENERGY_SIZE * ZOOM_CARD_SCALE
+		row.add_child(ball)
+
+
+## A transparent button covering `over`, added to `holder` and outlined only
+## when it can actually be pressed — that outline is the whole affordance.
+func _zoom_hit_target(holder: Control, over: Control, enabled: bool) -> Button:
+	var hit := Button.new()
+	hit.flat = true
+	hit.focus_mode = Control.FOCUS_NONE
+	hit.disabled = not enabled
+	if enabled:
+		for state: String in ["normal", "hover", "pressed"]:
+			var box := StyleBoxFlat.new()
+			box.bg_color = Color(CardStyle.GOLD, 0.0 if state == "normal" else 0.2)
+			box.set_corner_radius_all(6)
+			box.set_border_width_all(2)
+			box.border_color = Color(CardStyle.GOLD, 0.55 if state == "normal" else 1.0)
+			hit.add_theme_stylebox_override(state, box)
+	holder.add_child(hit)
+	var rect := over.get_global_rect().grow(ZOOM_HIT_PADDING)
+	hit.position = rect.position - holder.global_position
+	hit.size = rect.size
+	return hit
+
+
+func _attack_block_reason(is_active: bool, your_turn: bool) -> String:
+	if not is_active:
+		return "Only your Active dinosaur can attack"
+	if not your_turn:
+		return "Wait for your turn"
+	if _engine.turn_number < 2:
+		return "No attack on turn 1"
+	if _engine.players[1].active == null:
+		return "The rival has not fielded a dinosaur yet"
+	return "Not enough energy attached"
+
+
+func _on_zoom_backdrop_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		%CardZoom.visible = false
+		_zoomed = null
 
 
 func _on_zoom_attack(action: Dictionary) -> void:
