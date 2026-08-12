@@ -576,32 +576,37 @@ func _add_zoom_energy(holder: Control) -> void:
 		row.add_child(ball)
 
 
-## A transparent button covering `over`, added to `holder` and outlined only
-## when it can actually be pressed — that outline is the whole affordance.
+## A transparent button covering `over`, added to `holder`. Never `flat`:
+## a flat Button skips stylebox drawing altogether, which silently threw
+## away the hover glow. Instead every state carries its own box — fully
+## transparent when the action is unavailable, a faint gold outline when it
+## is, and a thicker outline with a soft bloom under the cursor.
 func _zoom_hit_target(holder: Control, over: Control, enabled: bool) -> Button:
 	var hit := Button.new()
-	hit.flat = true
 	hit.focus_mode = Control.FOCUS_NONE
 	hit.disabled = not enabled
+	hit.add_theme_stylebox_override("disabled", _hit_box(0.0, 0, false))
 	if enabled:
-		for state: String in ["normal", "hover", "pressed"]:
-			var lit := state != "normal"
-			var box := StyleBoxFlat.new()
-			box.bg_color = Color(CardStyle.GOLD, 0.0 if not lit else 0.2)
-			box.set_corner_radius_all(6)
-			box.set_border_width_all(3 if lit else 2)
-			box.border_color = Color(CardStyle.GOLD, 0.55 if not lit else 1.0)
-			if lit:
-				# A soft bloom off the border, so hovering a cell reads as
-				# "this is the button" rather than just a colour change.
-				box.shadow_color = Color(CardStyle.GOLD, 0.45)
-				box.shadow_size = 7
-			hit.add_theme_stylebox_override(state, box)
+		hit.add_theme_stylebox_override("normal", _hit_box(0.0, 2, false))
+		hit.add_theme_stylebox_override("hover", _hit_box(0.16, 3, true))
+		hit.add_theme_stylebox_override("pressed", _hit_box(0.26, 3, true))
 	holder.add_child(hit)
 	var rect := over.get_global_rect().grow(ZOOM_HIT_PADDING)
 	hit.position = rect.position - holder.global_position
 	hit.size = rect.size
 	return hit
+
+
+func _hit_box(fill_alpha: float, border: int, lit: bool) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(CardStyle.GOLD, fill_alpha)
+	box.set_corner_radius_all(6)
+	box.set_border_width_all(border)
+	box.border_color = Color(CardStyle.GOLD, 1.0 if lit else 0.5)
+	if lit:
+		box.shadow_color = Color(CardStyle.GOLD, 0.5)
+		box.shadow_size = 8
+	return box
 
 
 func _attack_block_reason(is_active: bool, your_turn: bool) -> String:
