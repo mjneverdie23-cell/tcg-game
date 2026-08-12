@@ -22,6 +22,17 @@ const DISCARD_FLIGHT := 0.45
 ## Ghosts drawn for a single multi-card rival draw; more than this reads as
 ## noise rather than information.
 const MAX_DRAW_GHOSTS := 3
+## Where the deck and used piles stand. Solved against the projected pile
+## bounds rather than eyeballed: it is the furthest right they can sit while
+## still clearing the action panel at 4:3, where the narrower horizontal FOV
+## throws the table's edges outward. Also clears the widest bench slot.
+const PILE_X := 2.40
+## Thumbnail scale in the used-cards viewer.
+const USED_CARD_SCALE := 0.34
+## LogPanel offset_top when the log is open and when it is rolled up. The
+## panel is anchored to the bottom, so only its top edge moves.
+const LOG_OPEN_TOP := -282.0
+const LOG_SHUT_TOP := -215.0
 
 var _engine: BattleEngine = null
 var _ai := BattleAI.new()
@@ -46,6 +57,8 @@ var _card_sides: Dictionary = {}
 var _env_nodes: Array = [null, null]  # per-player environment Card3D
 ## Deck sizes at the previous refresh, per side — a shrink means a draw.
 var _previous_deck_sizes := PackedInt32Array([0, 0])
+## "deck0" / "used0" / "deck1" / "used1" -> CardPile3D on the table.
+var _pile_nodes: Dictionary = {}
 @onready var _board: Node3D = $Board
 @onready var _camera: Camera3D = $Camera3D
 
@@ -56,6 +69,7 @@ func _ready() -> void:
 	get_viewport().physics_object_picking = true
 	_base_fov = $Camera3D.fov
 	_build_slot_markers()
+	_build_piles()
 	%BackButton.pressed.connect(SceneRouter.back)
 	%SetupBackButton.pressed.connect(SceneRouter.back)
 	%StartButton.pressed.connect(_on_start_pressed)
@@ -65,6 +79,9 @@ func _ready() -> void:
 	%TargetCancel.pressed.connect(func() -> void: %TargetPopup.visible = false)
 	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
+	%LogToggle.toggled.connect(_on_log_toggled)
+	%UsedClose.pressed.connect(func() -> void: %UsedPanel.visible = false)
+	_on_log_toggled(true)
 	_populate_deck_choices()
 
 
@@ -139,6 +156,21 @@ func _on_log_line(text: String) -> void:
 	_log_lines.append(text)
 	if _log_lines.size() > 40:
 		_log_lines.remove_at(0)
+
+
+## Rolls the battle log up into its own header. The panel is anchored to the
+## bottom of the screen, so collapsing it means moving its top edge down —
+## the header button stays put and stays clickable either way.
+func _on_log_toggled(open: bool) -> void:
+	%LogLabel.visible = open
+	%LogToggle.text = "Battle log  ▾" if open else "Battle log  ▸"
+	var top := LOG_OPEN_TOP if open else LOG_SHUT_TOP
+	if Settings.reduced_motion:
+		%LogPanel.offset_top = top
+		return
+	var tween := %LogPanel.create_tween()
+	tween.tween_property(%LogPanel, "offset_top", top, 0.18) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 # ── acting ────────────────────────────────────────────────────────────
@@ -265,7 +297,7 @@ func _refresh() -> void:
 		_env_name(you), _env_name(rival)]
 
 	_sync_board()
-	_refresh_piles()
+	_sync_piles()
 	_fill_hand(your_turn)
 	_fill_attacks(your_turn)
 	%EndTurnButton.disabled = not your_turn
@@ -425,49 +457,76 @@ func _show_result() -> void:
 
 
 # ── deck & used-card piles ────────────────────────────────────────────
-# The piles live in the HUD rather than on the 3D table on purpose: the
-# table's right-hand edge projects underneath the action panel at narrow
-# aspect ratios, and the piles double as fixed screen anchors for the draw
-# and discard flights below.
+# Both piles sit on the table beside their owner's rows, the way they would
+# in a real game: a slab that grows with the cards in it and a floating
+# count. Only your own used pile is clickable — the rival's discard is
+# public information in most card games, but showing it here would clutter
+# the board without giving the player anything to act on.
 
 
-func _refresh_piles() -> void:
+## Builds the four piles once. `_pile_nodes` is keyed "deck0" / "used1" etc.
+func _build_piles() -> void:
+	for side in range(2):
+		for kind: String in ["deck", "used"]:
+			var pile := CardPile3D.new()
+			$Board.add_child(pile)
+			pile.transform = _pile_transform(side, kind == "deck")
+			pile.setup(
+				"DECK" if kind == "deck" else "USED",
+				Color("16224a") if kind == "deck" else Color("3a1f2a"),
+				side == 0 and kind == "used")
+			if side == 0 and kind == "used":
+				pile.clicked.connect(_on_used_pile_clicked)
+			_pile_nodes["%s%d" % [kind, side]] = pile
+
+
+## Piles flank the rows on the right: the deck level with the bench, the
+## used pile level with the Active.
+func _pile_transform(side: int, is_deck: bool) -> Transform3D:
+	var forward := 1.0 if side == 0 else -1.0
+	var depth := 2.15 if is_deck else 0.7
+	return Transform3D(Basis.IDENTITY, Vector3(PILE_X, 0.155, depth * forward))
+
+
+func _sync_piles() -> void:
 	var you := _engine.players[0]
 	var rival := _engine.players[1]
-	_set_pile_count(%YourDeckCount, you.deck.size(), true)
-	_set_pile_count(%YourUsedCount, you.discard.size(), false)
-	_set_pile_count(%RivalDeckCount, rival.deck.size(), true)
-	_set_pile_count(%RivalUsedCount, rival.discard.size(), false)
-	%YourDeckPile.tooltip_text = "Your deck — %d card(s) left to draw." % you.deck.size()
-	%RivalDeckPile.tooltip_text = "Rival deck — %d card(s) left to draw." % rival.deck.size()
-	%YourUsedPile.tooltip_text = _used_tooltip("Your used cards", you.discard)
-	%RivalUsedPile.tooltip_text = _used_tooltip("Rival used cards", rival.discard)
+	(_pile_nodes["deck0"] as CardPile3D).set_count(you.deck.size())
+	(_pile_nodes["used0"] as CardPile3D).set_count(you.discard.size())
+	(_pile_nodes["deck1"] as CardPile3D).set_count(rival.deck.size())
+	(_pile_nodes["used1"] as CardPile3D).set_count(rival.discard.size())
 
 	# The player's own draws are animated card by card as they land in the
 	# hand dock (_deal_in); the rival's hand is hidden, so its draws are only
 	# visible as cards leaving its deck.
 	var rival_drawn := _previous_deck_sizes[1] - rival.deck.size()
 	for i in range(mini(rival_drawn, MAX_DRAW_GHOSTS)):
-		_fly_card(null, _center_of(%RivalDeckPile), _rival_hand_anchor(),
+		_fly_card(null, _screen_of(_pile_nodes["deck1"]), _rival_hand_anchor(),
 			DRAW_FLIGHT, i * 0.09)
 	_previous_deck_sizes[0] = you.deck.size()
 	_previous_deck_sizes[1] = rival.deck.size()
 
 
-## A deck running dry decides games, so the last few cards read as a warning.
-func _set_pile_count(label: Label, count: int, is_deck: bool) -> void:
-	label.text = str(count)
-	label.add_theme_color_override(
-		"font_color", Color("ff8a7a") if is_deck and count <= 3 else Color.WHITE)
+func _on_used_pile_clicked(_pile: CardPile3D) -> void:
+	_show_used_cards()
 
 
-func _used_tooltip(title: String, discard: Array) -> String:
-	if discard.is_empty():
-		return "%s — empty." % title
-	var names := PackedStringArray()
-	for i in range(discard.size() - 1, maxi(-1, discard.size() - 7), -1):
-		names.append(GameData.get_card(discard[i]).display_name)
-	return "%s (%d), most recent first:\n%s" % [title, discard.size(), "\n".join(names)]
+## Every card the player has used this battle, most recent first.
+func _show_used_cards() -> void:
+	for child in %UsedGrid.get_children():
+		child.queue_free()
+	var discard: Array = _engine.players[0].discard
+	%UsedTitle.text = "Used cards — %d" % discard.size()
+	for i in range(discard.size() - 1, -1, -1):
+		var holder := Control.new()
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.custom_minimum_size = CardStyle.BASE_SIZE * USED_CARD_SCALE
+		var face: CardFace = CARD_FACE_SCENE.instantiate()
+		face.scale = Vector2(USED_CARD_SCALE, USED_CARD_SCALE)
+		holder.add_child(face)
+		face.show_card(GameData.get_card(discard[i]))
+		%UsedGrid.add_child(holder)
+	%UsedPanel.visible = true
 
 
 func _center_of(control: Control) -> Vector2:
@@ -499,8 +558,8 @@ func _screen_of(node: Node3D) -> Vector2:
 
 ## A card leaving the hand or the table lands on its owner's used pile.
 func _fly_to_used(card: CardData, from: Vector2, side: int) -> void:
-	var pile: Control = %YourUsedPile if side == 0 else %RivalUsedPile
-	_fly_card(card, from, _center_of(pile), DISCARD_FLIGHT, 0.0, _pile_thump.bind(pile))
+	var pile := _pile_nodes["used%d" % side] as CardPile3D
+	_fly_card(card, from, _screen_of(pile), DISCARD_FLIGHT, 0.0, _pile_thump.bind(pile))
 
 
 ## Small card ghost gliding across the HUD — the visual link between a zone
@@ -553,13 +612,13 @@ func _make_ghost(card: CardData) -> Control:
 
 
 ## Small bump on a pile as a card lands on it.
-func _pile_thump(pile: Control) -> void:
+func _pile_thump(pile: Node3D) -> void:
 	if Settings.reduced_motion or not is_instance_valid(pile):
 		return
-	pile.pivot_offset = pile.size * 0.5
 	var tween := pile.create_tween()
-	tween.tween_property(pile, "scale", Vector2(1.18, 1.18), 0.09)
-	tween.tween_property(pile, "scale", Vector2.ONE, 0.16)
+	tween.tween_property(pile, "scale", Vector3(1.0, 1.6, 1.0), 0.09)
+	tween.tween_property(pile, "scale", Vector3.ONE, 0.18) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 # ── 3D board presentation ─────────────────────────────────────────────
@@ -762,7 +821,6 @@ func _animate_hud_entrance() -> void:
 		return
 	var panels := {
 		%TopBar: Vector2(0, -80),
-		%PilesPanel: Vector2(300, 0),
 		%ActionPanel: Vector2(300, 0),
 		%LogPanel: Vector2(-300, 0),
 		%HandDock: Vector2(0, 180),
@@ -823,4 +881,5 @@ func _deal_in(button: Control, order: int) -> void:
 func _launch_draw_ghost(button: Control, delay: float) -> void:
 	if not is_instance_valid(button):
 		return
-	_fly_card(null, _center_of(%YourDeckPile), _center_of(button), DRAW_FLIGHT, delay)
+	_fly_card(null, _screen_of(_pile_nodes["deck0"]), _center_of(button),
+		DRAW_FLIGHT, delay)

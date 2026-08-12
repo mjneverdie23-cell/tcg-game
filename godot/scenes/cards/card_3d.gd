@@ -125,14 +125,18 @@ func show_damage(amount: int) -> void:
 	var host: Node = get_parent() if get_parent() != null else self
 	host.add_child(popup)
 	popup.global_position = global_position + Vector3(0, 0.42, 0)
+	# Every tween below is bound to the popup, not to this card. A knockout
+	# frees the card while its number is still rising, and a card-bound tween
+	# dies with it — which left the last hit's damage stuck on the table
+	# forever, because the tween that was going to fade and free it was gone.
 	if Settings.reduced_motion:
 		# Still readable without motion: hold briefly, then clear.
-		var hold := create_tween()
+		var hold := popup.create_tween()
 		hold.tween_interval(0.8)
 		hold.tween_callback(popup.queue_free)
 		return
 	popup.scale = Vector3.ONE * 0.4
-	var tween := create_tween()
+	var tween := popup.create_tween()
 	tween.tween_property(popup, "scale", Vector3.ONE * 1.15, 0.16) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(popup, "position", popup.position + Vector3(0, 0.75, 0), 0.65) \

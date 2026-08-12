@@ -1,6 +1,7 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scenes/battle/battle.gd" id="1"]
+
 [ext_resource type="PackedScene" path="res://scenes/cards/card_viewer.tscn" id="2"]
 
 [sub_resource type="Environment" id="Environment_night"]
@@ -49,18 +50,6 @@ content_margin_left = 14.0
 content_margin_right = 14.0
 content_margin_top = 12.0
 content_margin_bottom = 12.0
-
-[sub_resource type="StyleBoxFlat" id="StyleBox_pile"]
-bg_color = Color(0.067, 0.102, 0.2, 1)
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.961, 0.725, 0.259, 0.55)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_left = 8
-corner_radius_bottom_right = 8
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_dock"]
 bg_color = Color(0.024, 0.035, 0.075, 0.92)
@@ -174,151 +163,6 @@ theme_override_font_sizes/font_size = 13
 text = "Rival · hand 6 · deck 12"
 horizontal_alignment = 2
 
-[node name="PilesPanel" type="PanelContainer" parent="UI/Root/HUD"]
-unique_name_in_owner = true
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -262.0
-offset_top = 72.0
-offset_right = -14.0
-offset_bottom = 188.0
-grow_horizontal = 0
-theme_override_styles/panel = SubResource("StyleBox_panel")
-
-[node name="PileRow" type="HBoxContainer" parent="UI/Root/HUD/PilesPanel"]
-layout_mode = 2
-theme_override_constants/separation = 12
-alignment = 1
-
-[node name="YouGroup" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow"]
-layout_mode = 2
-theme_override_constants/separation = 2
-
-[node name="YouTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "YOU"
-horizontal_alignment = 1
-
-[node name="YouPiles" type="HBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="YourDeckSlot" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles"]
-layout_mode = 2
-theme_override_constants/separation = 1
-
-[node name="YourDeckPile" type="PanelContainer" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourDeckSlot"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(42, 54)
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_pile")
-
-[node name="YourDeckCount" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourDeckSlot/YourDeckPile"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-text = "23"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="YourDeckTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourDeckSlot"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "Deck"
-horizontal_alignment = 1
-
-[node name="YourUsedSlot" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles"]
-layout_mode = 2
-theme_override_constants/separation = 1
-
-[node name="YourUsedPile" type="PanelContainer" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourUsedSlot"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(42, 54)
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_pile")
-
-[node name="YourUsedCount" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourUsedSlot/YourUsedPile"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-text = "0"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="YourUsedTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/YouGroup/YouPiles/YourUsedSlot"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "Used"
-horizontal_alignment = 1
-
-[node name="PileDivider" type="VSeparator" parent="UI/Root/HUD/PilesPanel/PileRow"]
-layout_mode = 2
-
-[node name="RivalGroup" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow"]
-layout_mode = 2
-theme_override_constants/separation = 2
-
-[node name="RivalTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "RIVAL"
-horizontal_alignment = 1
-
-[node name="RivalPiles" type="HBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="RivalDeckSlot" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles"]
-layout_mode = 2
-theme_override_constants/separation = 1
-
-[node name="RivalDeckPile" type="PanelContainer" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalDeckSlot"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(42, 54)
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_pile")
-
-[node name="RivalDeckCount" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalDeckSlot/RivalDeckPile"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-text = "23"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="RivalDeckTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalDeckSlot"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "Deck"
-horizontal_alignment = 1
-
-[node name="RivalUsedSlot" type="VBoxContainer" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles"]
-layout_mode = 2
-theme_override_constants/separation = 1
-
-[node name="RivalUsedPile" type="PanelContainer" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalUsedSlot"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(42, 54)
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_pile")
-
-[node name="RivalUsedCount" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalUsedSlot/RivalUsedPile"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-text = "0"
-horizontal_alignment = 1
-vertical_alignment = 1
-
-[node name="RivalUsedTag" type="Label" parent="UI/Root/HUD/PilesPanel/PileRow/RivalGroup/RivalPiles/RivalUsedSlot"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 10
-text = "Used"
-horizontal_alignment = 1
-
 [node name="ActionPanel" type="PanelContainer" parent="UI/Root/HUD"]
 unique_name_in_owner = true
 layout_mode = 1
@@ -328,9 +172,9 @@ anchor_top = 0.5
 anchor_right = 1.0
 anchor_bottom = 0.5
 offset_left = -262.0
-offset_top = -146.0
+offset_top = -170.0
 offset_right = -14.0
-offset_bottom = 194.0
+offset_bottom = 170.0
 grow_horizontal = 0
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBox_panel")
@@ -380,15 +224,27 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 14.0
-offset_top = -238.0
+offset_top = -282.0
 offset_right = 454.0
 offset_bottom = -160.0
 grow_vertical = 0
 theme_override_styles/panel = SubResource("StyleBox_panel")
 
-[node name="LogLabel" type="Label" parent="UI/Root/HUD/LogPanel"]
+[node name="LogColumn" type="VBoxContainer" parent="UI/Root/HUD/LogPanel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="LogToggle" type="Button" parent="UI/Root/HUD/LogPanel/LogColumn"]
 unique_name_in_owner = true
 layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "Battle log"
+
+[node name="LogLabel" type="Label" parent="UI/Root/HUD/LogPanel/LogColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
 theme_override_font_sizes/font_size = 12
 horizontal_alignment = 0
 vertical_alignment = 1
@@ -621,6 +477,67 @@ horizontal_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 text = "Back to menu"
+
+[node name="UsedPanel" type="Control" parent="UI/Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="UsedBackdrop" type="ColorRect" parent="UI/Root/UsedPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="UsedCenter" type="CenterContainer" parent="UI/Root/UsedPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="UsedBox" type="PanelContainer" parent="UI/Root/UsedPanel/UsedCenter"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="UsedColumn" type="VBoxContainer" parent="UI/Root/UsedPanel/UsedCenter/UsedBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="UsedTitle" type="Label" parent="UI/Root/UsedPanel/UsedCenter/UsedBox/UsedColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Used cards"
+horizontal_alignment = 1
+
+[node name="UsedScroll" type="ScrollContainer" parent="UI/Root/UsedPanel/UsedCenter/UsedBox/UsedColumn"]
+custom_minimum_size = Vector2(780, 400)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="UsedGrid" type="GridContainer" parent="UI/Root/UsedPanel/UsedCenter/UsedBox/UsedColumn/UsedScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+columns = 6
+
+[node name="UsedClose" type="Button" parent="UI/Root/UsedPanel/UsedCenter/UsedBox/UsedColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Close"
 
 [node name="BattleViewer" parent="UI/Root" instance=ExtResource("2")]
 unique_name_in_owner = true
