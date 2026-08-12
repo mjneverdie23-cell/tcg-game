@@ -12,13 +12,6 @@ const ATTACK_SETTLE_DELAY := 0.55
 const AI_ACTION_CAP := 40
 const WIN_COINS := 50
 const LOSS_COINS := 10
-## Size of the card ghosts that fly between the piles, the hand and the board.
-const GHOST_SCALE := 0.3
-## Flight time deck -> hand. A drawn card only appears in the dock once its
-## ghost lands, so the two read as one movement.
-const DRAW_FLIGHT := 0.38
-## Flight time hand/board -> used pile.
-const DISCARD_FLIGHT := 0.45
 ## Ghosts drawn for a single multi-card rival draw; more than this reads as
 ## noise rather than information.
 const MAX_DRAW_GHOSTS := 3
@@ -33,6 +26,12 @@ const USED_CARD_SCALE := 0.34
 ## panel is anchored to the bottom, so only its top edge moves.
 const LOG_OPEN_TOP := -282.0
 const LOG_SHUT_TOP := -215.0
+## Card face scale inside the action zoom.
+const ZOOM_CARD_SCALE := 0.72
+## Returned by _attach_target_of for a dinosaur that is not the player's.
+const INVALID_TARGET := -99
+## Reach of the pointer ray used to find the card under the energy well.
+const RAY_LENGTH := 100.0
 
 var _engine: BattleEngine = null
 var _ai := BattleAI.new()
@@ -46,9 +45,6 @@ var _trophy_delta := 0
 var _last_turn_owner := -1
 ## Card ids in the hand at the previous refresh, for deal-in animation.
 var _previous_hand: Array = []
-## Camera fov authored in the scene — the attack punch returns to exactly
-## this value instead of a hardcoded one.
-var _base_fov := 46.0
 ## DinoInPlay -> Card3D on the board (identity-keyed; survives promotion).
 var _card_nodes: Dictionary = {}
 ## DinoInPlay -> owning side, so a knocked-out card knows which used pile
@@ -59,23 +55,36 @@ var _env_nodes: Array = [null, null]  # per-player environment Card3D
 var _previous_deck_sizes := PackedInt32Array([0, 0])
 ## "deck0" / "used0" / "deck1" / "used1" -> CardPile3D on the table.
 var _pile_nodes: Dictionary = {}
+## Dinosaur open in the action zoom, or null.
+var _zoomed: DinoInPlay = null
+## Dome that follows the pointer while energy is being dragged.
+var _energy_ghost: EnergyOrb = null
 @onready var _board: Node3D = $Board
 @onready var _camera: Camera3D = $Camera3D
+## Camera moves, HUD entrance, banners and the 2D card flights.
+@onready var _fx := BattleFx.new()
 
 
 func _ready() -> void:
 	# Area3D hover/click on board cards only fires when the viewport does
 	# physics picking — off by default, which silently killed 3D input.
 	get_viewport().physics_object_picking = true
-	_base_fov = $Camera3D.fov
+	add_child(_fx)
+	_fx.setup(%HUD, _camera, %TurnBanner)
 	_build_slot_markers()
 	_build_piles()
 	%BackButton.pressed.connect(SceneRouter.back)
 	%SetupBackButton.pressed.connect(SceneRouter.back)
 	%StartButton.pressed.connect(_on_start_pressed)
 	%EndTurnButton.pressed.connect(func() -> void: _apply_player_action({"type": "end_turn"}))
-	%RetreatButton.pressed.connect(_on_retreat_pressed)
-	%EnergyButton.pressed.connect(_on_energy_pressed)
+	%Hand.card_pressed.connect(_on_hand_card_pressed)
+	%RivalHand.face_down = true
+	%RivalHand.inverted = true
+	%EnergyOrb.drag_started.connect(_on_energy_drag_started)
+	%EnergyOrb.dragged.connect(_on_energy_dragged)
+	%EnergyOrb.dropped.connect(_on_energy_dropped)
+	%ZoomClose.pressed.connect(func() -> void: %CardZoom.visible = false)
+	%ZoomRetreat.pressed.connect(_on_retreat_pressed)
 	%TargetCancel.pressed.connect(func() -> void: %TargetPopup.visible = false)
 	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
@@ -124,8 +133,13 @@ func _on_start_pressed() -> void:
 	_previous_hand = _engine.players[0].hand.duplicate()
 	_previous_deck_sizes[0] = _engine.players[0].deck.size()
 	_previous_deck_sizes[1] = _engine.players[1].deck.size()
-	_intro_camera()
-	_animate_hud_entrance()
+	_fx.intro_camera()
+	_fx.hud_entrance({
+		%TopBar: Vector2(0, -80),
+		%LogPanel: Vector2(-300, 0),
+		%Hand: Vector2(0, 180),
+		%EnergyDock: Vector2(0, 180),
+	})
 	_refresh()
 	_show_coin_toss()
 
@@ -299,33 +313,51 @@ func _refresh() -> void:
 	_sync_board()
 	_sync_piles()
 	_fill_hand(your_turn)
-	_fill_attacks(your_turn)
 	%EndTurnButton.disabled = not your_turn
 	var can_attach := your_turn and _engine.get_legal_actions().any(
 		func(action: Dictionary) -> bool: return action["type"] == "attach")
-	%EnergyButton.text = "Attach %s energy" % CardStyle.type_display_name(
-		_engine.players[0].element)
-	%EnergyButton.disabled = not can_attach
-	%RetreatButton.disabled = not (your_turn and _engine.get_legal_actions().any(
-		func(action: Dictionary) -> bool: return action["type"] == "retreat"))
+	%EnergyOrb.color = CardStyle.TYPE_COLORS[you.element]
+	%EnergyOrb.spent = not can_attach
+	%EnergyLabel.text = (
+		"Drag onto a dinosaur" if can_attach
+		else ("%s energy spent" % CardStyle.type_display_name(you.element)))
+	if %CardZoom.visible:
+		_refresh_card_zoom()
 
 	var tail := mini(4, _log_lines.size())
 	%LogLabel.text = "\n".join(_log_lines.slice(_log_lines.size() - tail))
 
 	if _engine.current != _last_turn_owner and not _engine.is_over():
 		_last_turn_owner = _engine.current
-		_show_turn_banner(your_turn)
+		_fx.turn_banner(your_turn)
 
 	if _engine.is_over():
 		_show_result()
 
 
+## Both fans. Yours shows faces and takes clicks; the rival's shows backs,
+## because knowing how many cards they are holding is fair information and
+## knowing which ones would end the game.
 func _fill_hand(your_turn: bool) -> void:
-	for child in %Hand.get_children():
-		child.queue_free()
 	var you := _engine.players[0]
 
-	# Cards that arrived since the last refresh get a deal-in animation.
+	# Which hand slots have a legal play right now — those stay bright.
+	var playable: Dictionary = {}
+	if your_turn:
+		for action: Dictionary in _engine.get_legal_actions():
+			if action.has("hand"):
+				playable[int(action["hand"])] = true
+
+	var cards: Array = []
+	for id: String in you.hand:
+		cards.append(GameData.get_card(id))
+	%Hand.set_hand(cards, playable, your_turn)
+
+	var backs: Array = []
+	backs.resize(_engine.players[1].hand.size())
+	%RivalHand.set_hand(backs, {}, false)
+
+	# Cards that arrived since the last refresh fly in from the deck.
 	var new_cards: Dictionary = {}
 	for id: String in you.hand:
 		new_cards[id] = int(new_cards.get(id, 0)) + 1
@@ -333,39 +365,11 @@ func _fill_hand(your_turn: bool) -> void:
 		if new_cards.has(id):
 			new_cards[id] = int(new_cards[id]) - 1
 	var dealt := 0
-
-	# Which hand slots have a legal play right now — used to highlight them.
-	var playable: Dictionary = {}
-	if your_turn:
-		for action: Dictionary in _engine.get_legal_actions():
-			if action.has("hand"):
-				playable[int(action["hand"])] = true
-
 	for i in range(you.hand.size()):
-		var card := GameData.get_card(you.hand[i])
-		var button := Button.new()
-		button.custom_minimum_size = CardStyle.BASE_SIZE * HAND_SCALE
-		button.flat = true
-		button.disabled = not your_turn
-		button.tooltip_text = "%s\n%s" % [card.display_name, _card_hint(card)]
-		button.pressed.connect(_on_hand_card_pressed.bind(i))
-		button.mouse_entered.connect(_on_hand_hover.bind(button, true))
-		button.mouse_exited.connect(_on_hand_hover.bind(button, false))
-		button.pivot_offset = CardStyle.BASE_SIZE * HAND_SCALE * 0.5
-		# Unplayable cards read as dimmed; playable ones stay bright.
-		button.modulate = (
-			Color.WHITE if playable.has(i) else Color(0.62, 0.66, 0.76, 0.85))
-
-		var face: CardFace = CARD_FACE_SCENE.instantiate()
-		face.scale = Vector2(HAND_SCALE, HAND_SCALE)
-		button.add_child(face)
-		face.show_card(card)
-		%Hand.add_child(button)
 		if new_cards.has(you.hand[i]) and int(new_cards[you.hand[i]]) > 0:
 			new_cards[you.hand[i]] = int(new_cards[you.hand[i]]) - 1
-			_deal_in(button, dealt)
+			_fx.deal_in(%Hand.slot_at(i), dealt, _fx.screen_of(_pile_nodes["deck0"]))
 			dealt += 1
-
 	_previous_hand = you.hand.duplicate()
 
 
@@ -383,51 +387,213 @@ func _card_hint(card: CardData) -> String:
 	return ""
 
 
-## Lift and scale a hand card while the cursor is over it.
-func _on_hand_hover(button: Button, entered: bool) -> void:
-	if button.disabled or Settings.reduced_motion:
+# ── energy: drag the well onto a dinosaur ─────────────────────────────
+# Godot's Control drag-and-drop can only hand data between Controls, and the
+# drop targets here are 3D cards, so the gesture is hand-rolled: the orb
+# reports pointer moves and the release point, and a ray into the world says
+# which dinosaur was under it.
+
+
+func _on_energy_drag_started() -> void:
+	if _energy_ghost != null:
+		_energy_ghost.queue_free()
+	_energy_ghost = EnergyOrb.new()
+	_energy_ghost.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
+	_energy_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_energy_ghost.z_index = 20
+	%HUD.add_child(_energy_ghost)
+	_energy_ghost.size = Vector2(72, 46)
+	_on_energy_dragged(get_viewport().get_mouse_position())
+
+
+func _on_energy_dragged(at: Vector2) -> void:
+	if _energy_ghost != null:
+		_energy_ghost.global_position = at - _energy_ghost.size * Vector2(0.5, 0.9)
+	# Light up whatever the energy is hovering, so the drop target reads.
+	var target := _dino_under(at)
+	for dino: DinoInPlay in _card_nodes:
+		var node := _card_nodes[dino] as Card3D
+		node.set_selected(node == target and _attach_target_of(dino) != INVALID_TARGET)
+
+
+func _on_energy_dropped(at: Vector2) -> void:
+	if _energy_ghost != null:
+		_energy_ghost.queue_free()
+		_energy_ghost = null
+	for dino: DinoInPlay in _card_nodes:
+		(_card_nodes[dino] as Card3D).set_selected(false)
+
+	var target := _dino_under(at)
+	if target == null:
+		# Released on the well itself: treat the gesture as a plain click and
+		# fall back to picking a target from a list.
+		if %EnergyOrb.get_global_rect().has_point(at):
+			_on_energy_pressed()
 		return
-	var tween := create_tween()
-	tween.tween_property(button, "scale", Vector2.ONE * (1.12 if entered else 1.0), 0.12) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var dropped_on := _dino_for_node(target)
+	if dropped_on == null:
+		return
+	var slot := _attach_target_of(dropped_on)
+	if slot == INVALID_TARGET:
+		return
+	for action: Dictionary in _engine.get_legal_actions():
+		if action["type"] == "attach" and int(action["target"]) == slot:
+			_apply_player_action(action)
+			return
+	_on_log_line("That dinosaur cannot take energy right now.")
+	_refresh()
 
 
-func _fill_attacks(your_turn: bool) -> void:
-	for child in %AttackList.get_children():
+## Attach-action target index for one of your dinosaurs: -1 for the Active,
+## 0.. for the bench, INVALID_TARGET when it is not yours.
+func _attach_target_of(dino: DinoInPlay) -> int:
+	var you := _engine.players[0]
+	if dino == you.active:
+		return -1
+	for b in range(you.bench.size()):
+		if you.bench[b] == dino:
+			return b
+	return INVALID_TARGET
+
+
+## The board card under a viewport position, via a ray against the pickable
+## areas — the same ones that make cards clickable.
+func _dino_under(at: Vector2) -> Card3D:
+	var origin := _camera.project_ray_origin(at)
+	var query := PhysicsRayQueryParameters3D.create(
+		origin, origin + _camera.project_ray_normal(at) * RAY_LENGTH)
+	query.collide_with_areas = true
+	query.collide_with_bodies = false
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return null
+	return (hit["collider"] as Node).get_parent() as Card3D
+
+
+# ── card zoom: energy, attacks and retreat ────────────────────────────
+
+
+func _open_card_zoom(dino: DinoInPlay) -> void:
+	_zoomed = dino
+	%CardZoom.visible = true
+	_refresh_card_zoom()
+
+
+## Rebuilt rather than patched, so it can never show a stale attack after the
+## board changes underneath it — an attack ends the turn, for instance.
+func _refresh_card_zoom() -> void:
+	if _zoomed == null or not _engine.players[0].dinos_in_play().has(_zoomed):
+		%CardZoom.visible = false
+		_zoomed = null
+		return
+	var card := _zoomed.card()
+	var you := _engine.players[0]
+	var is_active := _zoomed == you.active
+	var your_turn := _engine.current == 0 and not _engine.is_over()
+
+	%ZoomTitle.text = "%s  ·  %d / %d HP" % [
+		card.display_name, maxi(0, _engine.max_hp_of(_zoomed) - _zoomed.damage),
+		_engine.max_hp_of(_zoomed)]
+
+	for child in %ZoomFaceBox.get_children():
 		child.queue_free()
-	if not your_turn:
-		return
-	var has_attack := false
-	for action: Dictionary in _engine.get_legal_actions():
-		if action["type"] == "attack":
-			has_attack = true
-			break
-	if not has_attack:
-		var hint := Label.new()
-		if _engine.players[0].active == null:
-			hint.text = "Send out a dinosaur from your hand first."
-		elif _engine.players[1].active == null:
-			hint.text = "The rival has not fielded a dinosaur yet."
-		elif _engine.turn_number < 2:
-			hint.text = "No attack on turn 1."
-		else:
-			hint.text = "Not enough energy attached."
-		hint.add_theme_font_size_override("font_size", 12)
-		hint.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
-		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		%AttackList.add_child(hint)
-		return
-	for action: Dictionary in _engine.get_legal_actions():
-		if action["type"] != "attack":
-			continue
-		var attack := _engine.players[0].active.card().attacks[action["index"]]
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.custom_minimum_size = CardStyle.BASE_SIZE * ZOOM_CARD_SCALE
+	var face: CardFace = CARD_FACE_SCENE.instantiate()
+	face.scale = Vector2(ZOOM_CARD_SCALE, ZOOM_CARD_SCALE)
+	holder.add_child(face)
+	face.show_card(card)
+	%ZoomFaceBox.add_child(holder)
+
+	_fill_zoom_energy()
+	_fill_zoom_attacks(is_active, your_turn)
+
+	var cost := _engine.retreat_cost(0) if is_active else 0
+	var can_retreat := your_turn and is_active and _engine.get_legal_actions().any(
+		func(action: Dictionary) -> bool: return action["type"] == "retreat")
+	%ZoomRetreat.visible = is_active
+	%ZoomRetreat.disabled = not can_retreat
+	%ZoomRetreat.text = (
+		"Retreat  ·  %d energy" % cost if can_retreat
+		else "Retreat  ·  needs %d energy" % cost)
+
+
+## Energy row: one dome per attached unit, the same shape as the well the
+## player dragged them from and as the domes on the card itself.
+func _fill_zoom_energy() -> void:
+	for child in %ZoomEnergy.get_children():
+		child.queue_free()
+	var label := Label.new()
+	label.text = "Energy %d" % _zoomed.energy
+	label.add_theme_font_size_override("font_size", 15)
+	%ZoomEnergy.add_child(label)
+	for i in range(_zoomed.energy):
+		var pip := EnergyOrb.new()
+		pip.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.custom_minimum_size = Vector2(30, 22)
+		%ZoomEnergy.add_child(pip)
+	if _zoomed.energy == 0:
+		var none := Label.new()
+		none.text = "—  drag the energy well onto this card"
+		none.add_theme_font_size_override("font_size", 12)
+		none.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
+		%ZoomEnergy.add_child(none)
+
+
+## One button per attack, showing its cost and damage, enabled only when the
+## engine actually offers that attack right now.
+func _fill_zoom_attacks(is_active: bool, your_turn: bool) -> void:
+	for child in %ZoomAttacks.get_children():
+		child.queue_free()
+	var legal: Dictionary = {}
+	if is_active and your_turn:
+		for action: Dictionary in _engine.get_legal_actions():
+			if action["type"] == "attack":
+				legal[int(action["index"])] = action
+
+	var attacks := _zoomed.card().attacks
+	for index in range(attacks.size()):
+		var attack := attacks[index]
+		var cost: int = attack.cost.size()
 		var button := Button.new()
-		button.text = "%s\n%d damage  ·  %d energy" % [
-			attack.attack_name, _engine.preview_damage(action["index"]), attack.cost.size()]
-		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		button.custom_minimum_size = Vector2(0, 46)
-		button.pressed.connect(_apply_player_action.bind(action))
-		%AttackList.add_child(button)
+		button.custom_minimum_size = Vector2(0, 42)
+		button.disabled = not legal.has(index)
+		if legal.has(index):
+			button.text = "%s   %s   %d damage" % [
+				attack.attack_name, "●".repeat(cost), _engine.preview_damage(index)]
+			button.pressed.connect(_on_zoom_attack.bind(legal[index]))
+		else:
+			# Filled pips for energy present, hollow for what is still missing.
+			var have: int = mini(cost, _zoomed.energy)
+			button.text = "%s   %s%s   %d" % [
+				attack.attack_name, "●".repeat(have), "○".repeat(cost - have), attack.damage]
+		%ZoomAttacks.add_child(button)
+
+	var hint := Label.new()
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.add_theme_color_override("font_color", CardStyle.TEXT_DIM)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if not is_active:
+		hint.text = "Only your Active dinosaur can attack."
+	elif not your_turn:
+		hint.text = "Wait for your turn."
+	elif _engine.turn_number < 2:
+		hint.text = "No attack on turn 1."
+	elif _engine.players[1].active == null:
+		hint.text = "The rival has not fielded a dinosaur yet."
+	elif legal.is_empty():
+		hint.text = "Not enough energy attached."
+	else:
+		return  # an attack is available; nothing to explain
+	%ZoomAttacks.add_child(hint)
+
+
+func _on_zoom_attack(action: Dictionary) -> void:
+	%CardZoom.visible = false
+	_zoomed = null
+	_apply_player_action(action)
 
 
 func _show_result() -> void:
@@ -501,8 +667,8 @@ func _sync_piles() -> void:
 	# visible as cards leaving its deck.
 	var rival_drawn := _previous_deck_sizes[1] - rival.deck.size()
 	for i in range(mini(rival_drawn, MAX_DRAW_GHOSTS)):
-		_fly_card(null, _screen_of(_pile_nodes["deck1"]), _rival_hand_anchor(),
-			DRAW_FLIGHT, i * 0.09)
+		_fx.fly(null, _fx.screen_of(_pile_nodes["deck1"]), _rival_hand_anchor(),
+			BattleFx.DRAW_FLIGHT, i * 0.09)
 	_previous_deck_sizes[0] = you.deck.size()
 	_previous_deck_sizes[1] = rival.deck.size()
 
@@ -543,85 +709,16 @@ func _rival_hand_anchor() -> Vector2:
 func _hand_origin(side: int, hand_index: int) -> Vector2:
 	if side != 0:
 		return _rival_hand_anchor()
-	if hand_index >= 0 and hand_index < %Hand.get_child_count():
-		var button := %Hand.get_child(hand_index) as Control
-		return _center_of(button)
-	return _center_of(%HandDock)
-
-
-## Viewport position of a board card, so 3D cards can hand off to 2D piles.
-func _screen_of(node: Node3D) -> Vector2:
-	if node == null or not is_instance_valid(node):
-		return %HUD.size * 0.5
-	return _camera.unproject_position(node.global_position)
+	var slot: Control = %Hand.slot_at(hand_index)
+	if slot != null:
+		return slot.get_global_rect().get_center()
+	return %Hand.get_global_rect().get_center()
 
 
 ## A card leaving the hand or the table lands on its owner's used pile.
 func _fly_to_used(card: CardData, from: Vector2, side: int) -> void:
 	var pile := _pile_nodes["used%d" % side] as CardPile3D
-	_fly_card(card, from, _screen_of(pile), DISCARD_FLIGHT, 0.0, _pile_thump.bind(pile))
-
-
-## Small card ghost gliding across the HUD — the visual link between a zone
-## and a pile. `card` renders the real face; null shows a card back.
-func _fly_card(card: CardData, from: Vector2, to: Vector2, duration: float,
-		delay: float = 0.0, landed: Callable = Callable()) -> void:
-	if Settings.reduced_motion:
-		if landed.is_valid():
-			landed.call()
-		return
-	var ghost := _make_ghost(card)
-	%HUD.add_child(ghost)
-	ghost.global_position = from - ghost.size * 0.5
-	ghost.scale = Vector2(0.7, 0.7)
-	ghost.modulate.a = 0.0
-	var tween := create_tween()
-	if delay > 0.0:
-		tween.tween_interval(delay)
-	tween.tween_property(ghost, "global_position", to - ghost.size * 0.5, duration) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
-	tween.parallel().tween_property(ghost, "modulate:a", 1.0, duration * 0.3)
-	tween.parallel().tween_property(ghost, "scale", Vector2.ONE, duration * 0.5)
-	tween.tween_property(ghost, "scale", Vector2(0.55, 0.55), 0.12)
-	tween.parallel().tween_property(ghost, "modulate:a", 0.0, 0.12)
-	tween.tween_callback(ghost.queue_free)
-	if landed.is_valid():
-		tween.tween_callback(landed)
-
-
-func _make_ghost(card: CardData) -> Control:
-	var ghost := Control.new()
-	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ghost.custom_minimum_size = CardStyle.BASE_SIZE * GHOST_SCALE
-	ghost.size = CardStyle.BASE_SIZE * GHOST_SCALE
-	ghost.pivot_offset = ghost.size * 0.5
-	ghost.z_index = 10  # above the dock and the panels it flies over
-	if card == null:
-		var back := Panel.new()
-		back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		back.size = ghost.size
-		back.add_theme_stylebox_override("panel", CardStyle.make_panel(
-			Color("111a33"), 8, CardStyle.GOLD, 2))
-		ghost.add_child(back)
-		return ghost
-	var face: CardFace = CARD_FACE_SCENE.instantiate()
-	face.scale = Vector2(GHOST_SCALE, GHOST_SCALE)
-	ghost.add_child(face)
-	face.show_card(card)
-	return ghost
-
-
-## Small bump on a pile as a card lands on it.
-func _pile_thump(pile: Node3D) -> void:
-	if Settings.reduced_motion or not is_instance_valid(pile):
-		return
-	var tween := pile.create_tween()
-	tween.tween_property(pile, "scale", Vector3(1.0, 1.6, 1.0), 0.09)
-	tween.tween_property(pile, "scale", Vector3.ONE, 0.18) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-# ── 3D board presentation ─────────────────────────────────────────────
+	_fx.fly(card, from, _fx.screen_of(pile), BattleFx.DISCARD_FLIGHT, 0.0, _fx.pile_thump.bind(pile))
 
 
 ## Mirrors engine state onto the 3D table: spawns Card3D nodes for new
@@ -658,7 +755,7 @@ func _sync_board() -> void:
 	for dino: DinoInPlay in _card_nodes.keys():
 		if not alive.has(dino):
 			var node := _card_nodes[dino] as Card3D
-			_fly_to_used(dino.card(), _screen_of(node), int(_card_sides.get(dino, 0)))
+			_fly_to_used(dino.card(), _fx.screen_of(node), int(_card_sides.get(dino, 0)))
 			node.vanish()
 			_card_nodes.erase(dino)
 			_card_sides.erase(dino)
@@ -669,13 +766,15 @@ func _sync_board() -> void:
 func _update_card_info(card3d: Card3D, dino: DinoInPlay) -> void:
 	var max_hp := _engine.max_hp_of(dino)
 	var remaining := maxi(0, max_hp - dino.damage)
+	# Energy is no longer in this line: it sits on the card as domes, where
+	# the player just dropped it.
 	var bits := PackedStringArray(["%d/%d" % [remaining, max_hp]])
-	if dino.energy > 0:
-		bits.append("E%d" % dino.energy)
 	for status: String in dino.statuses:
 		bits.append(status.substr(0, 3).to_upper())
 	card3d.set_info(" ".join(bits),
 		Color("6fd98a") if remaining * 2 >= max_hp else Color("ff8a7a"))
+	card3d.set_energy(dino.energy,
+		CardStyle.TYPE_COLORS[_engine.players[int(_card_sides.get(dino, 0))].element])
 
 
 func _env_name(player: BattlePlayerState) -> String:
@@ -731,7 +830,7 @@ func _animate_action(action: Dictionary, side: int) -> void:
 			if attacker != null and target != null:
 				var damage := _engine.preview_damage_for(side, int(action["index"]))
 				attacker.lunge(target.home_transform.origin)
-				_camera_punch()
+				_fx.camera_punch()
 				# Impact lands a beat after the lunge starts.
 				var impact := create_tween()
 				impact.tween_interval(0.14)
@@ -750,7 +849,7 @@ func _animate_action(action: Dictionary, side: int) -> void:
 				card3d.flash(Color("ffd166") if action["type"] == "attach" else Color("6fd98a"))
 			if action["type"] == "evolve":
 				# The pre-evolution card is used up as the new stage lands.
-				_fly_to_used(dino.card(), _screen_of(_card_nodes.get(dino) as Node3D), side)
+				_fly_to_used(dino.card(), _fx.screen_of(_card_nodes.get(dino) as Node3D), side)
 		"trainer":
 			# Healing and draw effects read on the active dinosaur.
 			if _card_nodes.has(player.active):
@@ -762,34 +861,26 @@ func _animate_action(action: Dictionary, side: int) -> void:
 			# Setting an Environment discards the one it replaces.
 			if player.environment_id != "":
 				_fly_to_used(GameData.get_card(player.environment_id),
-					_screen_of(_env_nodes[side] as Node3D), side)
+					_fx.screen_of(_env_nodes[side] as Node3D), side)
 
 
-## Smooth descent from an overview to the play angle when a battle starts.
-func _intro_camera() -> void:
-	if Settings.reduced_motion:
-		return
-	var play := _camera.transform
-	var overview := play
-	overview.origin += Vector3(0, 3.5, 4.0)
-	_camera.transform = overview
-	var tween := create_tween()
-	tween.tween_property(_camera, "transform", play, 1.1) \
-		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-
-## Brief zoom pulse that sells an attack landing.
-func _camera_punch() -> void:
-	if Settings.reduced_motion:
-		return
-	var tween := create_tween()
-	tween.tween_property(_camera, "fov", _base_fov - 3.0, 0.12)
-	tween.tween_property(_camera, "fov", _base_fov, 0.3)
-
-
+## Your own dinosaurs open the action zoom — energy, attacks and retreat.
+## Anything else (the rival's board, Environments) opens the plain viewer.
 func _on_board_card_clicked(card3d: Card3D) -> void:
-	if card3d.card_data != null:
-		%BattleViewer.open(card3d.card_data)
+	if card3d.card_data == null:
+		return
+	var dino := _dino_for_node(card3d)
+	if dino != null and int(_card_sides.get(dino, 1)) == 0:
+		_open_card_zoom(dino)
+		return
+	%BattleViewer.open(card3d.card_data)
+
+
+func _dino_for_node(card3d: Card3D) -> DinoInPlay:
+	for dino: DinoInPlay in _card_nodes:
+		if _card_nodes[dino] == card3d:
+			return dino
+	return null
 
 
 ## Faint outlines on every Active/Back slot so empty zones are legible.
@@ -815,71 +906,3 @@ func _build_slot_markers() -> void:
 # ── UI animation ──────────────────────────────────────────────────────
 
 
-## Slides the HUD panels in from their own edges when a battle begins.
-func _animate_hud_entrance() -> void:
-	if Settings.reduced_motion:
-		return
-	var panels := {
-		%TopBar: Vector2(0, -80),
-		%ActionPanel: Vector2(300, 0),
-		%LogPanel: Vector2(-300, 0),
-		%HandDock: Vector2(0, 180),
-	}
-	for panel: Control in panels:
-		var offset: Vector2 = panels[panel]
-		panel.position += offset
-		panel.modulate.a = 0.0
-		var tween := create_tween().set_parallel()
-		tween.tween_property(panel, "position", panel.position - offset, 0.45) \
-			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tween.tween_property(panel, "modulate:a", 1.0, 0.35)
-
-
-## Big centred announcement whenever the turn changes hands.
-func _show_turn_banner(your_turn: bool) -> void:
-	var banner: Label = %TurnBanner
-	banner.text = "Your Turn" if your_turn else "Rival's Turn"
-	banner.add_theme_color_override(
-		"font_color", CardStyle.GOLD if your_turn else Color("ff8a7a"))
-	if Settings.reduced_motion:
-		return
-	banner.pivot_offset = banner.size * 0.5
-	banner.scale = Vector2(0.85, 0.85)
-	banner.modulate.a = 0.0
-	var tween := create_tween()
-	tween.tween_property(banner, "modulate:a", 1.0, 0.16)
-	tween.parallel().tween_property(banner, "scale", Vector2.ONE, 0.28) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_interval(0.5)
-	tween.tween_property(banner, "modulate:a", 0.0, 0.25)
-
-
-## Newly drawn cards fly out of the deck pile and pop into the hand dock,
-## staggered by draw order. The button itself only animates scale and alpha —
-## an HBoxContainer owns its children's positions, so animating `position`
-## here would be overwritten on the next layout pass; the travel is carried
-## by a ghost that hands over exactly when the card appears.
-func _deal_in(button: Control, order: int) -> void:
-	if Settings.reduced_motion:
-		return
-	var target_alpha := button.modulate.a  # dimmed-if-unplayable tint is set already
-	button.modulate.a = 0.0
-	button.scale = Vector2(0.72, 0.72)
-	var delay := order * 0.09
-	# Tweens bound to the button, not the scene: a refresh rebuilds the hand,
-	# and a card that no longer exists must not keep animating.
-	var settle := button.create_tween()
-	settle.tween_interval(0.02)  # one frame, so the dock has placed the card
-	settle.tween_callback(_launch_draw_ghost.bind(button, delay))
-	var tween := button.create_tween().set_parallel()
-	tween.tween_property(button, "scale", Vector2.ONE, 0.3) \
-		.set_delay(delay + DRAW_FLIGHT).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "modulate:a", target_alpha, 0.24) \
-		.set_delay(delay + DRAW_FLIGHT)
-
-
-func _launch_draw_ghost(button: Control, delay: float) -> void:
-	if not is_instance_valid(button):
-		return
-	_fly_card(null, _screen_of(_pile_nodes["deck0"]), _center_of(button),
-		DRAW_FLIGHT, delay)

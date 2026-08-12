@@ -22,6 +22,12 @@ const HEIGHT := 1.26
 const HOVER_RAISE := 0.14
 const SELECT_RAISE := 0.3
 const MOVE_TIME := 0.35
+## Energy domes on the card's bottom-left corner.
+const PIP_RADIUS := 0.055
+const PIP_SPACING := 0.13
+const PIP_MARGIN := 0.11
+## Domes drawn before the row gives up and shows a count instead.
+const MAX_PIPS := 5
 ## Height a dinosaur model stands at above the card face.
 const MODEL_LIFT := 0.06
 ## Travel of the model's idle bob.
@@ -40,6 +46,10 @@ var _info: Label3D
 ## card has no model configured.
 var _model: Node3D = null
 var _idle: Tween = null
+var _pips: Array[MeshInstance3D] = []
+var _energy_label: Label3D
+var _energy_shown := -1
+var _energy_color := Color.WHITE
 var _hovered := false
 var _motion: Tween = null
 ## Set once vanish() starts: the card is leaving play, so every other
@@ -63,10 +73,48 @@ func show_card(card: CardData) -> void:
 		_render_face()
 
 
-## Status line floating above the card ("45/90 E2").
+## Status line floating above the card ("45/90").
 func set_info(text: String, color: Color = Color.WHITE) -> void:
 	_info.text = text
 	_info.modulate = color
+
+
+## Energy attached to this dinosaur, shown as domes resting on the card's
+## bottom-left corner — the same shape the player drags off the energy well,
+## so where it lands is obvious. Beyond MAX_PIPS the row stops growing and
+## the count label takes over.
+func set_energy(amount: int, color: Color) -> void:
+	if amount == _energy_shown and color == _energy_color:
+		return
+	_energy_shown = amount
+	_energy_color = color
+	for pip in _pips:
+		pip.queue_free()
+	_pips.clear()
+	if amount <= 0:
+		_energy_label.text = ""
+		return
+	var mesh := SphereMesh.new()
+	mesh.radius = PIP_RADIUS
+	mesh.height = PIP_RADIUS  # is_hemisphere halves the height, not the radius
+	mesh.is_hemisphere = true
+	mesh.radial_segments = 12
+	mesh.rings = 6
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color
+	material.emission_energy_multiplier = 0.35
+	for i in range(mini(amount, MAX_PIPS)):
+		var pip := MeshInstance3D.new()
+		pip.mesh = mesh
+		pip.material_override = material
+		pip.position = Vector3(
+			-WIDTH * 0.5 + PIP_MARGIN + i * PIP_SPACING, 0.012, HEIGHT * 0.5 - PIP_MARGIN)
+		add_child(pip)
+		_pips.append(pip)
+	_energy_label.text = "x%d" % amount if amount > MAX_PIPS else ""
+	_energy_label.modulate = color
 
 
 ## Tweens the card to a new slot (or snaps when animate is false).
@@ -232,6 +280,17 @@ func _build_meshes() -> void:
 	_info.no_depth_test = true  # always legible, never behind a nearer card
 	_info.position = Vector3(0, 0.34, 0)
 	add_child(_info)
+
+	# Overflow count for the energy row, sitting beside the last dome.
+	_energy_label = Label3D.new()
+	_energy_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_energy_label.font_size = 30
+	_energy_label.pixel_size = 0.004
+	_energy_label.outline_size = 8
+	_energy_label.no_depth_test = true
+	_energy_label.position = Vector3(
+		-WIDTH * 0.5 + PIP_MARGIN + MAX_PIPS * PIP_SPACING, 0.06, HEIGHT * 0.5 - PIP_MARGIN)
+	add_child(_energy_label)
 
 
 func _build_pickable_area() -> void:
