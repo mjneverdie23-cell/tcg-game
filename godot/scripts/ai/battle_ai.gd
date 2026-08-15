@@ -18,6 +18,41 @@ extends RefCounted
 const HEAL_THRESHOLD := 30
 const BENCH_TARGET := 2
 
+## How often the rival makes each of the mistakes a new player makes. One
+## profile per quest-chain step; level 3 is the same sharp AI as before, with
+## every rate at zero.
+##
+##   skip_energy    leaves the turn's energy unattached
+##   end_early      ends the turn on the spot, wasting everything in hand
+##   idle_retreat   retreats with no reason, burning the retreat cost
+##   waste_trainer  plays a Spell or Support that does nothing useful
+##   stop_attacking having attacked once, stops bothering to attack again
+const PROFILES: Array = [
+	{  # 0 — Field Scout: forgets the basics constantly
+		"skip_energy": 0.5, "end_early": 0.3, "idle_retreat": 0.25,
+		"waste_trainer": 0.5, "stop_attacking": 0.45,
+	},
+	{  # 1 — Bone Tracker: still sloppy, but attacks more
+		"skip_energy": 0.28, "end_early": 0.15, "idle_retreat": 0.12,
+		"waste_trainer": 0.3, "stop_attacking": 0.2,
+	},
+	{  # 2 — Ridge Warden: only the occasional slip
+		"skip_energy": 0.1, "end_early": 0.04, "idle_retreat": 0.04,
+		"waste_trainer": 0.12, "stop_attacking": 0.06,
+	},
+	{  # 3 — The Alpha: plays it straight
+		"skip_energy": 0.0, "end_early": 0.0, "idle_retreat": 0.0,
+		"waste_trainer": 0.0, "stop_attacking": 0.0,
+	},
+]
+
+## Mistake rates in force, and the source of the rolls against them.
+var profile: Dictionary = PROFILES[PROFILES.size() - 1]
+
+var _rng := RandomNumberGenerator.new()
+## Attacks landed this battle — `stop_attacking` only bites after the first.
+var _attacks_made := 0
+
 
 ## Picks one action for the engine's current player. Called repeatedly until
 ## it returns a turn-ending action (attack / end_turn). Pickers are tried in
@@ -27,6 +62,13 @@ func choose_action(engine: BattleEngine) -> Dictionary:
 	# With an empty Active slot, fielding one is the only legal move.
 	if engine.players[engine.current].active == null:
 		return _pick_opening_active(engine, actions)
+	# Mistake: walk away from the turn with cards still in hand and energy
+	# unspent. Never on turn 1, where there is nothing to give away yet.
+	if engine.turn_number > 1 and _blunders("end_early"):
+		return {"type": "end_turn"}
+	var idle := _pick_idle_retreat(engine, actions)
+	if not idle.is_empty():
+		return idle
 	var candidates: Array[Dictionary] = [
 		_pick_ko_attack(engine, actions),
 		_pick_development(engine, actions),
@@ -38,8 +80,35 @@ func choose_action(engine: BattleEngine) -> Dictionary:
 	]
 	for candidate: Dictionary in candidates:
 		if not candidate.is_empty():
+			if candidate["type"] == "attack":
+				_attacks_made += 1
 			return candidate
 	return {"type": "end_turn"}
+
+
+## Sets the mistake profile for this battle. `rng_seed` keeps a given match
+## reproducible, which is what makes the quest chain testable.
+func configure(level: int, rng_seed: int) -> void:
+	profile = PROFILES[clampi(level, 0, PROFILES.size() - 1)]
+	_rng.seed = rng_seed
+	_attacks_made = 0
+
+
+## True when the rival should make mistake `kind` this time.
+func _blunders(kind: String) -> bool:
+	var rate := float(profile.get(kind, 0.0))
+	return rate > 0.0 and _rng.randf() < rate
+
+
+## Mistake: retreating for no reason, which throws away the retreat cost and
+## puts a fresh dinosaur in front of an attack it did not need to face.
+func _pick_idle_retreat(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
+	if _is_doomed(engine) or not _blunders("idle_retreat"):
+		return {}  # a retreat while doomed is sound play, not a blunder
+	for action: Dictionary in actions:
+		if action["type"] == "retreat":
+			return action
+	return {}
 
 
 ## The opening Active: prefer a basic matching our Environment (its passive
@@ -100,6 +169,9 @@ func _pick_ko_attack(engine: BattleEngine, actions: Array[Dictionary]) -> Dictio
 
 
 func _pick_best_attack(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
+	# Mistake: attacking once early on and then never pressing the advantage.
+	if _attacks_made > 0 and _blunders("stop_attacking"):
+		return {}
 	var me := engine.players[engine.current]
 	var best: Dictionary = {}
 	var best_score := 0
@@ -178,6 +250,9 @@ func _remaining(engine: BattleEngine, dino: DinoInPlay) -> int:
 
 ## Ramp the active until all its attacks are payable, then fuel the bench.
 func _pick_attach(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
+	# Mistake: the turn's energy is free and never comes back if unused.
+	if _blunders("skip_energy"):
+		return {}
 	var me := engine.players[engine.current]
 	var best: Dictionary = {}
 	var best_score := -1
@@ -207,7 +282,9 @@ func _pick_trainer(engine: BattleEngine, actions: Array[Dictionary]) -> Dictiona
 		if action["type"] != "trainer":
 			continue
 		var card := GameData.get_card(me.hand[action["hand"]]) as TrainerCardData
-		if _trainer_is_worth_it(engine, me, card):
+		# Mistake: firing off a Spell or Support that changes nothing, and
+		# spending the one Support this turn allows on it.
+		if _trainer_is_worth_it(engine, me, card) or _blunders("waste_trainer"):
 			return action
 	return {}
 

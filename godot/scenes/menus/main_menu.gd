@@ -25,7 +25,7 @@ func _ready() -> void:
 	PlayerData.progress_changed.connect(_refresh)
 	%BattleButton.pressed.connect(_on_battle_pressed)
 	%ModeSelect.item_selected.connect(_on_mode_selected)
-	%MissionButton.pressed.connect(_on_bonus_pressed)
+	%MissionButton.pressed.connect(_on_mission_pressed)
 	_refresh()
 
 
@@ -91,33 +91,71 @@ func _refresh() -> void:
 	_refresh_mission()
 
 
+## The panel beside the path: how far along the chain the player is, and a
+## button onto whatever the chain wants from them next — play the open match,
+## or collect a reward that is sitting there.
 func _refresh_mission() -> void:
-	var claimed := QuestRules.claimed_count()
-	%MissionProgress.text = "%d/%d completed" % [claimed, QuestRules.count()]
+	var won := QuestRules.won_count()
+	%MissionProgress.text = "%d/%d matches won" % [won, QuestRules.count()]
 	%MissionBar.max_value = QuestRules.count()
-	%MissionBar.value = claimed
-	if PlayerData.chain_bonus_claimed:
-		%MissionButton.text = "Bonus collected"
-		%MissionButton.disabled = true
-		%MissionHint.text = "Fresh quests arrive tomorrow."
+	%MissionBar.value = won
+
+	var unclaimed := _first_unclaimed()
+	if unclaimed != -1:
+		var quest := QuestRules.quest(unclaimed)
+		%MissionTitle.text = str(quest["title"])
+		%MissionHint.text = "Beaten! Your reward is waiting."
+		%MissionButton.disabled = false
+		%MissionButton.text = "Claim %d coins" % int(quest["reward"])
 		return
-	%MissionButton.disabled = not QuestRules.bonus_ready()
-	%MissionButton.text = "Collect +%d" % QuestRules.CHAIN_BONUS
-	%MissionHint.text = (
-		"Chain bonus ready!"
-		if QuestRules.bonus_ready()
-		else "Clear all %d quests for +%d coins." % [
-			QuestRules.count(), QuestRules.CHAIN_BONUS])
+
+	var next := QuestRules.next_playable()
+	if next == -1:
+		%MissionTitle.text = "Chain complete"
+		%MissionHint.text = "Every quest match is beaten and paid out."
+		%MissionButton.disabled = true
+		%MissionButton.text = "All done"
+		return
+	var quest := QuestRules.quest(next)
+	%MissionTitle.text = "%d. %s" % [next + 1, str(quest["title"])]
+	%MissionHint.text = str(quest["detail"])
+	%MissionButton.disabled = false
+	%MissionButton.text = "Play  ·  %d coins" % int(quest["reward"])
 
 
+## Index of the first match beaten but not yet paid out, or -1.
+func _first_unclaimed() -> int:
+	for i in range(QuestRules.count()):
+		if QuestRules.state_of(i) == QuestRules.STATE_WON:
+			return i
+	return -1
+
+
+## A node plays its match when it is open, and claims its reward when it has
+## already been beaten.
 func _on_quest_pressed(index: int) -> void:
-	if PlayerData.claim_quest(index):
-		_refresh()
+	match QuestRules.state_of(index):
+		QuestRules.STATE_READY:
+			_start_quest_match(index)
+		QuestRules.STATE_WON:
+			if PlayerData.claim_quest(index):
+				_refresh()
 
 
-func _on_bonus_pressed() -> void:
-	if PlayerData.claim_chain_bonus():
-		_refresh()
+func _on_mission_pressed() -> void:
+	var unclaimed := _first_unclaimed()
+	if unclaimed != -1:
+		if PlayerData.claim_quest(unclaimed):
+			_refresh()
+		return
+	var next := QuestRules.next_playable()
+	if next != -1:
+		_start_quest_match(next)
+
+
+func _start_quest_match(index: int) -> void:
+	SceneRouter.quest_match = index
+	SceneRouter.go_to("battle")
 
 
 func _on_mode_selected(index: int) -> void:
@@ -125,4 +163,5 @@ func _on_mode_selected(index: int) -> void:
 
 
 func _on_battle_pressed() -> void:
+	SceneRouter.quest_match = -1  # the BATTLE button is always a free battle
 	SceneRouter.go_to("battle")

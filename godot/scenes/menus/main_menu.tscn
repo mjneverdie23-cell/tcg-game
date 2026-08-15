@@ -128,7 +128,7 @@ text = "coins"
 [node name="QuestTitle" type="Label" parent="Layout/RightColumn"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 22
-text = "Daily quests"
+text = "Quest matches"
 
 [node name="QuestBody" type="HBoxContainer" parent="Layout/RightColumn"]
 unique_name_in_owner = true
@@ -147,6 +147,7 @@ layout_mode = 2
 theme_override_constants/separation = 10
 
 [node name="MissionTitle" type="Label" parent="Layout/RightColumn/QuestBody/MissionPanel/MissionColumn"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Mission chain"
@@ -155,7 +156,7 @@ text = "Mission chain"
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
-text = "0/4 completed"
+text = "0/4 matches won"
 
 [node name="MissionBar" type="ProgressBar" parent="Layout/RightColumn/QuestBody/MissionPanel/MissionColumn"]
 unique_name_in_owner = true
@@ -168,12 +169,12 @@ show_percentage = false
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
-text = "Clear all 4 quests for +250 coins."
+text = "Beat each match to open the next."
 autowrap_mode = 3
 
 [node name="MissionButton" type="Button" parent="Layout/RightColumn/QuestBody/MissionPanel/MissionColumn"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Collect +250"
+text = "Play"
 
 [node name="NavBar" parent="." instance=ExtResource("2")]

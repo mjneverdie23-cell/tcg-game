@@ -1,8 +1,12 @@
 class_name QuestPath
 extends Control
-## The daily quest chain on the home screen: circular nodes wired together by
+## The quest-match chain on the home screen: circular nodes wired together by
 ## a winding trail. Nodes are laid out as fractions of the control, so the
 ## path reflows with the panel instead of being pinned to pixel positions.
+##
+## A node reads its state at a glance: locked is grey with a padlock, the
+## next match is gold, a beaten match with its reward still waiting pulses,
+## and a claimed one is a green tick.
 
 signal quest_pressed(index: int)
 
@@ -39,10 +43,10 @@ func refresh() -> void:
 		var quest := QuestRules.quest(i)
 		var state := QuestRules.state_of(i)
 		var button := _buttons[i]
-		button.disabled = state != QuestRules.STATE_READY
-		button.tooltip_text = "%s\n%s — %d / %d\nReward: %d coins\n%s" % [
-			str(quest["title"]), str(quest["detail"]),
-			QuestRules.progress_of(i), int(quest["target"]),
+		button.disabled = state == QuestRules.STATE_LOCKED \
+			or state == QuestRules.STATE_CLAIMED
+		button.tooltip_text = "%d. %s\n%s\nReward: %d coins\n%s" % [
+			i + 1, str(quest["title"]), str(quest["detail"]),
 			int(quest["reward"]), _state_hint(state)]
 	queue_redraw()
 
@@ -50,13 +54,13 @@ func refresh() -> void:
 func _state_hint(state: String) -> String:
 	match state:
 		QuestRules.STATE_CLAIMED:
-			return "Claimed."
+			return "Beaten and claimed."
+		QuestRules.STATE_WON:
+			return "Beaten — click to claim the reward."
 		QuestRules.STATE_READY:
-			return "Ready — click to collect."
-		QuestRules.STATE_LOCKED:
-			return "Locked until the previous quest is claimed."
+			return "Click to play this match."
 		_:
-			return "In progress."
+			return "Locked until you win the match before it."
 
 
 func _layout_nodes() -> void:
@@ -74,7 +78,7 @@ func _center_of(index: int) -> Vector2:
 
 func _draw() -> void:
 	for i in range(QuestRules.count() - 1):
-		_draw_trail(_center_of(i), _center_of(i + 1), QuestRules.is_claimed(i))
+		_draw_trail(_center_of(i), _center_of(i + 1), QuestRules.is_won(i))
 	for i in range(QuestRules.count()):
 		_draw_node(i)
 
@@ -109,11 +113,11 @@ func _draw_node(index: int) -> void:
 		QuestRules.STATE_READY:
 			rim = MenuStyle.ACCENT
 			fill = MenuStyle.ACCENT_DEEP
+		QuestRules.STATE_WON:
+			rim = MenuStyle.ACCENT
+			fill = MenuStyle.PANEL_SOFT
 		QuestRules.STATE_CLAIMED:
 			rim = MenuStyle.SUCCESS
-			fill = MenuStyle.PANEL_SOFT
-		QuestRules.STATE_ACTIVE:
-			rim = MenuStyle.TEXT_DIM
 			fill = MenuStyle.PANEL_SOFT
 	draw_circle(center, NODE_RADIUS, fill)
 	draw_arc(center, NODE_RADIUS, 0.0, TAU, 40, rim, 3.0, true)
@@ -121,18 +125,24 @@ func _draw_node(index: int) -> void:
 	if state == QuestRules.STATE_CLAIMED:
 		_draw_check(center, MenuStyle.SUCCESS)
 		return
-	# Everything else shows how far along the quest is, as an arc that fills.
-	var quest := QuestRules.quest(index)
-	var ratio := float(QuestRules.progress_of(index)) / float(int(quest["target"]))
-	if ratio > 0.0:
-		draw_arc(center, NODE_RADIUS - 7.0, -PI * 0.5, -PI * 0.5 + TAU * ratio,
-			40, MenuStyle.ACCENT, 4.0, true)
+	if state == QuestRules.STATE_LOCKED:
+		_draw_lock(center)
+		return
+	# Playable or waiting to be claimed: the match number, with a second ring
+	# on a reward that has not been collected yet.
+	if state == QuestRules.STATE_WON:
+		draw_arc(center, NODE_RADIUS - 7.0, 0.0, TAU, 40, MenuStyle.ACCENT, 2.0, true)
 	var font := ThemeDB.fallback_font
-	var text := "%d/%d" % [QuestRules.progress_of(index), int(quest["target"])]
-	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-	draw_string(font, center + Vector2(-width * 0.5, 5.0), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
-		MenuStyle.TEXT if state != QuestRules.STATE_LOCKED else MenuStyle.TEXT_DIM)
+	var text := str(index + 1)
+	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+	draw_string(font, center + Vector2(-width * 0.5, 8.0), text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, MenuStyle.TEXT)
+
+
+## Padlock body and shackle for a match that is not open yet.
+func _draw_lock(center: Vector2) -> void:
+	draw_rect(Rect2(center + Vector2(-9, -2), Vector2(18, 14)), MenuStyle.TEXT_DIM)
+	draw_arc(center + Vector2(0, -2), 6.0, PI, TAU, 16, MenuStyle.TEXT_DIM, 3.0, true)
 
 
 func _draw_check(center: Vector2, color: Color) -> void:

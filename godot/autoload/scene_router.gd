@@ -25,6 +25,10 @@ const TAB_SCREENS: Array = [
 ## it starts a match. Navigation-scoped: it describes the transition, not the
 ## profile, so it deliberately does not survive a restart.
 var battle_ranked: bool = true
+## Quest-chain match index the next battle should run, or -1 for a free
+## battle against a randomly drafted rival. Same scope as battle_ranked:
+## it describes the transition, not the profile.
+var quest_match: int = -1
 
 var _stack: Array[String] = []
 var _current: String = "main_menu"

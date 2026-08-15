@@ -11,7 +11,7 @@ signal decks_changed
 signal progress_changed
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 const STARTING_COINS := 1290
 ## One-off top-up applied when loading a save written before SAVE_VERSION 2,
 ## so existing profiles can afford a premium pack like new ones can.
@@ -22,8 +22,7 @@ const SECONDS_PER_DAY := 24 * 60 * 60
 const DAILY_PACK_COOLDOWN_SECONDS := SECONDS_PER_DAY
 const DEFAULT_NAME := "Ranger"
 
-## Daily quest counters. Lifetime totals are tracked separately below; these
-## reset when the calendar day turns over.
+## Career counters callers may bump through record_counter().
 const COUNTERS: Array = ["battles_played", "battles_won", "packs_opened", "cards_gained"]
 
 ## card_id -> copies owned.
@@ -44,13 +43,11 @@ var battles_played: int = 0
 var battles_won: int = 0
 var packs_opened: int = 0
 
-## counter name -> today's count.
-var daily_counters: Dictionary = {}
-## Day index (unix time / 86400) the counters above belong to.
-var daily_day: int = 0
-## Quest ids claimed today, and whether the end-of-chain bonus is taken.
+## Quest-chain progress. Campaign state, not daily: ids of matches beaten,
+## and ids whose reward has been collected.
+var quest_wins: Array = []
 var quests_claimed: Array = []
-var chain_bonus_claimed: bool = false
+var cards_gained: int = 0
 
 
 func _ready() -> void:
@@ -111,14 +108,8 @@ func claim_daily_coins(now_unix: int, amount: int) -> bool:
 # ── ladder & quest progress ───────────────────────────────────────────
 
 
-## Bumps a daily quest counter (and its lifetime twin where one exists),
-## rolling the daily counters over first if the day has changed.
+## Bumps a career counter.
 func record_counter(counter: String, amount: int = 1) -> void:
-	if not COUNTERS.has(counter):
-		push_error("PlayerData: unknown counter '%s'" % counter)
-		return
-	_roll_daily()
-	daily_counters[counter] = int(daily_counters.get(counter, 0)) + amount
 	match counter:
 		"battles_played":
 			battles_played += amount
@@ -126,13 +117,13 @@ func record_counter(counter: String, amount: int = 1) -> void:
 			battles_won += amount
 		"packs_opened":
 			packs_opened += amount
+		"cards_gained":
+			cards_gained += amount
+		_:
+			push_error("PlayerData: unknown counter '%s'" % counter)
+			return
 	progress_changed.emit()
 	save_game()
-
-
-func daily_count(counter: String) -> int:
-	_roll_daily()
-	return int(daily_counters.get(counter, 0))
 
 
 ## Records a finished battle and applies its trophy swing. `ranked` false
@@ -148,40 +139,27 @@ func record_battle(won: bool, ranked: bool) -> int:
 	return delta
 
 
-## Pays out a quest reward once. Returns false if it was already claimed or
-## isn't finished yet, so a double click can't double-pay.
+## Records a quest match as beaten. Winning it again is harmless — the id is
+## stored once — so a replay cannot re-open a reward already collected.
+func record_quest_win(index: int) -> void:
+	var id := str(QuestRules.quest(index)["id"])
+	if quest_wins.has(id):
+		return
+	quest_wins.append(id)
+	progress_changed.emit()
+	save_game()
+
+
+## Pays out a quest reward once. Returns false unless the match is beaten and
+## unclaimed, so a double click cannot double-pay.
 func claim_quest(index: int) -> bool:
-	if QuestRules.state_of(index) != QuestRules.STATE_READY:
+	if QuestRules.state_of(index) != QuestRules.STATE_WON:
 		return false
 	quests_claimed.append(str(QuestRules.quest(index)["id"]))
 	earn_coins(int(QuestRules.quest(index)["reward"]))
 	progress_changed.emit()
 	save_game()
 	return true
-
-
-func claim_chain_bonus() -> bool:
-	if not QuestRules.bonus_ready():
-		return false
-	chain_bonus_claimed = true
-	earn_coins(QuestRules.CHAIN_BONUS)
-	progress_changed.emit()
-	save_game()
-	return true
-
-
-## Clears the daily counters and quest claims when the calendar day turns
-## over. Called before every counter read or write, so the home screen can
-## never show yesterday's progress.
-func _roll_daily() -> void:
-	@warning_ignore("integer_division")
-	var today := int(Time.get_unix_time_from_system()) / SECONDS_PER_DAY
-	if today == daily_day:
-		return
-	daily_day = today
-	daily_counters = {}
-	quests_claimed = []
-	chain_bonus_claimed = false
 
 
 # ── collection economy ────────────────────────────────────────────────
@@ -251,10 +229,9 @@ func save_game() -> void:
 		"battles_played": battles_played,
 		"battles_won": battles_won,
 		"packs_opened": packs_opened,
-		"daily_counters": daily_counters,
-		"daily_day": daily_day,
+		"cards_gained": cards_gained,
+		"quest_wins": quest_wins,
 		"quests_claimed": quests_claimed,
-		"chain_bonus_claimed": chain_bonus_claimed,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -287,16 +264,19 @@ func load_game() -> void:
 	battles_played = int(data.get("battles_played", 0))
 	battles_won = int(data.get("battles_won", 0))
 	packs_opened = int(data.get("packs_opened", 0))
-	daily_counters = data.get("daily_counters", {})
-	daily_day = int(data.get("daily_day", 0))
-	quests_claimed = data.get("quests_claimed", [])
-	chain_bonus_claimed = bool(data.get("chain_bonus_claimed", false))
+	cards_gained = int(data.get("cards_gained", 0))
+	quest_wins = data.get("quest_wins", [])
+	# Version 4 stored daily quest claims under this key; those were a
+	# different system, so a v4 save starts the match chain fresh.
+	quests_claimed = data.get("quests_claimed", []) if int(
+		data.get("version", 1)) >= 5 else []
 	_migrate_save(int(data.get("version", 1)))
 	_migrate_decks()
 
 
-## Applies upgrades for saves written by an older SAVE_VERSION. Version 4
-## added ladder and quest fields, which default cleanly above — no grant.
+## Applies upgrades for saves written by an older SAVE_VERSION. Versions 4
+## and 5 added ladder and quest-chain fields, which default cleanly above —
+## no grant.
 func _migrate_save(loaded_version: int) -> void:
 	var granted := 0
 	if loaded_version < 2:
@@ -335,10 +315,9 @@ func reset_all() -> void:
 	battles_played = 0
 	battles_won = 0
 	packs_opened = 0
-	daily_counters = {}
-	daily_day = 0
+	cards_gained = 0
+	quest_wins = []
 	quests_claimed = []
-	chain_bonus_claimed = false
 	_grant_starter_collection()
 	collection_changed.emit()
 	coins_changed.emit(coins)

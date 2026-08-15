@@ -65,6 +65,8 @@ var _pile_nodes: Dictionary = {}
 var _zoomed: DinoInPlay = null
 ## Dome that follows the pointer while energy is being dragged.
 var _energy_ghost: EnergyOrb = null
+## Quest-chain match being played, or -1 for a free battle.
+var _quest_match := -1
 @onready var _board: Node3D = $Board
 @onready var _camera: Camera3D = $Camera3D
 ## Camera moves, HUD entrance, banners and the 2D card flights.
@@ -94,6 +96,7 @@ func _ready() -> void:
 	%TargetCancel.pressed.connect(func() -> void: %TargetPopup.visible = false)
 	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
+	%ClaimButton.pressed.connect(_on_claim_pressed)
 	%LogToggle.toggled.connect(_on_log_toggled)
 	%UsedClose.pressed.connect(func() -> void: %UsedPanel.visible = false)
 	_on_log_toggled(true)
@@ -119,20 +122,30 @@ func _populate_deck_choices() -> void:
 func _on_start_pressed() -> void:
 	var chosen: Dictionary = PlayerData.decks[_valid_decks[%DeckDropdown.selected]]
 	var player_deck: Array = (chosen["card_ids"] as Array).duplicate()
+	_quest_match = SceneRouter.quest_match
 
-	# The rival drafts a legal deck of a random type from full card access.
-	var rival_owned: Dictionary = {}
-	for card: CardData in GameData.all_cards():
-		rival_owned[card.id] = 2
-	var rival_deck := DeckRules.auto_build(rival_owned, randi_range(0, 3))
+	var rival_deck: Array
+	var level := BattleAI.PROFILES.size() - 1  # free battles face the sharp AI
+	if _quest_match >= 0:
+		rival_deck = QuestRules.build_rival_deck(_quest_match)
+		level = int(QuestRules.quest(_quest_match)["level"])
+	else:
+		# The rival drafts a legal deck of a random type from full card access.
+		var rival_owned: Dictionary = {}
+		for card: CardData in GameData.all_cards():
+			rival_owned[card.id] = 2
+		rival_deck = DeckRules.auto_build(rival_owned, randi_range(0, 3))
 
-	_engine = BattleEngine.new(player_deck, rival_deck, randi())
+	var battle_seed := randi()
+	_ai.configure(level, battle_seed)
+	_engine = BattleEngine.new(player_deck, rival_deck, battle_seed)
 	_log_lines = _engine.log_history.duplicate()  # setup events (coin flip…)
 	_engine.log_line.connect(_on_log_line)
 	_reward_granted = false
 	_trophy_delta = 0
 	%SetupPanel.visible = false
 	%HUD.visible = true
+	%ClaimButton.visible = false
 	_last_turn_owner = _engine.current  # banner waits until after the toss
 	# The opening hand is already dealt, but the deal-in plays only once the
 	# coin panel is out of the way — otherwise it happens behind it.
@@ -618,6 +631,15 @@ func _attack_block_reason(is_active: bool, your_turn: bool) -> String:
 	return "Not enough energy attached"
 
 
+## Pays out a quest match's reward. PlayerData refuses a second claim, so the
+## button only needs to reflect what happened.
+func _on_claim_pressed() -> void:
+	if PlayerData.claim_quest(_quest_match):
+		%ClaimButton.disabled = true
+		%ClaimButton.text = "Claimed  ·  +%d coins" % int(
+			QuestRules.quest(_quest_match)["reward"])
+
+
 func _on_zoom_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		%CardZoom.visible = false
@@ -632,16 +654,33 @@ func _on_zoom_attack(action: Dictionary) -> void:
 
 func _show_result() -> void:
 	var won := _engine.winner == 0
-	%ResultLabel.text = "Victory!" if won else "Defeat"
+	# A quest match pays its own reward, and only when the player claims it —
+	# so the automatic battle coins are skipped for a quest win.
+	var quest_win := won and _quest_match >= 0
+	%ResultLabel.text = "You won!" if won else "Defeat"
 	if not _reward_granted:
 		_reward_granted = true
-		PlayerData.earn_coins(WIN_COINS if won else LOSS_COINS)
+		if quest_win:
+			PlayerData.record_quest_win(_quest_match)
+		else:
+			PlayerData.earn_coins(WIN_COINS if won else LOSS_COINS)
 		# Ranked stakes trophies; practice counts toward quests but not the
 		# ladder. The mode was chosen on the home screen.
 		_trophy_delta = PlayerData.record_battle(won, SceneRouter.battle_ranked)
-	%RewardLabel.text = "+%d coins%s" % [
-		WIN_COINS if won else LOSS_COINS,
-		"" if _trophy_delta == 0 else "  ·  %+d trophies" % _trophy_delta]
+
+	if quest_win:
+		var reward := int(QuestRules.quest(_quest_match)["reward"])
+		var claimed := QuestRules.state_of(_quest_match) == QuestRules.STATE_CLAIMED
+		%RewardLabel.text = "%s beaten  ·  reward %d coins" % [
+			str(QuestRules.quest(_quest_match)["title"]), reward]
+		%ClaimButton.visible = true
+		%ClaimButton.disabled = claimed
+		%ClaimButton.text = "Reward claimed" if claimed else "Claim %d coins" % reward
+	else:
+		%ClaimButton.visible = false
+		%RewardLabel.text = "+%d coins%s" % [
+			WIN_COINS if won else LOSS_COINS,
+			"" if _trophy_delta == 0 else "  ·  %+d trophies" % _trophy_delta]
 	if %ResultPanel.visible:
 		return  # already shown; don't replay the entrance
 	%ResultPanel.visible = true
