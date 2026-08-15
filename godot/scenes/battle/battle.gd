@@ -487,8 +487,9 @@ func _open_card_zoom(dino: DinoInPlay) -> void:
 
 ## Everything lives on the card itself: the energy attached to it sits in the
 ## bottom-left corner, and each attack row and the retreat cell carry an
-## invisible hit target. Nothing is repeated in rows underneath — the card
-## already says what every attack costs and does.
+## invisible hit target. Nothing is repeated around it — no panel frame and
+## no title bar, because the card already prints its own name, HP and what
+## every attack costs and does.
 func _refresh_card_zoom() -> void:
 	if _zoomed == null or not _engine.players[0].dinos_in_play().has(_zoomed):
 		%CardZoom.visible = false
@@ -497,10 +498,6 @@ func _refresh_card_zoom() -> void:
 	var card := _zoomed.card()
 	var is_active := _zoomed == _engine.players[0].active
 	var your_turn := _engine.current == 0 and not _engine.is_over()
-
-	%ZoomTitle.text = "%s  ·  %d / %d HP" % [
-		card.display_name, maxi(0, _engine.max_hp_of(_zoomed) - _zoomed.damage),
-		_engine.max_hp_of(_zoomed)]
 
 	for child in %ZoomFaceBox.get_children():
 		child.queue_free()

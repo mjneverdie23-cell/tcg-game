@@ -483,22 +483,10 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="ZoomBox" type="PanelContainer" parent="UI/Root/CardZoom/ZoomCenter"]
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_panel")
 
-[node name="ZoomColumn" type="VBoxContainer" parent="UI/Root/CardZoom/ZoomCenter/ZoomBox"]
-layout_mode = 2
-theme_override_constants/separation = 10
 
-[node name="ZoomTitle" type="Label" parent="UI/Root/CardZoom/ZoomCenter/ZoomBox/ZoomColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 22
-text = "Dinosaur"
-horizontal_alignment = 1
 
-[node name="ZoomFaceBox" type="CenterContainer" parent="UI/Root/CardZoom/ZoomCenter/ZoomBox/ZoomColumn"]
+[node name="ZoomFaceBox" type="CenterContainer" parent="UI/Root/CardZoom/ZoomCenter"]
 unique_name_in_owner = true
 layout_mode = 2
 
