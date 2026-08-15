@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scenes/battle/battle.gd" id="1"]
 
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://scripts/ui/fan_hand.gd" id="3"]
 
 [ext_resource type="Script" path="res://scripts/ui/energy_orb.gd" id="4"]
+
+[ext_resource type="Script" path="res://scripts/ui/drop_slot.gd" id="5"]
 
 [sub_resource type="Environment" id="Environment_night"]
 background_mode = 1
@@ -322,41 +324,6 @@ theme_override_font_sizes/font_size = 12
 text = "No battle-ready deck — build a legal 23-card deck first."
 horizontal_alignment = 1
 
-[node name="TargetPopup" type="CenterContainer" parent="UI/Root"]
-unique_name_in_owner = true
-visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="TargetBox" type="PanelContainer" parent="UI/Root/TargetPopup"]
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_panel")
-
-[node name="TargetColumn" type="VBoxContainer" parent="UI/Root/TargetPopup/TargetBox"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="TargetTitle" type="Label" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-text = "Choose a target"
-horizontal_alignment = 1
-
-[node name="TargetButtons" type="VBoxContainer" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="TargetCancel" type="Button" parent="UI/Root/TargetPopup/TargetBox/TargetColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Cancel"
-
 [node name="ResultPanel" type="CenterContainer" parent="UI/Root"]
 unique_name_in_owner = true
 visible = false
@@ -460,6 +427,58 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
 text = "End Turn"
+
+[node name="PlaySlot" type="Control" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -105.0
+offset_top = -147.0
+offset_right = 105.0
+offset_bottom = 147.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5")
+
+[node name="ChoicePanel" type="PanelContainer" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -190.0
+offset_top = -238.0
+offset_right = 190.0
+offset_bottom = -186.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBox_panel")
+
+[node name="ChoiceRow" type="HBoxContainer" parent="UI/Root/HUD/ChoicePanel"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="ChoiceLabel" type="Label" parent="UI/Root/HUD/ChoicePanel/ChoiceRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 16
+text = "Choose a dinosaur"
+vertical_alignment = 1
+
+[node name="ChoiceCancel" type="Button" parent="UI/Root/HUD/ChoicePanel/ChoiceRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cancel"
 
 [node name="CardZoom" type="Control" parent="UI/Root"]
 unique_name_in_owner = true

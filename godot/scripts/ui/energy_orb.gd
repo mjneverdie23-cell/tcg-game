@@ -53,15 +53,17 @@ func _gui_input(event: InputEvent) -> void:
 
 ## Tracked here rather than in _gui_input because the pointer leaves the orb
 ## almost immediately — the rest of the gesture happens over the table.
+## Positions come off the events themselves rather than from the pointer:
+## an event always carries where it happened, whoever generated it.
 func _input(event: InputEvent) -> void:
 	if not _dragging:
 		return
 	if event is InputEventMouseMotion:
-		dragged.emit(get_global_mouse_position())
+		dragged.emit((event as InputEventMouseMotion).position)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT \
 			and not event.pressed:
 		_dragging = false
-		dropped.emit(get_global_mouse_position())
+		dropped.emit((event as InputEventMouseButton).position)
 
 
 ## A ball: a rim, a body, and an off-centre specular cap. Concentric discs

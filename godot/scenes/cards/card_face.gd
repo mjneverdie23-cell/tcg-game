@@ -49,6 +49,22 @@ func retreat_cell() -> Control:
 	return _retreat_cell
 
 
+## Makes the whole face invisible to the mouse. A face is always drawn on
+## top of whatever owns it — a hand card that carries a drag gesture, a
+## zoomed card that carries hit targets — and a face that answers the
+## pointer would swallow the very clicks its owner exists to receive.
+## Call after show_card(): the rebuild replaces every child.
+func make_input_transparent() -> void:
+	_ignore_mouse(self)
+
+
+func _ignore_mouse(node: Node) -> void:
+	if node is Control:
+		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in node.get_children():
+		_ignore_mouse(child)
+
+
 func _rebuild() -> void:
 	_attack_rows.clear()
 	_retreat_cell = null

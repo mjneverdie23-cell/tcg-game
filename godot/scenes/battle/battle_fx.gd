@@ -17,12 +17,21 @@ const DRAW_FLIGHT := 0.38
 ## Flight time hand/board -> used pile.
 const DISCARD_FLIGHT := 0.45
 
+## How long the camera takes to push in on a row and to come back out.
+const FOCUS_TIME := 0.4
+
 var _hud: Control
 var _camera: Camera3D
 var _banner: Label
 ## Camera fov authored in the scene — the attack punch returns to exactly
 ## this value instead of a hardcoded one.
 var _base_fov := 46.0
+## Camera pose authored in the scene: the resting view of the whole table,
+## and what release_focus() returns to.
+var _home_view: Transform3D
+## The focus move in flight, killed before another starts so a fast
+## cancel-and-refocus cannot leave two tweens fighting over the camera.
+var _focus_move: Tween = null
 
 
 func setup(hud: Control, camera: Camera3D, banner: Label) -> void:
@@ -30,6 +39,7 @@ func setup(hud: Control, camera: Camera3D, banner: Label) -> void:
 	_camera = camera
 	_banner = banner
 	_base_fov = camera.fov
+	_home_view = camera.transform
 
 
 ## Small card ghost gliding across the HUD — the visual link between a zone
@@ -135,12 +145,36 @@ func screen_of(node: Node3D) -> Vector2:
 func intro_camera() -> void:
 	if Settings.reduced_motion:
 		return
-	var play := _camera.transform
+	var play := _home_view
 	var overview := play
 	overview.origin += Vector3(0, 3.5, 4.0)
 	_camera.transform = overview
 	var tween := create_tween()
 	tween.tween_property(_camera, "transform", play, 1.1) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+## Pushes the camera in until `target` fills the view from `distance` away,
+## keeping the authored viewing angle — used when the player is asked to
+## pick from a row, so the row they are picking from is what they see.
+func focus_point(target: Vector3, distance: float) -> void:
+	# basis.z is the camera's backward axis, so stepping along it from the
+	# target puts the camera in front of it without changing the angle.
+	_move_camera(Transform3D(_home_view.basis, target + _home_view.basis.z * distance))
+
+
+func release_focus() -> void:
+	_move_camera(_home_view)
+
+
+func _move_camera(view: Transform3D) -> void:
+	if _focus_move != null and _focus_move.is_valid():
+		_focus_move.kill()
+	if Settings.reduced_motion:
+		_camera.transform = view
+		return
+	_focus_move = create_tween()
+	_focus_move.tween_property(_camera, "transform", view, FOCUS_TIME) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 

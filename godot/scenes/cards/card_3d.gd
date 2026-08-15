@@ -32,6 +32,9 @@ const MAX_PIPS := 5
 const MODEL_LIFT := 0.06
 ## Travel of the model's idle bob.
 const MODEL_BOB := 0.05
+## Size and strength of the choice halo, relative to the card.
+const HALO_SCALE := 1.24
+const HALO_ALPHA := 0.55
 
 var card_data: CardData = null
 ## Slot transform this card returns to after hover/selection.
@@ -46,6 +49,9 @@ var _info: Label3D
 ## card has no model configured.
 var _model: Node3D = null
 var _idle: Tween = null
+## Choice halo and its breathing tween; both null unless highlighted.
+var _halo: MeshInstance3D = null
+var _halo_pulse: Tween = null
 var _pips: Array[MeshInstance3D] = []
 var _energy_label: Label3D
 var _energy_shown := -1
@@ -134,6 +140,49 @@ func set_selected(on: bool) -> void:
 		return
 	selected = on
 	_settle()
+
+
+## Ring of light around the card, marking it as one of the answers to a
+## question the player is being asked ("which dinosaur do you swap in?").
+## Distinct from set_selected, which is about where the pointer is: a card
+## can be highlighted for a whole choice and selected only while hovered.
+func set_highlighted(on: bool) -> void:
+	if _halo_pulse != null and _halo_pulse.is_valid():
+		_halo_pulse.kill()
+		_halo_pulse = null
+	if not on:
+		if _halo != null:
+			_halo.queue_free()
+			_halo = null
+		return
+	if _halo == null:
+		_halo = MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(WIDTH * HALO_SCALE, HEIGHT * HALO_SCALE)
+		_halo.mesh = quad
+		_halo.material_override = _halo_material()
+		_halo.rotation_degrees = Vector3(-90, 0, 0)
+		_halo.position.y = -0.002  # between the face and the card's own back
+		add_child(_halo)
+	if Settings.reduced_motion:
+		return
+	var material := _halo.material_override as StandardMaterial3D
+	_halo_pulse = _halo.create_tween().set_loops()
+	_halo_pulse.tween_property(material, "albedo_color:a", HALO_ALPHA * 0.35, 0.6) \
+		.set_trans(Tween.TRANS_SINE)
+	_halo_pulse.tween_property(material, "albedo_color:a", HALO_ALPHA, 0.6) \
+		.set_trans(Tween.TRANS_SINE)
+
+
+func _halo_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(CardStyle.GOLD, HALO_ALPHA)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.emission_enabled = true
+	material.emission = CardStyle.GOLD
+	material.emission_energy_multiplier = 0.6
+	return material
 
 
 ## Quick lunge toward `target_position` and back — attack motion.
