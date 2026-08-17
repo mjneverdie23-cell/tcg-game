@@ -7,6 +7,9 @@ a Field Card mechanic (à la Adventure Time Card Wars) as its signature twist.
 
 - **`godot/`** — the go-forward **Godot 4.7** project (GDScript, hybrid
   2D/3D). Open `godot/project.godot` in the Godot editor.
+  [`godot/HANDBOOK.md`](godot/HANDBOOK.md) documents every component and
+  how to change it; [`godot/PLAYING_ONLINE.md`](godot/PLAYING_ONLINE.md)
+  is the guide two players need to connect.
 - root (`src/`, `index.html`, …) — the original **React + TypeScript** web
   prototype the Godot version is migrated from. Its card generator and data
   remain the source of `godot/database/cards.json` via `npm run export:godot`
