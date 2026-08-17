@@ -11,8 +11,11 @@ extends Control
 ## becomes one of three things: drag the card out and drop it on the table
 ## to play it, hold it still to inspect it, or let go where it started —
 ## which plays nothing and only points at where the card could have gone.
-## The fan knows nothing about legal plays; it reports the gesture and the
-## battle screen decides what it meant.
+## The fan knows nothing about legal plays, or even whose turn it is; it
+## reports the gesture and the battle screen decides what it meant. That is
+## deliberate: reading your own cards is something you do while waiting for
+## the other player, so the fan stays alive on their turn too and only what
+## the gesture is allowed to *do* changes.
 ##
 ## The same control serves both players. The rival's hand is face-down and
 ## `inverted`, which flips the arc and the tilt so it hangs from the top of
@@ -45,14 +48,14 @@ const HOVER_SCALE := 1.16
 ## click.
 const DRAG_THRESHOLD := 12.0
 ## Hold a card still this long to inspect it instead of playing it.
-const HOLD_SECONDS := 2.0
+const HOLD_SECONDS := 1.2
 ## A carried card is slightly larger than one sitting in the fan.
 const DRAG_SCALE := 1.05
 ## Draw order while dragging: over every other panel on the HUD.
 const DRAG_Z := 30
 const RETURN_TIME := 0.22
 ## Tint a card reaches at the end of a hold, so the gesture shows progress
-## instead of leaving the player guessing how long two seconds is.
+## rather than leaving the player guessing how long the hold is.
 const HOLD_TINT := Color(1.35, 1.25, 0.85)
 
 ## Face-down hands draw card backs and ignore the mouse entirely.
@@ -63,6 +66,10 @@ var inverted := false
 var _slots: Array[Control] = []
 ## Resting modulate per slot, so the hold tint has something to return to.
 var _tints: Array[Color] = []
+## Which cards are on screen, in order — a change here needs a rebuild.
+var _cards_shown := ""
+## Which of them are playable — a change here is only a change of tint.
+var _playable_shown := ""
 ## Index the mouse is currently over, or -1.
 var _hovered := -1
 ## Index the pointer went down on, or -1 when no gesture is open.
@@ -82,8 +89,23 @@ func _ready() -> void:
 
 
 ## Rebuilds the fan. `cards` may hold nulls for a face-down hand; `playable`
-## maps hand index -> true for cards with a legal play right now.
-func set_hand(cards: Array, playable: Dictionary, interactive: bool) -> void:
+## maps hand index -> true for cards with a legal play right now, which only
+## dims the rest — every face-up card still answers the mouse.
+##
+## Only a change of cards rebuilds the fan. Which cards are playable changes
+## every time the turn does, and rebuilding for that would throw away
+## whatever gesture is in progress — a card being read must not be snatched
+## out of the player's hand because the rival finished their turn.
+func set_hand(cards: Array, playable: Dictionary) -> void:
+	var layout := _layout_signature(cards)
+	var lit := _playable_signature(cards.size(), playable)
+	if layout == _cards_shown:
+		if lit != _playable_shown:
+			_playable_shown = lit
+			_retint(playable)
+		return
+	_cards_shown = layout
+	_playable_shown = lit
 	_end_gesture()
 	for slot in _slots:
 		slot.queue_free()
@@ -91,7 +113,7 @@ func set_hand(cards: Array, playable: Dictionary, interactive: bool) -> void:
 	_tints.clear()
 	_hovered = -1
 	for i in range(cards.size()):
-		var slot := _make_slot(cards[i] as CardData, playable.has(i), interactive, i)
+		var slot := _make_slot(cards[i] as CardData, playable.has(i), i)
 		add_child(slot)
 		_slots.append(slot)
 		_tints.append(slot.modulate)
@@ -136,7 +158,31 @@ func return_card(index: int) -> void:
 	tween.tween_property(slot, "rotation", to_rotation, RETURN_TIME)
 
 
-func _make_slot(card: CardData, is_playable: bool, interactive: bool, index: int) -> Control:
+func _layout_signature(cards: Array) -> String:
+	var parts := PackedStringArray()
+	for card: CardData in cards:
+		parts.append("." if card == null else card.id)
+	return "|".join(parts)
+
+
+func _playable_signature(count: int, playable: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for i in range(count):
+		parts.append("1" if playable.has(i) else "0")
+	return "".join(parts)
+
+
+## Same cards, different dimming. The card in the middle of a gesture keeps
+## whatever tint that gesture is painting on it; _process reads the new
+## resting tint from _tints and carries on from there.
+func _retint(playable: Dictionary) -> void:
+	for i in range(_slots.size()):
+		_tints[i] = Color.WHITE if playable.has(i) else Color(0.62, 0.66, 0.76, 0.85)
+		if i != _pressed:
+			_slots[i].modulate = _tints[i]
+
+
+func _make_slot(card: CardData, is_playable: bool, index: int) -> Control:
 	var size_px := CARD_SIZE * CARD_SCALE
 	# A plain Control, not a Button: every gesture here is hand-rolled, and a
 	# Button would fire `pressed` on release no matter how the card moved in
@@ -146,9 +192,8 @@ func _make_slot(card: CardData, is_playable: bool, interactive: bool, index: int
 	slot.custom_minimum_size = size_px
 	slot.pivot_offset = Vector2(size_px.x * 0.5, size_px.y)  # tilt around the base
 	slot.mouse_filter = (
-		Control.MOUSE_FILTER_STOP if interactive and not face_down
-		else Control.MOUSE_FILTER_IGNORE)
-	if interactive and not face_down:
+		Control.MOUSE_FILTER_IGNORE if face_down else Control.MOUSE_FILTER_STOP)
+	if not face_down:
 		slot.gui_input.connect(_on_slot_input.bind(index))
 		slot.mouse_entered.connect(_on_slot_hover.bind(index, true))
 		slot.mouse_exited.connect(_on_slot_hover.bind(index, false))

@@ -64,7 +64,10 @@ func checksum() -> int:
 func _fingerprint(dino: DinoInPlay) -> Array:
 	if dino == null:
 		return []
-	return [dino.card_id, dino.damage, dino.energy, dino.statuses, dino.turn_entered]
+	return [
+		dino.card_id, dino.damage, dino.energy, dino.statuses,
+		dino.turn_entered, dino.slot,
+	]
 
 
 func _on_action_received(action: Dictionary, their_checksum: int) -> void:

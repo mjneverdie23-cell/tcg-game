@@ -11,6 +11,7 @@ extends Node3D
 ## the player anything to act on.
 
 ## Somebody clicked their own used pile and wants to see what is in it.
+## The battle screen answers with the cards; only it knows whose they are.
 signal used_pile_clicked
 
 ## How far right the piles stand. Solved against the projected pile bounds
@@ -23,8 +24,15 @@ const PILE_X := 2.40
 const DECK_DEPTH := 2.15
 const USED_DEPTH := 0.7
 
+const CARD_FACE_SCENE := preload("res://scenes/cards/card_face.tscn")
+## Thumbnail scale in the used-cards viewer.
+const CARD_SCALE := 0.34
+
 ## "deck0" / "used0" / "deck1" / "used1" -> CardPile3D.
 var _piles: Dictionary = {}
+var _panel: Control
+var _title: Label
+var _grid: GridContainer
 
 
 func build() -> void:
@@ -43,6 +51,30 @@ func build() -> void:
 			if mine:
 				pile.clicked.connect(func(_p: CardPile3D) -> void: used_pile_clicked.emit())
 			_piles["%s%d" % [kind, side]] = pile
+
+
+## The panel the near used pile opens onto.
+func setup_viewer(panel: Control, title: Label, grid: GridContainer) -> void:
+	_panel = panel
+	_title = title
+	_grid = grid
+
+
+## Every card in a discard pile, most recent first.
+func show_viewer(discard: Array) -> void:
+	for child in _grid.get_children():
+		child.queue_free()
+	_title.text = "Used cards — %d" % discard.size()
+	for i in range(discard.size() - 1, -1, -1):
+		var holder := Control.new()
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.custom_minimum_size = CardStyle.BASE_SIZE * CARD_SCALE
+		var face: CardFace = CARD_FACE_SCENE.instantiate()
+		face.scale = Vector2(CARD_SCALE, CARD_SCALE)
+		holder.add_child(face)
+		face.show_card(GameData.get_card(discard[i]))
+		_grid.add_child(holder)
+	_panel.visible = true
 
 
 ## One pile, so the battle screen can fly cards to and from it.

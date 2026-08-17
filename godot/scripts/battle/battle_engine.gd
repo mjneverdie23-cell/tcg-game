@@ -41,6 +41,15 @@ const MIN_OPENING_BASICS := 2
 ## not hold two basics would otherwise mulligan forever.
 const MULLIGAN_ATTEMPTS := 20
 
+## A player is never beaten for an empty Active slot before this turn is
+## past: an unlucky opening is something to draw out of, not something to
+## lose to before anyone has played a card.
+const EMPTY_ACTIVE_GRACE_TURNS := 2
+## Conceding unlocks after this turn. Long enough that a match cannot be
+## thrown away in its opening moments; the point is to leave a battle that
+## is already lost, not to skip one.
+const SURRENDER_TURN := 10
+
 const STATUS_POISONED := "poisoned"
 const STATUS_ASLEEP := "asleep"
 const STATUS_PARALYZED := "paralyzed"
@@ -117,9 +126,15 @@ func get_legal_actions() -> Array[Dictionary]:
 		for i in range(player.hand.size()):
 			var card := GameData.get_card(player.hand[i])
 			if card is DinoCardData and (card as DinoCardData).stage == 1:
-				actions.append({"type": "place_basic", "hand": i})
+				# Slot -1 is the Active place, which is the only one on offer
+				# while it stands empty.
+				actions.append({"type": "place_basic", "hand": i, "slot": -1})
 		if actions.is_empty():
 			actions.append({"type": "end_turn"})  # nothing to field this turn
+		if turn_number > SURRENDER_TURN:
+			# Conceding stays available with an empty Active slot: a player
+			# with nothing left to field is exactly who wants to concede.
+			actions.append({"type": "surrender"})
 		return actions
 
 	if player.energy_budget > 0:
@@ -138,16 +153,33 @@ func get_legal_actions() -> Array[Dictionary]:
 
 	_add_retreat_actions(actions, player)
 	_add_attack_actions(actions, player)
+	if turn_number > SURRENDER_TURN:
+		actions.append({"type": "surrender"})
 	actions.append({"type": "end_turn"})
 	return actions
+
+
+## Bench places nobody is standing in, left to right. The bench array is
+## packed, so this is derived from where its dinosaurs say they stand.
+func free_bench_slots(player: BattlePlayerState) -> Array[int]:
+	var taken: Dictionary = {}
+	for dino: DinoInPlay in player.bench:
+		taken[dino.slot] = true
+	var free: Array[int] = []
+	for slot in range(BENCH_SIZE):
+		if not taken.has(slot):
+			free.append(slot)
+	return free
 
 
 func _add_dino_actions(
 		actions: Array[Dictionary], player: BattlePlayerState,
 		card: DinoCardData, hand_index: int) -> void:
 	if card.stage == 1:
-		if player.bench.size() < BENCH_SIZE:
-			actions.append({"type": "place_basic", "hand": hand_index})
+		# One action per empty bench place: where a dinosaur stands is the
+		# player's to choose, not the order they happened to play them in.
+		for slot: int in free_bench_slots(player):
+			actions.append({"type": "place_basic", "hand": hand_index, "slot": slot})
 		return
 	if turn_number < 2:
 		return
@@ -217,7 +249,7 @@ func apply(action: Dictionary) -> bool:
 		"attach":
 			_do_attach(action["target"])
 		"place_basic":
-			_do_place_basic(action["hand"])
+			_do_place_basic(action["hand"], int(action["slot"]))
 		"evolve":
 			_do_evolve(action["hand"], action["target"])
 		"trainer":
@@ -228,6 +260,8 @@ func apply(action: Dictionary) -> bool:
 			_do_retreat(action["bench"])
 		"attack":
 			_do_attack(action["index"])
+		"surrender":
+			_do_surrender()
 		"end_turn":
 			_end_turn()
 	return true
@@ -242,10 +276,10 @@ func _do_attach(target: int) -> void:
 		_name(current), CardCatalogTypes.TYPE_NAMES[player.element], _card_name(dino.card_id)])
 
 
-func _do_place_basic(hand_index: int) -> void:
+func _do_place_basic(hand_index: int, slot: int) -> void:
 	var player := players[current]
 	var id: String = player.hand.pop_at(hand_index)
-	if player.active == null:
+	if slot < 0:
 		player.active = DinoInPlay.new(id, turn_number)
 		_log("%s sends out %s." % [_name(current), _card_name(id)])
 		if player.environment_id != "":
@@ -253,8 +287,22 @@ func _do_place_basic(hand_index: int) -> void:
 			if (GameData.get_card(id) as DinoCardData).dino_type == env.dino_type:
 				_log("%s's Environment empowers %s!" % [_name(current), _card_name(id)])
 		return
-	player.bench.append(DinoInPlay.new(id, turn_number))
+	var benched := DinoInPlay.new(id, turn_number)
+	benched.slot = slot
+	player.bench.append(benched)
 	_log("%s benches %s." % [_name(current), _card_name(id)])
+
+
+## Trades the Active for a benched dinosaur. The one stepping back takes
+## the place the one stepping up was standing in, so the row never opens a
+## hole and nothing shuffles sideways on the table.
+func _swap_active_with_bench(player: BattlePlayerState, bench_index: int) -> void:
+	var incoming := player.bench[bench_index]
+	var outgoing := player.active
+	outgoing.slot = incoming.slot
+	incoming.slot = -1
+	player.bench[bench_index] = outgoing
+	player.active = incoming
 
 
 func _do_evolve(hand_index: int, target: int) -> void:
@@ -284,9 +332,7 @@ func _do_retreat(bench_index: int) -> void:
 	var player := players[current]
 	player.active.energy -= retreat_cost(current)
 	player.active.clear_statuses()
-	var benched := player.bench[bench_index]
-	player.bench[bench_index] = player.active
-	player.active = benched
+	_swap_active_with_bench(player, bench_index)
 	player.retreated = true
 	_log("%s retreats to %s." % [_name(current), _card_name(player.active.card_id)])
 
@@ -315,10 +361,8 @@ func _do_trainer(hand_index: int, target: int) -> void:
 		"damage-boost":
 			player.damage_boost += int(card.effect["amount"])
 		"switch":
-			var benched := player.bench[target]
-			player.bench[target] = player.active
 			player.active.clear_statuses()
-			player.active = benched
+			_swap_active_with_bench(player, target)
 		"bonus-energy":
 			player.energy_budget += 1
 
@@ -399,8 +443,13 @@ func _begin_turn() -> void:
 	# their last chance to find a replacement — only now can they truly be
 	# said to be unable to promote.
 	if player.active == null and not player.has_basic_in_hand():
-		_log("%s cannot send out a dinosaur — none left in hand!" % _name(current))
-		_declare_winner(opponent_of(current))
+		if turn_number <= EMPTY_ACTIVE_GRACE_TURNS:
+			# Too early to lose a battle nobody has played yet: an opening
+			# hand with no dinosaur in it gets another draw to find one.
+			_log("%s has no dinosaur to send out yet." % _name(current))
+		else:
+			_log("%s cannot send out a dinosaur — none left in hand!" % _name(current))
+			_declare_winner(opponent_of(current))
 
 
 func _end_turn() -> void:
@@ -477,8 +526,15 @@ func _check_ko(defender_index: int) -> void:
 			best = b
 	defender.active = defender.bench[best]
 	defender.bench.remove_at(best)
+	defender.active.slot = -1  # it is standing in the Active place now
 	defender.active.clear_statuses()
 	_log("%s sends out %s." % [_name(defender_index), _card_name(defender.active.card_id)])
+
+
+## Conceding. Only legal from SURRENDER_TURN onward — see get_legal_actions.
+func _do_surrender() -> void:
+	_log("%s surrenders." % _name(current))
+	_declare_winner(opponent_of(current))
 
 
 func _declare_winner(index: int) -> void:

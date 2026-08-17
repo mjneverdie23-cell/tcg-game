@@ -13,6 +13,11 @@ var statuses: Array[String] = []
 ## Turn number this dinosaur entered play (or evolved) — evolution needs one
 ## full turn in play first.
 var turn_entered: int = 0
+## Which bench place this dinosaur stands in, 0 = leftmost; -1 while it is
+## the Active. The bench array itself stays packed — this is where the
+## dinosaur physically is, which is the player's choice and has nothing to
+## do with the order they were played in.
+var slot: int = -1
 
 
 func _init(id: String, entered: int) -> void:

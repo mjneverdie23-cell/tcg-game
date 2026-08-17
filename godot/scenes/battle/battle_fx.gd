@@ -19,10 +19,15 @@ const DISCARD_FLIGHT := 0.45
 
 ## How long the camera takes to push in on a row and to come back out.
 const FOCUS_TIME := 0.4
+## How long a notice stays up before it fades.
+const NOTICE_SECONDS := 1.8
 
 var _hud: Control
 var _camera: Camera3D
 var _banner: Label
+var _notice: Label
+## The notice's resting y, so it can rise into place from below it.
+var _notice_home := 0.0
 ## Camera fov authored in the scene — the attack punch returns to exactly
 ## this value instead of a hardcoded one.
 var _base_fov := 46.0
@@ -34,10 +39,12 @@ var _home_view: Transform3D
 var _focus_move: Tween = null
 
 
-func setup(hud: Control, camera: Camera3D, banner: Label) -> void:
+func setup(hud: Control, camera: Camera3D, banner: Label, notice_label: Label) -> void:
 	_hud = hud
 	_camera = camera
 	_banner = banner
+	_notice = notice_label
+	_notice_home = notice_label.position.y
 	_base_fov = camera.fov
 	_home_view = camera.transform
 
@@ -201,6 +208,28 @@ func hud_entrance(panels: Dictionary) -> void:
 		tween.tween_property(panel, "position", panel.position - offset, 0.45) \
 			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		tween.tween_property(panel, "modulate:a", 1.0, 0.35)
+
+
+## A line that speaks up when the game refuses something, or when something
+## happened that the player did not ask for. Sits above the hand, holds long
+## enough to read, and takes itself away.
+func notice(text: String) -> void:
+	var label: Label = _notice
+	label.text = text
+	if Settings.reduced_motion:
+		label.modulate.a = 1.0
+		var hold := label.create_tween()
+		hold.tween_interval(NOTICE_SECONDS)
+		hold.tween_callback(func() -> void: label.modulate.a = 0.0)
+		return
+	label.modulate.a = 0.0
+	label.position.y = _notice_home + 12.0
+	var tween := label.create_tween()
+	tween.tween_property(label, "modulate:a", 1.0, 0.14)
+	tween.parallel().tween_property(label, "position:y", _notice_home, 0.22) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_interval(NOTICE_SECONDS)
+	tween.tween_property(label, "modulate:a", 0.0, 0.3)
 
 
 ## Big centred announcement whenever the turn changes hands.

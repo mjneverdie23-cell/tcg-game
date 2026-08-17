@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scenes/battle/battle.gd" id="1"]
 
@@ -9,6 +9,8 @@
 [ext_resource type="Script" path="res://scripts/ui/energy_orb.gd" id="4"]
 
 [ext_resource type="Script" path="res://scripts/ui/drop_slot.gd" id="5"]
+
+[ext_resource type="Script" path="res://scripts/ui/coin_flip.gd" id="6"]
 
 [sub_resource type="Environment" id="Environment_night"]
 background_mode = 1
@@ -233,24 +235,20 @@ theme_override_font_sizes/font_size = 22
 text = "Coin Toss"
 horizontal_alignment = 1
 
-[node name="CoinResult" type="Label" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
+[node name="CoinFlip" type="Control" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 150)
 layout_mode = 2
-theme_override_font_sizes/font_size = 38
-text = "HEADS"
-horizontal_alignment = 1
+size_flags_horizontal = 4
+script = ExtResource("6")
 
 [node name="CoinDetail" type="Label" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
 unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0)
 layout_mode = 2
-theme_override_font_sizes/font_size = 15
+theme_override_font_sizes/font_size = 19
 text = "You go first."
 horizontal_alignment = 1
-
-[node name="CoinButton" type="Button" parent="UI/Root/CoinPanel/CoinCenter/CoinBox/CoinColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Begin Battle"
 
 [node name="TurnBanner" type="Label" parent="UI/Root/HUD"]
 unique_name_in_owner = true
@@ -428,6 +426,14 @@ custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
 text = "End Turn"
 
+[node name="SurrenderButton" type="Button" parent="UI/Root/HUD/EnergyDock"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+disabled = true
+text = "Surrender"
+
 [node name="PlaySlot" type="Control" parent="UI/Root/HUD"]
 unique_name_in_owner = true
 visible = false
@@ -479,6 +485,26 @@ vertical_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 text = "Cancel"
+
+[node name="NoticeLabel" type="Label" parent="UI/Root/HUD"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -300.0
+offset_right = 300.0
+offset_bottom = -258.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_font_sizes/font_size = 19
+text = "notice"
+horizontal_alignment = 1
+vertical_alignment = 1
 
 [node name="CardZoom" type="Control" parent="UI/Root"]
 unique_name_in_owner = true

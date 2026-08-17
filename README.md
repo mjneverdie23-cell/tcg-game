@@ -59,9 +59,17 @@ a Field Card mechanic (à la Adventure Time Card Wars) as its signature twist.
 ### Headless tests (require a Godot 4.7 binary)
 
 ```sh
-godot --headless --path godot res://scenes/tests/battle_sim.tscn  # 25 AI-vs-AI games
-godot --headless --path godot res://scenes/tests/pack_sim.tscn    # 400 pack openings
+godot --headless --path godot res://scenes/tests/compile_check.tscn  # every script compiles
+godot --headless --path godot res://scenes/tests/battle_sim.tscn     # 25 AI-vs-AI games
+godot --headless --path godot res://scenes/tests/pack_sim.tscn       # 400 pack openings
 ```
+
+`compile_check` loads every `.gd` in the project with the autoloads
+registered. GDScript is only compiled when something loads it, so a script
+no test happens to touch can carry a broken identifier until a player finds
+it; this turns that into a failing exit code. (`--check-only --script` is
+not a substitute — it runs without autoloads, so every `PlayerData` or
+`GameData` reference reports as undefined.)
 
 ---
 
