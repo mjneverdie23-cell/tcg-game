@@ -65,6 +65,10 @@ a Field Card mechanic (à la Adventure Time Card Wars) as its signature twist.
       terrain across that player's half — lava, turf, sea or open sky, all
       procedural in `field_surface.gdshader`
 
+- [x] **G12 — Turn clock**: a battle nobody is playing does not stall — 67
+      seconds of silence brings up a countdown in the corner, and 45 more
+      passes the turn, doing whatever the rules demand first
+
 ### Headless tests (require a Godot 4.7 binary)
 
 ```sh

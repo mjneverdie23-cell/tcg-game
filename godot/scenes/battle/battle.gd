@@ -80,6 +80,8 @@ var _seat := 0
 @onready var _energy := EnergyDrag.new()
 ## The terrain each Environment lays over its owner's half of the table.
 @onready var _field := FieldSurface.new()
+## Notices a player who has walked away, and eventually passes for them.
+@onready var _afk := AfkWatch.new()
 
 
 func _ready() -> void:
@@ -103,6 +105,9 @@ func _ready() -> void:
 	add_child(_result)
 	_result.setup(%ResultPanel, %ResultLabel, %RewardLabel, %ClaimButton)
 	_result.claimed.connect(_refresh)
+	add_child(_afk)
+	_afk.setup(%TurnClock)
+	_afk.expired.connect(_on_afk_expired)
 	add_child(_link)
 	_link.remote_action.connect(_on_remote_action)
 	_link.desynced.connect(_stop_match)
@@ -636,6 +641,7 @@ func _refresh() -> void:
 		"Drag onto one of your dinosaurs" if can_attach
 		else "%s energy already attached this turn" % CardStyle.type_display_name(you.element))
 	_prompt_for_environment(your_turn)
+	_afk.set_active(your_turn)
 	if _zoom.is_open():
 		_zoom.refresh()
 	var tail := mini(4, _log_lines.size())
@@ -716,6 +722,22 @@ func _on_zoom_attack(action: Dictionary) -> void:
 	_apply_player_action(action)
 
 
+## The turn ran out while nobody was there. Anything the rules insist on
+## first — laying the ground, sending out an Active — is done for them,
+## because a player who walks away should lose their turn and not the
+## battle; then the turn is passed.
+func _on_afk_expired() -> void:
+	if _engine == null or _engine.is_over() or _engine.current != _seat:
+		return
+	_fx.notice("Turn skipped — nobody was there.")
+	for step in range(1 + BattleEngine.BENCH_SIZE):
+		var actions := _engine.get_legal_actions()
+		if actions.any(func(action: Dictionary) -> bool: return action["type"] == "end_turn"):
+			break
+		_apply_player_action(actions[0])  # under a gate, the forced move
+	_apply_player_action({"type": "end_turn"})
+
+
 ## Why the game just refused something the player tried. The empty Active
 ## slot is the one that actually catches people out: nothing else can happen
 ## until a dinosaur is standing there, and ending the turn is not a way out.
@@ -789,34 +811,21 @@ func _sync_piles() -> void:
 	# visible as cards leaving their deck.
 	var drawn := _previous_deck_sizes[1] - _foe().deck.size()
 	for i in range(mini(drawn, MAX_DRAW_GHOSTS)):
-		_fx.fly(null, _fx.screen_of(_piles.pile(1, "deck")), _rival_hand_anchor(),
+		_fx.fly(null, _fx.screen_of(_piles.pile(1, "deck")), _fx.rival_hand_anchor(),
 			BattleFx.DRAW_FLIGHT, i * 0.09)
 	_previous_deck_sizes[0] = _me().deck.size()
 	_previous_deck_sizes[1] = _foe().deck.size()
-
-
-## Where the rival's (hidden) hand conceptually sits — top centre of screen.
-func _rival_hand_anchor() -> Vector2:
-	return Vector2(%HUD.size.x * 0.5, 30.0)
 
 
 ## Where a card being played leaves from: the real card in your fan for
 ## your own plays, the opponent's unseen hand for theirs.
 func _hand_origin(owner: int, hand_index: int) -> Vector2:
 	if owner != _seat:
-		return _rival_hand_anchor()
+		return _fx.rival_hand_anchor()
 	var slot: Control = %Hand.slot_at(hand_index)
 	if slot != null:
 		return slot.get_global_rect().get_center()
 	return %Hand.get_global_rect().get_center()
-
-
-## A card leaving the hand or the table lands on its owner's used pile.
-## `owner` is an engine player index; the pile it flies to is on that
-## player's half of the table.
-func _fly_to_used(card: CardData, from: Vector2, owner: int) -> void:
-	var pile := _piles.pile(_table_side(owner), "used")
-	_fx.fly(card, from, _fx.screen_of(pile), BattleFx.DISCARD_FLIGHT, 0.0, _fx.pile_thump.bind(pile))
 
 
 ## Mirrors engine state onto the 3D table: spawns Card3D nodes for new
@@ -852,7 +861,8 @@ func _sync_board() -> void:
 	for dino: DinoInPlay in _card_nodes.keys():
 		if not alive.has(dino):
 			var node := _card_nodes[dino] as Card3D
-			_fly_to_used(dino.card(), _fx.screen_of(node), int(_card_sides.get(dino, 0)))
+			_piles.fly_to_used(_fx, dino.card(), _fx.screen_of(node),
+				_table_side(int(_card_sides.get(dino, 0))))
 			node.vanish()
 			_card_nodes.erase(dino)
 			_card_sides.erase(dino)
@@ -939,19 +949,20 @@ func _animate_action(action: Dictionary, owner: int) -> void:
 				card3d.flash(Color("ffd166") if action["type"] == "attach" else Color("6fd98a"))
 			if action["type"] == "evolve":
 				# The pre-evolution card is used up as the new stage lands.
-				_fly_to_used(dino.card(), _fx.screen_of(_card_nodes.get(dino) as Node3D), owner)
+				_piles.fly_to_used(_fx, dino.card(),
+					_fx.screen_of(_card_nodes.get(dino) as Node3D), _table_side(owner))
 		"trainer":
 			# Healing and draw effects read on the active dinosaur.
 			if _card_nodes.has(player.active):
 				(_card_nodes[player.active] as Card3D).flash(Color("6fd98a"))
 			# Spells and Supports are spent the moment they resolve.
-			_fly_to_used(GameData.get_card(player.hand[int(action["hand"])]),
-				_hand_origin(owner, int(action["hand"])), owner)
+			_piles.fly_to_used(_fx, GameData.get_card(player.hand[int(action["hand"])]),
+				_hand_origin(owner, int(action["hand"])), _table_side(owner))
 		"environment":
 			# Setting an Environment discards the one it replaces.
 			if player.environment_id != "":
-				_fly_to_used(GameData.get_card(player.environment_id),
-					_fx.screen_of(_env_nodes[owner] as Node3D), owner)
+				_piles.fly_to_used(_fx, GameData.get_card(player.environment_id),
+					_fx.screen_of(_env_nodes[owner] as Node3D), _table_side(owner))
 
 
 ## Your own dinosaurs open the action zoom — energy, attacks and retreat.

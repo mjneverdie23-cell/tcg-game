@@ -48,7 +48,7 @@ const HOVER_SCALE := 1.16
 ## click.
 const DRAG_THRESHOLD := 12.0
 ## Hold a card still this long to inspect it instead of playing it.
-const HOLD_SECONDS := 1.2
+const HOLD_SECONDS := 0.9
 ## A carried card is slightly larger than one sitting in the fan.
 const DRAG_SCALE := 1.05
 ## Draw order while dragging: over every other panel on the HUD.

@@ -141,6 +141,11 @@ func _launch_draw_ghost(button: Control, delay: float, from: Vector2) -> void:
 	fly(null, from, button.get_global_rect().get_center(), DRAW_FLIGHT, delay)
 
 
+## Where the opponent's (hidden) hand conceptually sits — top centre.
+func rival_hand_anchor() -> Vector2:
+	return Vector2(_hud.size.x * 0.5, 30.0)
+
+
 ## Viewport position of a board card, so 3D cards can hand off to 2D piles.
 func screen_of(node: Node3D) -> Vector2:
 	if node == null or not is_instance_valid(node):

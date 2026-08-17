@@ -82,6 +82,14 @@ func pile(side: int, kind: String) -> CardPile3D:
 	return _piles["%s%d" % [kind, side]]
 
 
+## Flies a card onto one side's used pile and bumps the pile as it lands —
+## the visual link between where a card was and where it ended up.
+func fly_to_used(fx: BattleFx, card: CardData, from: Vector2, side: int) -> void:
+	var target := pile(side, "used")
+	fx.fly(card, from, fx.screen_of(target), BattleFx.DISCARD_FLIGHT, 0.0,
+		fx.pile_thump.bind(target))
+
+
 func set_counts(side: int, deck: int, used: int) -> void:
 	pile(side, "deck").set_count(deck)
 	pile(side, "used").set_count(used)

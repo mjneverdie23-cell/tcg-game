@@ -96,7 +96,7 @@ godot/
 │   ├── shop/  packs/        coins and pack opening
 │   ├── online/              versus-player lobby
 │   ├── cards/               card face, 3D card, pile, full-screen viewer
-│   ├── battle/              the battle screen and its eight helpers
+│   ├── battle/              the battle screen and its nine helpers
 │   │   └── field_surface.gdshader   the terrain each Environment lays down
 │   └── tests/               headless test scenes
 ├── HANDBOOK.md              this file
@@ -453,6 +453,7 @@ crisp at any window size. All are reusable `Control`s.
 | `ArenaBadge` | The hexagonal arena plaque | `arena_number`, `arena_name` |
 | `QuestPath` | The four quest nodes and the trail between them | `NODE_RADIUS` |
 | `FanHand` | A hand of cards in an arc, and every gesture on it | `CARD_SCALE`, `HOLD_SECONDS`, `MAX_SPREAD`, `HOVER_LIFT` |
+| `TurnClock` | The countdown dial that appears when a player stops playing | `URGENT_SECONDS`, `RING_WIDTH` |
 | `EnergyOrb` | The energy ball | `color`, `spent` |
 | `DropSlot` | The hollow dashed frame in the middle of the table | `DASH`, `GAP`, `active` |
 | `CoinFlip` | The opening coin toss | `SPIN_TIME`, `HALF_TURNS`, `HOLD_TIME` |
@@ -484,6 +485,7 @@ that owns one of them:
 | `battle_result.gd` | `BattleResult` | The closing panel — and the only place a battle pays out |
 | `battle_link.gd` | `BattleLink` | Keeping an online match in step with the opponent's |
 | `field_surface.gd` | `FieldSurface` | The terrain an Environment lays over its owner's half |
+| `afk_watch.gd` | `AfkWatch` | Noticing a player who has walked away, and passing for them |
 
 ### Seats: "you" is not always player 0
 
@@ -532,6 +534,21 @@ UVs, so nothing depends on how a `PlaneMesh` happens to lay them out.
 The maths was prototyped in Python and rendered as images before being
 written as GLSL — the frequencies and thresholds in the shader are the ones
 that were actually looked at.
+
+### Walking away
+
+`AfkWatch` runs only on your own turn. Nothing appears while you are
+thinking — a clock that starts ticking the moment your turn does is a clock
+you cannot take your time under — so it waits `GRACE_SECONDS` (67) of no
+input **at all** before the `TurnClock` appears in the top-right corner and
+counts `COUNTDOWN_SECONDS` (45) down to zero. Any event whatsoever, a mouse
+move included, hides it and puts the whole wait back to the start: somebody
+reading their cards is not away.
+
+At zero the turn is passed. Anything the rules insist on first — laying the
+ground, sending out an Active — is done for the absent player before the
+pass, because walking away should cost a turn and not the battle. The skip
+is an ordinary `end_turn`, so online it relays like any other move.
 
 ### The dinosaur choice
 
@@ -613,7 +630,9 @@ Each recipe names the file, the symbol, and anything that changes with it.
 
 | I want to… | Do this |
 |---|---|
-| **Change hold-to-read time** | `FanHand.HOLD_SECONDS` (1.2 s) |
+| **Change hold-to-read time** | `FanHand.HOLD_SECONDS` (0.9 s) |
+| **Change the idle timings** | `AfkWatch.GRACE_SECONDS` (silence before the clock appears) and `COUNTDOWN_SECONDS` (how long it then runs). A player has the sum of the two before a turn is passed |
+| **Change the clock's look** | `TurnClock` — `URGENT_SECONDS` is when it turns red and starts pulsing, `CALM` / `URGENT` are the two colours. Move it by editing `%TurnClock`'s anchors in `battle.tscn` |
 | **Make cards easier/harder to drag** | `FanHand.DRAG_THRESHOLD` (pixels before a press becomes a drag) |
 | **Change the hand's fan shape** | `FanHand.MAX_SPREAD` (tilt), `ARC_DEPTH` (curve), `MAX_STEP` (spacing), `HOVER_LIFT`, `CARD_SCALE` |
 | **Speed up or slow down the AI's turn** | `scenes/battle/battle.gd` → `AI_ACTION_DELAY`, `ATTACK_SETTLE_DELAY` |
