@@ -59,6 +59,12 @@ a Field Card mechanic (à la Adventure Time Card Wars) as its signature twist.
       move against each other. See
       [`godot/PLAYING_ONLINE.md`](godot/PLAYING_ONLINE.md).
 
+- [x] **G11 — Environments in hand**: the Environment is dealt rather than
+      auto-played and is the first card either player lays, prompted by a
+      breathing outline in its own place on the table; laying it sweeps
+      terrain across that player's half — lava, turf, sea or open sky, all
+      procedural in `field_surface.gdshader`
+
 ### Headless tests (require a Godot 4.7 binary)
 
 ```sh

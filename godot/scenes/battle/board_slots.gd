@@ -26,6 +26,12 @@ const MARKER_SCALE := 1.06
 ## Just above the table surface, under the cards themselves.
 const MARKER_HEIGHT := 0.155
 
+## The Environment's place on each half, addressed as a slot beyond the
+## bench so the drag-and-drop can aim at it like any other. It sits off to
+## the left of the rows, where the Environment card stands.
+const ENV_PLACE := 1 + BattleEngine.BENCH_SIZE
+const ENV_POSITION := Vector3(-3.6, 0.18, 0.7)
+
 ## "side:index" -> MeshInstance3D.
 var _markers: Dictionary = {}
 ## "side:index" -> the looping Tween lighting it, so it can be stopped.
@@ -37,7 +43,9 @@ var _pulses: Dictionary = {}
 static func transform_for(side: int, play_index: int) -> Transform3D:
 	var forward := 1.0 if side == 0 else -1.0
 	var position: Vector3
-	if play_index == 0:
+	if play_index == ENV_PLACE:
+		position = Vector3(ENV_POSITION.x, ENV_POSITION.y, ENV_POSITION.z * forward)
+	elif play_index == 0:
 		position = Vector3(0, 0.18, 0.7 * forward)
 	else:
 		position = Vector3(-1.25 + (play_index - 1) * 1.25, 0.18, 2.15 * forward)
@@ -50,7 +58,7 @@ func build() -> void:
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2(Card3D.WIDTH * MARKER_SCALE, Card3D.HEIGHT * MARKER_SCALE)
 	for side in range(2):
-		for slot in range(1 + BattleEngine.BENCH_SIZE):
+		for slot in range(ENV_PLACE + 1):
 			var marker := MeshInstance3D.new()
 			marker.mesh = mesh
 			marker.material_override = _marker_material(float(ALPHA[OFF]))
@@ -84,7 +92,7 @@ func highlight(side: int, index: int, level: int) -> void:
 
 func clear_highlights() -> void:
 	for side in range(2):
-		for slot in range(1 + BattleEngine.BENCH_SIZE):
+		for slot in range(ENV_PLACE + 1):
 			highlight(side, slot, OFF)
 
 

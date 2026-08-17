@@ -59,6 +59,11 @@ var _attacks_made := 0
 ## priority order; the first non-empty candidate wins.
 func choose_action(engine: BattleEngine) -> Dictionary:
 	var actions := engine.get_legal_actions()
+	# The Environment is set before anything else can happen.
+	if engine.players[engine.current].environment_id == "":
+		var setup := _pick_environment(engine, actions)
+		if not setup.is_empty():
+			return setup
 	# With an empty Active slot, fielding one is the only legal move.
 	if engine.players[engine.current].active == null:
 		return _pick_opening_active(engine, actions)
@@ -113,6 +118,28 @@ func _pick_idle_retreat(engine: BattleEngine, actions: Array[Dictionary]) -> Dic
 
 ## The opening Active: prefer a basic matching our Environment (its passive
 ## buff only applies to a matching Active), then the toughest body.
+## The Environment to lay down, preferring the one whose type the most
+## dinosaurs in hand will actually benefit from. Empty when there is none to
+## place, which is also how the caller knows to move on.
+func _pick_environment(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
+	var me := engine.players[engine.current]
+	var best: Dictionary = {}
+	var best_matches := -1
+	for action: Dictionary in actions:
+		if action["type"] != "environment":
+			continue
+		var env := GameData.get_card(me.hand[int(action["hand"])]) as FieldCardData
+		var matches := 0
+		for id: String in me.hand:
+			var card := GameData.get_card(id)
+			if card is DinoCardData and (card as DinoCardData).dino_type == env.dino_type:
+				matches += 1
+		if matches > best_matches:
+			best_matches = matches
+			best = action
+	return best
+
+
 func _pick_opening_active(engine: BattleEngine, actions: Array[Dictionary]) -> Dictionary:
 	var me := engine.players[engine.current]
 	var env_type := -1

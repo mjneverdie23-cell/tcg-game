@@ -56,6 +56,8 @@ var _choice: Dictionary = {}
 var _quest_match := -1
 ## Surrender has been pressed once and is waiting to be confirmed.
 var _surrender_armed := false
+## The "lay your Environment" notice has been shown for this battle.
+var _env_prompted := false
 ## Which engine player the person at this screen is. Always 0 offline; an
 ## online guest sits in seat 1, and every "you" below follows this rather
 ## than assuming the near row belongs to player 0.
@@ -76,6 +78,8 @@ var _seat := 0
 @onready var _link := BattleLink.new()
 ## The energy well, and the gesture that carries it onto a dinosaur.
 @onready var _energy := EnergyDrag.new()
+## The terrain each Environment lays over its owner's half of the table.
+@onready var _field := FieldSurface.new()
 
 
 func _ready() -> void:
@@ -88,6 +92,8 @@ func _ready() -> void:
 	_slots.build()
 	_board.add_child(_piles)
 	_piles.build()
+	_board.add_child(_field)
+	_field.build()
 	_piles.setup_viewer(%UsedPanel, %UsedTitle, %UsedGrid)
 	_piles.used_pile_clicked.connect(func() -> void: _piles.show_viewer(_me().discard))
 	add_child(_zoom)
@@ -222,6 +228,9 @@ func _begin_battle(deck_a: Array, deck_b: Array, battle_seed: int, my_seat: int)
 	_engine.log_line.connect(_on_log_line)
 	_energy.attach(_engine, my_seat)
 	_result.reset()
+	_env_prompted = false
+	_field.clear(0)
+	_field.clear(1)
 	%SetupPanel.visible = false
 	%HUD.visible = true
 	_last_turn_owner = _engine.current  # banner waits until after the toss
@@ -369,6 +378,7 @@ func _on_hand_dropped(index: int, at: Vector2) -> void:
 	# takes it out of the hand on the very next refresh, and a card that is
 	# not played must never be left hanging where it was dropped.
 	%Hand.return_card(index)
+	_prompt_for_environment(_engine.current == _seat)
 	if hit == -1:
 		if targets.is_empty() and _engine.current == _seat:
 			_fx.notice("There is nowhere to play that card right now.")
@@ -439,6 +449,10 @@ func _targets_for(hand_index: int) -> Array:
 				var slot := _play_index_of(_dino_of_action(action))
 				if slot != -1:
 					by_slot[slot] = [action]
+			"environment":
+				# The ground goes down in its own place beside the rows,
+				# not into the middle with the Spells.
+				by_slot[BoardSlots.ENV_PLACE] = [action]
 			_:
 				centre.append(action)
 	var targets: Array = []
@@ -621,6 +635,7 @@ func _refresh() -> void:
 	%EnergyOrb.tooltip_text = (
 		"Drag onto one of your dinosaurs" if can_attach
 		else "%s energy already attached this turn" % CardStyle.type_display_name(you.element))
+	_prompt_for_environment(your_turn)
 	if _zoom.is_open():
 		_zoom.refresh()
 	var tail := mini(4, _log_lines.size())
@@ -670,6 +685,20 @@ func _fill_hand(your_turn: bool) -> void:
 			_fx.deal_in(%Hand.slot_at(i), dealt, _fx.screen_of(_piles.pile(0, "deck")))
 			dealt += 1
 	_previous_hand = you.hand.duplicate()
+
+
+## The Environment is the first card of the battle, and an empty place beside
+## the rows is easy to miss — so it breathes until it is filled, and says so
+## once. Called from the refresh and after any drop, because ending a drag
+## darkens every target it was lighting, this one included.
+func _prompt_for_environment(your_turn: bool) -> void:
+	var wanted := your_turn and _me().environment_id == "" \
+		and _me().has_environment_in_hand()
+	_slots.highlight(0, BoardSlots.ENV_PLACE,
+		BoardSlots.LEGAL if wanted else BoardSlots.OFF)
+	if wanted and not _env_prompted:
+		_env_prompted = true
+		_fx.notice("Lay your Environment — it is the ground you fight on.")
 
 
 ## Energy dropped on one of your dinosaurs, or on nothing.
@@ -859,18 +888,24 @@ func _sync_environments() -> void:
 		if env_id == "":
 			continue
 		var card := GameData.get_card(env_id)
-		var forward := 1.0 if _table_side(owner) == 0 else -1.0
+		var side := _table_side(owner)
+		var home := BoardSlots.transform_for(side, BoardSlots.ENV_PLACE)
 		if node == null:
 			node = Card3D.new()
 			node.card_data = card
 			_board.add_child(node)
-			node.transform = Transform3D(Basis.IDENTITY, Vector3(-4.6, 0.18, 0.7 * forward))
+			var enter := home
+			enter.origin.x -= 1.0  # slides in from off the table's edge
+			node.transform = enter
 			node.clicked.connect(_on_board_card_clicked)
-			node.move_home(Transform3D(Basis.IDENTITY, Vector3(-3.6, 0.18, 0.7 * forward)))
+			node.move_home(home)
 			_env_nodes[owner] = node
+			_field.sweep(side, (card as FieldCardData).dino_type, home.origin)
 		elif node.card_data != card:
 			node.show_card(card)
 			node.pulse()
+			# New ground sweeps over the old, from the same place.
+			_field.sweep(side, (card as FieldCardData).dino_type, home.origin)
 
 
 ## Fire-and-forget presentation for an action about to be applied, by

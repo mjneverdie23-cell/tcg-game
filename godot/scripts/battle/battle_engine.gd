@@ -99,7 +99,6 @@ func _init(deck_a: Array, deck_b: Array, seed_value: int) -> void:
 
 	for index in range(2):
 		_draw_opening_hand(players[index])
-		_auto_setup(players[index], index)
 	_begin_turn()
 
 
@@ -120,6 +119,16 @@ func get_legal_actions() -> Array[Dictionary]:
 	if is_over():
 		return actions
 	var player := players[current]
+
+	# The Environment goes down before anything else: it is the ground the
+	# battle is fought on, and both players set theirs on their first turn.
+	# Gated on actually holding one — a hand that drew none must still be
+	# playable, and can set one whenever it turns up.
+	if player.environment_id == "" and player.has_environment_in_hand():
+		for i in range(player.hand.size()):
+			if GameData.get_card(player.hand[i]) is FieldCardData:
+				actions.append({"type": "environment", "hand": i})
+		return actions
 
 	# A player with an empty Active slot must field a dinosaur first.
 	if player.active == null:
@@ -148,6 +157,8 @@ func get_legal_actions() -> Array[Dictionary]:
 		elif card is TrainerCardData:
 			_add_trainer_actions(actions, player, card as TrainerCardData, i)
 		elif card is FieldCardData and turn_number >= 2:
+			# Replacing one already down; the first is handled by the gate
+			# at the top, which is legal on any turn.
 			if (card as FieldCardData).id != player.environment_id:
 				actions.append({"type": "environment", "hand": i})
 
@@ -621,35 +632,6 @@ func _draw_opening_hand(player: BattlePlayerState) -> void:
 
 func _hand_is_playable(player: BattlePlayerState) -> bool:
 	return player.has_basic_in_hand() and player.has_environment_in_hand()
-
-
-## Setup places only this player's Environment — preferring the one whose
-## type matches the most basics in hand. Dinosaurs, including the Active,
-## are fielded by their owner on their own turn.
-func _auto_setup(player: BattlePlayerState, index: int) -> void:
-	var environments: Array[String] = []
-	var basics: Array[String] = []
-	for id: String in player.hand:
-		var card := GameData.get_card(id)
-		if card is FieldCardData:
-			environments.append(id)
-		elif card is DinoCardData and (card as DinoCardData).stage == 1:
-			basics.append(id)
-
-	var best_env := environments[0]
-	var best_matches := -1
-	for env_id: String in environments:
-		var env := GameData.get_card(env_id) as FieldCardData
-		var matches := 0
-		for id: String in basics:
-			if (GameData.get_card(id) as DinoCardData).dino_type == env.dino_type:
-				matches += 1
-		if matches > best_matches:
-			best_matches = matches
-			best_env = env_id
-	player.environment_id = best_env
-	player.hand.erase(best_env)
-	_log("%s sets Environment: %s." % [_name(index), _card_name(best_env)])
 
 
 func _search_basic_dino(player: BattlePlayerState) -> void:

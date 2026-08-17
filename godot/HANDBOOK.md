@@ -96,7 +96,8 @@ godot/
 │   ├── shop/  packs/        coins and pack opening
 │   ├── online/              versus-player lobby
 │   ├── cards/               card face, 3D card, pile, full-screen viewer
-│   ├── battle/              the battle screen and its seven helpers
+│   ├── battle/              the battle screen and its eight helpers
+│   │   └── field_surface.gdshader   the terrain each Environment lays down
 │   └── tests/               headless test scenes
 ├── HANDBOOK.md              this file
 └── PLAYING_ONLINE.md        how two people connect
@@ -240,7 +241,7 @@ right now for `current`:
 | Field a basic | `{"type": "place_basic", "hand": i, "slot": -1 or 0..2}` |
 | Evolve | `{"type": "evolve", "hand": i, "target": -1 or bench index}` |
 | Play a Trainer | `{"type": "trainer", "hand": i}` (+ `"target"` for `switch`) |
-| Set an Environment | `{"type": "environment", "hand": i}` |
+| Lay an Environment | `{"type": "environment", "hand": i}` |
 | Retreat | `{"type": "retreat", "bench": b}` |
 | Attack | `{"type": "attack", "index": a}` |
 | Concede | `{"type": "surrender"}` |
@@ -250,6 +251,12 @@ right now for `current`:
 `0..2` are the bench places left to right. The bench array stays packed;
 each `DinoInPlay` remembers its `slot`, which is why a dinosaur can be
 benched anywhere and never shuffles sideways afterwards.
+
+**The opening.** The Environment is dealt into the opening hand (the
+mulligan guarantees one) and is the first card either player lays: while
+your Environment place is empty and you are holding one, it is the *only*
+legal move. Your Active dinosaur goes down next, under the same kind of
+gate. So a battle opens: lay the ground, send out a dinosaur, then play.
 
 **The turn.** Draw → attach one energy → play cards → attack once → end.
 Turn 1 withholds attacks and Supports, nothing else. Losing your last
@@ -476,6 +483,7 @@ that owns one of them:
 | `energy_drag.gd` | `EnergyDrag` | Carrying energy from its well onto a dinosaur |
 | `battle_result.gd` | `BattleResult` | The closing panel — and the only place a battle pays out |
 | `battle_link.gd` | `BattleLink` | Keeping an online match in step with the opponent's |
+| `field_surface.gd` | `FieldSurface` | The terrain an Environment lays over its owner's half |
 
 ### Seats: "you" is not always player 0
 
@@ -507,6 +515,23 @@ helpers exist to prevent.
    action → apply it. Several → the card returns to the fan and a
    **dinosaur choice** opens.
 5. A drop on nothing returns the card to the fan, having cost nothing.
+
+### The ground
+
+`FieldSurface` owns two planes, one per half of the table, invisible until
+that player lays an Environment. Laying one sends a wave out from the card
+across that half, leaving terrain behind it — lava for carnivores, turf for
+herbivores, open sky for pterosaurs, sea for amphibians. Replacing an
+Environment sweeps the new ground over the old from the same place.
+
+All four patterns are procedural, in `field_surface.gdshader`: value noise
+and sine fields, no textures. The wave is measured in real table units from
+the card's own position, taken from the plane's model space rather than its
+UVs, so nothing depends on how a `PlaneMesh` happens to lay them out.
+
+The maths was prototyped in Python and rendered as images before being
+written as GLSL — the frequencies and thresholds in the shader are the ones
+that were actually looked at.
 
 ### The dinosaur choice
 
@@ -607,6 +632,9 @@ Each recipe names the file, the symbol, and anything that changes with it.
 | **Recolour the whole app** | `MenuStyle` — `ACCENT`, `PANEL`, `PANEL_SOFT`, `EDGE`, `TEXT`, `BG_TOP`/`BG_BOTTOM` |
 | **Recolour cards** | `CardStyle` — `TYPE_COLORS` (per dinosaur type), `RARITY_COLORS`, `SURFACE`, `GOLD` |
 | **Change a card's layout** | `CardFace._rebuild()`. Every card in the game is drawn by this one function |
+| **Change a terrain's look** | `field_surface.gdshader` → `lava()`, `grass()`, `wind()`, `ocean()`. Each is self-contained: colours are literal `vec3`s, and the numbers are frequencies |
+| **Change which terrain a type gets** | `FieldSurface.THEMES` (dinosaur type → theme) and `RIM_COLORS` (the colour of the wave front) |
+| **Change the sweep speed** | `FieldSurface.SWEEP_TIME`; the wave's shape is `reach`, `softness` and `rim_width` in the shader |
 | **Change button or panel styling** | `MenuStyle.style_button()`, `style_tab()`, `style_pill()`, `panel()` |
 | **Change the tab bar** | `NavBar.TABS` — screen name, label and icon per tab. Add an entry and a `SceneRouter.SCREENS` route and the bar builds itself |
 | **Add a tab-bar icon** | Add a constant to `NavIcon`, then a branch in its `_draw()` |
@@ -630,6 +658,7 @@ Each recipe names the file, the symbol, and anything that changes with it.
 Three headless scenes, no editor needed:
 
 ```sh
+python3 tools/check_shaders.py                                       # every shader compiles
 godot --headless --path godot res://scenes/tests/compile_check.tscn  # every script compiles
 godot --headless --path godot res://scenes/tests/battle_sim.tscn     # 25 AI-vs-AI games
 godot --headless --path godot res://scenes/tests/pack_sim.tscn       # 400 pack openings
@@ -642,6 +671,13 @@ will not catch it either — they check syntax and style, not names.
 
 `battle_sim` is the one to run after any engine or AI change: it asserts
 every game terminates legally.
+
+**Shaders are not checked by any of that.** Headless Godot has no renderer,
+so it never compiles shader code at all — a shader with a syntax error
+loads without a word and fails only on a machine with a GPU.
+`tools/check_shaders.py` rewrites the Godot-specific preamble into plain
+GLSL and hands the body to `glslangValidator`, which is a real compiler.
+It needs `glslang-tools` installed (`apt install glslang-tools`).
 
 To test something interactively without clicking through the game, add a
 temporary autoload that drives the real screens with real input events —
@@ -668,3 +704,5 @@ you spend the same hours.
 | **`autowrap_mode` with no pinned width** | Inflates the control's minimum height enormously, and it silently swallows clicks meant for whatever is behind it |
 | **3D picking is off by default** | `Area3D` hover and click never fire until `get_viewport().physics_object_picking = true` |
 | **Tearing down a network peer in its own callback** | `peer_disconnected` is raised from inside the multiplayer poll; closing the connection there frees what the poll is still walking. Defer it (`call_deferred`) |
+| **Reserved words in shaders** | Godot's shader language accepts names that the GLSL it compiles to reserves — `noise2`, `patch` and friends. Both were in the first draft of the field shader and both would have failed on a real GPU. `tools/check_shaders.py` catches them |
+| **Un-normalised fbm** | Four octaves at halving amplitude never reach 0 or 1, so every `smoothstep` threshold taken against it lands somewhere other than intended. Divide by the sum of the amplitudes |
