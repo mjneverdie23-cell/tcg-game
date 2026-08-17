@@ -22,6 +22,7 @@ Settings="*res://autoload/settings.gd"
 GameData="*res://autoload/game_data.gd"
 PlayerData="*res://autoload/player_data.gd"
 SceneRouter="*res://autoload/scene_router.gd"
+Net="*res://autoload/net.gd"
 
 [display]
 

@@ -45,6 +45,16 @@ a Field Card mechanic (à la Adventure Time Card Wars) as its signature twist.
       effects live, KO re-check on field swaps, auto-build slots a field
 - [x] **G8 — Demo completion**: shop with daily free pack (24 h) and
       premium pack, simple pack opening with duplicate protection
+- [x] **G9 — Quest matches**: four AI rivals on the battle tab, each
+      unlocked by beating the one before and paying 100/120/150/200 coins
+      on a Claim button; difficulty is expressed as beginner mistakes the
+      rival stops making rather than as stat bonuses
+- [x] **G10 — Versus player**: two copies of the game play each other over
+      the network. The host opens a port (via UPnP where the router allows
+      it), the guest types the address, and from then on only moves cross
+      the wire — both sides run the same seeded engine and checksum every
+      move against each other. See
+      [`godot/PLAYING_ONLINE.md`](godot/PLAYING_ONLINE.md).
 
 ### Headless tests (require a Godot 4.7 binary)
 

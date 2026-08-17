@@ -30,6 +30,10 @@ var _root: Control
 var _face_box: Control
 var _engine: BattleEngine = null
 var _dino: DinoInPlay = null
+## Engine index of the player whose card this is — 0 offline, 1 for an
+## online guest. The zoom only ever shows your own dinosaurs, so this is
+## also whose turn it has to be for any of the buttons to work.
+var _seat := 0
 
 
 ## `backdrop` dismisses the zoom when clicked — the card is the panel, so
@@ -40,20 +44,21 @@ func setup(root: Control, backdrop: Control, face_box: Control) -> void:
 	backdrop.gui_input.connect(_on_backdrop_input)
 
 
-func open(engine: BattleEngine, dino: DinoInPlay) -> void:
+func open(engine: BattleEngine, dino: DinoInPlay, seat: int) -> void:
 	_engine = engine
 	_dino = dino
+	_seat = seat
 	_root.visible = true
 	refresh()
 
 
 func refresh() -> void:
 	if _engine == null or _dino == null \
-			or not _engine.players[0].dinos_in_play().has(_dino):
+			or not _engine.players[_seat].dinos_in_play().has(_dino):
 		close()
 		return
-	var is_active := _dino == _engine.players[0].active
-	var your_turn := _engine.current == 0 and not _engine.is_over()
+	var is_active := _dino == _engine.players[_seat].active
+	var your_turn := _engine.current == _seat and not _engine.is_over()
 
 	for child in _face_box.get_children():
 		child.queue_free()
@@ -121,7 +126,7 @@ func _place_overlays(
 		func(action: Dictionary) -> bool: return action["type"] == "retreat")
 	var retreat_hit := _hit_target(holder, cell, can_retreat)
 	if can_retreat:
-		retreat_hit.tooltip_text = "Retreat for %d energy" % _engine.retreat_cost(0)
+		retreat_hit.tooltip_text = "Retreat for %d energy" % _engine.retreat_cost(_seat)
 		retreat_hit.pressed.connect(_on_retreat)
 	else:
 		retreat_hit.tooltip_text = (
@@ -139,7 +144,7 @@ func _add_energy(holder: Control) -> void:
 	row.position = ENERGY_CORNER * CARD_SCALE
 	for i in range(_dino.energy):
 		var ball := EnergyOrb.new()
-		ball.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
+		ball.color = CardStyle.TYPE_COLORS[_engine.players[_seat].element]
 		ball.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		ball.custom_minimum_size = Vector2.ONE * ENERGY_SIZE * CARD_SCALE
 		row.add_child(ball)
@@ -185,7 +190,7 @@ func _attack_block_reason(is_active: bool, your_turn: bool) -> String:
 		return "Wait for your turn"
 	if _engine.turn_number < 2:
 		return "No attack on turn 1"
-	if _engine.players[1].active == null:
+	if _engine.players[_engine.opponent_of(_seat)].active == null:
 		return "The rival has not fielded a dinosaur yet"
 	return "Not enough energy attached"
 

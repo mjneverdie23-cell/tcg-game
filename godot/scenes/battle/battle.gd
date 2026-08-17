@@ -9,16 +9,9 @@ const AI_ACTION_DELAY := 0.45
 ## Extra pause after an attack so impact feedback reads clearly.
 const ATTACK_SETTLE_DELAY := 0.55
 const AI_ACTION_CAP := 40
-const WIN_COINS := 50
-const LOSS_COINS := 10
 ## Ghosts drawn for a single multi-card rival draw; more than this reads as
 ## noise rather than information.
 const MAX_DRAW_GHOSTS := 3
-## Where the deck and used piles stand. Solved against the projected pile
-## bounds rather than eyeballed: it is the furthest right they can sit while
-## still clearing the action panel at 4:3, where the narrower horizontal FOV
-## throws the table's edges outward. Also clears the widest bench slot.
-const PILE_X := 2.40
 ## Thumbnail scale in the used-cards viewer.
 const USED_CARD_SCALE := 0.34
 ## LogPanel offset_top when the log is open and when it is rolled up. The
@@ -43,9 +36,6 @@ var _ai := BattleAI.new()
 var _log_lines: PackedStringArray = []
 ## Indices into PlayerData.decks that pass validation, aligned with dropdown.
 var _valid_decks: Array[int] = []
-var _reward_granted := false
-## Ladder swing from this battle, shown on the result panel (0 in practice).
-var _trophy_delta := 0
 ## Last player index seen as current — drives the turn-change banner.
 var _last_turn_owner := -1
 ## Card ids in the hand at the previous refresh, for deal-in animation.
@@ -58,8 +48,6 @@ var _card_sides: Dictionary = {}
 var _env_nodes: Array = [null, null]  # per-player environment Card3D
 ## Deck sizes at the previous refresh, per side — a shrink means a draw.
 var _previous_deck_sizes := PackedInt32Array([0, 0])
-## "deck0" / "used0" / "deck1" / "used1" -> CardPile3D on the table.
-var _pile_nodes: Dictionary = {}
 ## Dome that follows the pointer while energy is being dragged.
 var _energy_ghost: EnergyOrb = null
 ## Hand index being dragged, or -1. A tap lights the same targets without
@@ -73,14 +61,24 @@ var _drag_targets: Array = []
 var _choice: Dictionary = {}
 ## Quest-chain match being played, or -1 for a free battle.
 var _quest_match := -1
+## Which engine player the person at this screen is. Always 0 offline; an
+## online guest sits in seat 1, and every "you" below follows this rather
+## than assuming the near row belongs to player 0.
+var _seat := 0
 @onready var _board: Node3D = $Board
 @onready var _camera: Camera3D = $Camera3D
 ## Camera moves, HUD entrance, banners and the 2D card flights.
 @onready var _fx := BattleFx.new()
 ## Slot outlines on the table, and the geometry drops are aimed at.
 @onready var _slots := BoardSlots.new()
+## The four decks and used piles standing on the table.
+@onready var _piles := BattlePiles.new()
 ## The action zoom: attacks and retreat, laid on the card itself.
 @onready var _zoom := BattleZoom.new()
+## The end-of-battle panel, and the only place a battle pays out.
+@onready var _result := BattleResult.new()
+## Mirrors this battle onto the opponent's machine while playing online.
+@onready var _link := BattleLink.new()
 
 
 func _ready() -> void:
@@ -91,11 +89,20 @@ func _ready() -> void:
 	_fx.setup(%HUD, _camera, %TurnBanner)
 	_board.add_child(_slots)
 	_slots.build()
+	_board.add_child(_piles)
+	_piles.build()
+	_piles.used_pile_clicked.connect(_show_used_cards)
 	add_child(_zoom)
 	_zoom.setup(%CardZoom, %ZoomBackdrop, %ZoomFaceBox)
 	_zoom.attack_chosen.connect(_on_zoom_attack)
 	_zoom.retreat_requested.connect(_on_retreat_pressed)
-	_build_piles()
+	add_child(_result)
+	_result.setup(%ResultPanel, %ResultLabel, %RewardLabel, %ClaimButton)
+	_result.claimed.connect(_refresh)
+	add_child(_link)
+	_link.remote_action.connect(_on_remote_action)
+	_link.desynced.connect(_stop_match)
+	Net.match_ended.connect(_stop_match)
 	%BackButton.pressed.connect(SceneRouter.back)
 	%SetupBackButton.pressed.connect(SceneRouter.back)
 	%StartButton.pressed.connect(_on_start_pressed)
@@ -113,11 +120,39 @@ func _ready() -> void:
 	%ChoiceCancel.pressed.connect(_end_choice)
 	%CoinButton.pressed.connect(_on_coin_dismissed)
 	%ReturnButton.pressed.connect(SceneRouter.back)
-	%ClaimButton.pressed.connect(_on_claim_pressed)
 	%LogToggle.toggled.connect(_on_log_toggled)
 	%UsedClose.pressed.connect(func() -> void: %UsedPanel.visible = false)
 	_on_log_toggled(true)
-	_populate_deck_choices()
+	if Net.is_online():
+		_start_online_match()
+	else:
+		_populate_deck_choices()
+
+
+## Leaving the battle screen hangs up: an online match lives exactly as long
+## as the screen showing it.
+func _exit_tree() -> void:
+	Net.leave()
+
+
+# ── who is who ────────────────────────────────────────────────────────
+# The engine numbers its players 0 and 1 and knows nothing about screens.
+# This screen always draws its own player on the near row and the opponent
+# on the far one, so everything below goes through these three: the engine
+# index of the person holding the mouse, of the person opposite, and the
+# half of the table a given engine player occupies.
+
+
+func _me() -> BattlePlayerState:
+	return _engine.players[_seat]
+
+
+func _foe() -> BattlePlayerState:
+	return _engine.players[_engine.opponent_of(_seat)]
+
+
+func _table_side(owner: int) -> int:
+	return 0 if owner == _seat else 1
 
 
 # ── setup ─────────────────────────────────────────────────────────────
@@ -155,20 +190,37 @@ func _on_start_pressed() -> void:
 
 	var battle_seed := randi()
 	_ai.configure(level, battle_seed)
-	_engine = BattleEngine.new(player_deck, rival_deck, battle_seed)
+	_begin_battle(player_deck, rival_deck, battle_seed, 0)
+
+
+## An online match: the decks and the seed were agreed during the handshake,
+## so there is nothing to choose here and the setup panel never appears. The
+## host takes seat 0 and the guest seat 1 — the same two decks in the same
+## order on both machines, which is what keeps the engines identical.
+func _start_online_match() -> void:
+	_quest_match = -1
+	%RivalStatsLabel.text = Net.opponent_name
+	_begin_battle(Net.host_deck, Net.guest_deck, Net.battle_seed, Net.seat)
+	_link.attach(_engine, _seat)
+
+
+## Builds the battle both sides of the screen agree on. `deck_a` always
+## belongs to engine player 0 and `deck_b` to player 1; `my_seat` says which
+## of the two is holding this mouse.
+func _begin_battle(deck_a: Array, deck_b: Array, battle_seed: int, my_seat: int) -> void:
+	_seat = my_seat
+	_engine = BattleEngine.new(deck_a, deck_b, battle_seed)
 	_log_lines = _engine.log_history.duplicate()  # setup events (coin flip…)
 	_engine.log_line.connect(_on_log_line)
-	_reward_granted = false
-	_trophy_delta = 0
+	_result.reset()
 	%SetupPanel.visible = false
 	%HUD.visible = true
-	%ClaimButton.visible = false
 	_last_turn_owner = _engine.current  # banner waits until after the toss
 	# The opening hand is already dealt, but the deal-in plays only once the
 	# coin panel is out of the way — otherwise it happens behind it.
-	_previous_hand = _engine.players[0].hand.duplicate()
-	_previous_deck_sizes[0] = _engine.players[0].deck.size()
-	_previous_deck_sizes[1] = _engine.players[1].deck.size()
+	_previous_hand = _me().hand.duplicate()
+	_previous_deck_sizes[0] = _me().deck.size()
+	_previous_deck_sizes[1] = _foe().deck.size()
 	_fx.intro_camera()
 	_fx.hud_entrance({
 		%TopBar: Vector2(0, -80),
@@ -183,13 +235,14 @@ func _on_start_pressed() -> void:
 ## The toss decides who acts first, so the player sees it before any card
 ## moves. Play only begins once it is dismissed.
 func _show_coin_toss() -> void:
-	var player_called_heads := _engine.heads_player == 0
-	%CoinResult.text = "HEADS" if player_called_heads else "TAILS"
+	var called_heads := _engine.heads_player == _seat
+	var mine := _engine.first_player == _seat
+	%CoinResult.text = "HEADS" if called_heads else "TAILS"
 	%CoinResult.add_theme_color_override(
-		"font_color", CardStyle.GOLD if _engine.first_player == 0 else Color("ff8a7a"))
+		"font_color", CardStyle.GOLD if mine else Color("ff8a7a"))
 	%CoinDetail.text = (
-		"You called %s and go first." if _engine.first_player == 0
-		else "Rival called %s and goes first.") % ("Heads" if player_called_heads else "Tails")
+		"You called %s and go first." if mine
+		else "Rival called %s and goes first.") % ("Heads" if called_heads else "Tails")
 	%CoinPanel.visible = true
 
 
@@ -198,7 +251,7 @@ func _on_coin_dismissed() -> void:
 	_last_turn_owner = -1  # let the turn banner announce the opening turn
 	_previous_hand = []  # deal the opening hand out of the deck pile now
 	_refresh()
-	if _engine.current == 1:
+	if _engine.current != _seat:
 		_run_ai_turn()
 
 
@@ -227,20 +280,25 @@ func _on_log_toggled(open: bool) -> void:
 
 
 func _apply_player_action(action: Dictionary) -> void:
-	if _engine == null or _engine.is_over() or _engine.current != 0:
+	if _engine == null or _engine.is_over() or _engine.current != _seat:
 		return
 	_end_choice()
 	_end_drag()
-	_animate_action(action, 0)
+	_animate_action(action, _seat)
 	_engine.apply(action)
 	_refresh()
-	if not _engine.is_over() and _engine.current == 1:
+	_link.publish(action)
+	if not _engine.is_over() and _engine.current != _seat:
 		_run_ai_turn()
 
 
+## The opponent's turn, when the opponent is this machine. Online the other
+## side plays itself and its moves arrive through the link instead.
 func _run_ai_turn() -> void:
+	if Net.is_online():
+		return
 	var steps := 0
-	while _engine.current == 1 and not _engine.is_over() and steps < AI_ACTION_CAP:
+	while _engine.current != _seat and not _engine.is_over() and steps < AI_ACTION_CAP:
 		# Node-bound tween: if the player leaves the battle, the tween dies
 		# with the scene and this coroutine simply never resumes.
 		var delay := create_tween()
@@ -317,7 +375,7 @@ func _on_hand_card_tapped(index: int) -> void:
 
 ## Held still: read the card, full size, without playing it.
 func _on_hand_card_held(index: int) -> void:
-	var hand: Array = _engine.players[0].hand
+	var hand: Array = _me().hand
 	if index < 0 or index >= hand.size():
 		return
 	%BattleViewer.open(GameData.get_card(hand[index]))
@@ -403,7 +461,7 @@ func _end_drag() -> void:
 
 
 func _play_prompt(hand_index: int) -> String:
-	var card := GameData.get_card(_engine.players[0].hand[hand_index])
+	var card := GameData.get_card(_me().hand[hand_index])
 	if card is FieldCardData:
 		return "Set\nEnvironment"
 	if card is TrainerCardData:
@@ -414,7 +472,7 @@ func _play_prompt(hand_index: int) -> String:
 ## Where the next basic dinosaur you field will stand: the Active slot while
 ## it is empty, otherwise the first free place on the bench.
 func _open_slot() -> int:
-	var you := _engine.players[0]
+	var you := _me()
 	return 0 if you.active == null else 1 + you.bench.size()
 
 
@@ -433,7 +491,7 @@ func _begin_choice(prompt: String, actions: Array) -> void:
 		if dino == null:
 			continue
 		_choice[dino] = action
-		bench_only = bench_only and dino != _engine.players[0].active
+		bench_only = bench_only and dino != _me().active
 	if _choice.is_empty():
 		return
 	for dino: DinoInPlay in _choice:
@@ -476,7 +534,7 @@ func _actions_of_type(kind: String) -> Array:
 
 ## The dinosaur an action is aimed at, or null when it is aimed at nothing.
 func _dino_of_action(action: Dictionary) -> DinoInPlay:
-	var you := _engine.players[0]
+	var you := _me()
 	if action["type"] == "retreat":
 		return you.bench[int(action["bench"])]
 	if not action.has("target"):
@@ -489,12 +547,12 @@ func _dino_of_action(action: Dictionary) -> DinoInPlay:
 
 ## Your dinosaur standing in a slot (0 = Active, 1.. = bench), or null.
 func _dino_at(slot: int) -> DinoInPlay:
-	var dinos := _engine.players[0].dinos_in_play()
+	var dinos := _me().dinos_in_play()
 	return dinos[slot] if slot >= 0 and slot < dinos.size() else null
 
 
 func _play_index_of(dino: DinoInPlay) -> int:
-	return _engine.players[0].dinos_in_play().find(dino)
+	return _me().dinos_in_play().find(dino)
 
 
 # ── rendering ─────────────────────────────────────────────────────────
@@ -503,9 +561,9 @@ func _play_index_of(dino: DinoInPlay) -> int:
 func _refresh() -> void:
 	if _engine == null:
 		return
-	var you := _engine.players[0]
-	var rival := _engine.players[1]
-	var your_turn := _engine.current == 0 and not _engine.is_over()
+	var you := _me()
+	var rival := _foe()
+	var your_turn := _engine.current == _seat and not _engine.is_over()
 
 	var turn_text := "%s  ·  Turn %d" % [
 		"Your turn" if your_turn else "Rival's turn", _engine.turn_number]
@@ -546,7 +604,7 @@ func _refresh() -> void:
 ## because knowing how many cards they are holding is fair information and
 ## knowing which ones would end the game.
 func _fill_hand(your_turn: bool) -> void:
-	var you := _engine.players[0]
+	var you := _me()
 
 	# Which hand slots have a legal play right now — those stay bright.
 	var playable: Dictionary = {}
@@ -561,7 +619,7 @@ func _fill_hand(your_turn: bool) -> void:
 	%Hand.set_hand(cards, playable, your_turn)
 
 	var backs: Array = []
-	backs.resize(_engine.players[1].hand.size())
+	backs.resize(_foe().hand.size())
 	%RivalHand.set_hand(backs, {}, false)
 
 	# Cards that arrived since the last refresh fly in from the deck.
@@ -575,7 +633,7 @@ func _fill_hand(your_turn: bool) -> void:
 	for i in range(you.hand.size()):
 		if new_cards.has(you.hand[i]) and int(new_cards[you.hand[i]]) > 0:
 			new_cards[you.hand[i]] = int(new_cards[you.hand[i]]) - 1
-			_fx.deal_in(%Hand.slot_at(i), dealt, _fx.screen_of(_pile_nodes["deck0"]))
+			_fx.deal_in(%Hand.slot_at(i), dealt, _fx.screen_of(_piles.pile(0, "deck")))
 			dealt += 1
 	_previous_hand = you.hand.duplicate()
 
@@ -599,7 +657,7 @@ func _on_energy_drag_started() -> void:
 	if _energy_ghost != null:
 		_energy_ghost.queue_free()
 	_energy_ghost = EnergyOrb.new()
-	_energy_ghost.color = CardStyle.TYPE_COLORS[_engine.players[0].element]
+	_energy_ghost.color = CardStyle.TYPE_COLORS[_me().element]
 	_energy_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_energy_ghost.z_index = 20
 	%HUD.add_child(_energy_ghost)
@@ -648,7 +706,7 @@ func _on_energy_dropped(at: Vector2) -> void:
 ## Attach-action target index for one of your dinosaurs: -1 for the Active,
 ## 0.. for the bench, INVALID_TARGET when it is not yours.
 func _attach_target_of(dino: DinoInPlay) -> int:
-	var you := _engine.players[0]
+	var you := _me()
 	if dino == you.active:
 		return -1
 	for b in range(you.bench.size()):
@@ -671,122 +729,63 @@ func _dino_under(at: Vector2) -> Card3D:
 	return (hit["collider"] as Node).get_parent() as Card3D
 
 
-## Pays out a quest match's reward. PlayerData refuses a second claim, so the
-## button only needs to reflect what happened.
-func _on_claim_pressed() -> void:
-	if PlayerData.claim_quest(_quest_match):
-		%ClaimButton.disabled = true
-		%ClaimButton.text = "Claimed  ·  +%d coins" % int(
-			QuestRules.quest(_quest_match)["reward"])
-
-
 func _on_zoom_attack(action: Dictionary) -> void:
 	_apply_player_action(action)
 
 
-func _show_result() -> void:
-	var won := _engine.winner == 0
-	# A quest match pays its own reward, and only when the player claims it —
-	# so the automatic battle coins are skipped for a quest win.
-	var quest_win := won and _quest_match >= 0
-	%ResultLabel.text = "You won!" if won else "Defeat"
-	if not _reward_granted:
-		_reward_granted = true
-		if quest_win:
-			PlayerData.record_quest_win(_quest_match)
-		else:
-			PlayerData.earn_coins(WIN_COINS if won else LOSS_COINS)
-		# Ranked stakes trophies; practice counts toward quests but not the
-		# ladder. The mode was chosen on the home screen.
-		_trophy_delta = PlayerData.record_battle(won, SceneRouter.battle_ranked)
+## A move the opponent made, already checked against the rules by the link.
+## Applied exactly the way a local move is, so both screens show the same
+## battle happening.
+func _on_remote_action(action: Dictionary) -> void:
+	_end_choice()
+	_end_drag()
+	_animate_action(action, _engine.current)
+	_engine.apply(action)
+	_refresh()
 
-	if quest_win:
-		var reward := int(QuestRules.quest(_quest_match)["reward"])
-		var claimed := QuestRules.state_of(_quest_match) == QuestRules.STATE_CLAIMED
-		%RewardLabel.text = "%s beaten  ·  reward %d coins" % [
-			str(QuestRules.quest(_quest_match)["title"]), reward]
-		%ClaimButton.visible = true
-		%ClaimButton.disabled = claimed
-		%ClaimButton.text = "Reward claimed" if claimed else "Claim %d coins" % reward
-	else:
-		%ClaimButton.visible = false
-		%RewardLabel.text = "+%d coins%s" % [
-			WIN_COINS if won else LOSS_COINS,
-			"" if _trophy_delta == 0 else "  ·  %+d trophies" % _trophy_delta]
-	if %ResultPanel.visible:
-		return  # already shown; don't replay the entrance
-	%ResultPanel.visible = true
-	if Settings.reduced_motion:
-		return
-	%ResultPanel.modulate.a = 0.0
-	%ResultPanel.scale = Vector2(0.85, 0.85)
-	%ResultPanel.pivot_offset = %ResultPanel.size * 0.5
-	var tween := create_tween()
-	tween.tween_property(%ResultPanel, "modulate:a", 1.0, 0.25)
-	tween.parallel().tween_property(%ResultPanel, "scale", Vector2.ONE, 0.4) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func _show_result() -> void:
+	_result.show_outcome(_engine.winner == _seat, _quest_match, SceneRouter.battle_ranked)
+
+
+## The battle stopped without finishing — the opponent left, or the two
+## games stopped agreeing. Nothing is paid and the board freezes as it is.
+func _stop_match(reason: String) -> void:
+	if _engine != null and _engine.is_over():
+		return  # it already ended properly; this is just the link hanging up
+	_end_choice()
+	_end_drag()
+	# Hang up, so an opponent who is still playing finds out now rather than
+	# waiting on a match this side has already given up on. Deferred: this
+	# can arrive from inside the multiplayer poll, which must not have the
+	# connection closed under it.
+	Net.call_deferred("leave")
+	_result.show_stopped(reason)
 
 
 # ── deck & used-card piles ────────────────────────────────────────────
-# Both piles sit on the table beside their owner's rows, the way they would
-# in a real game: a slab that grows with the cards in it and a floating
-# count. Only your own used pile is clickable — the rival's discard is
-# public information in most card games, but showing it here would clutter
-# the board without giving the player anything to act on.
-
-
-## Builds the four piles once. `_pile_nodes` is keyed "deck0" / "used1" etc.
-func _build_piles() -> void:
-	for side in range(2):
-		for kind: String in ["deck", "used"]:
-			var pile := CardPile3D.new()
-			$Board.add_child(pile)
-			pile.transform = _pile_transform(side, kind == "deck")
-			pile.setup(
-				"DECK" if kind == "deck" else "USED",
-				Color("16224a") if kind == "deck" else Color("3a1f2a"),
-				side == 0 and kind == "used")
-			if side == 0 and kind == "used":
-				pile.clicked.connect(_on_used_pile_clicked)
-			_pile_nodes["%s%d" % [kind, side]] = pile
-
-
-## Piles flank the rows on the right: the deck level with the bench, the
-## used pile level with the Active.
-func _pile_transform(side: int, is_deck: bool) -> Transform3D:
-	var forward := 1.0 if side == 0 else -1.0
-	var depth := 2.15 if is_deck else 0.7
-	return Transform3D(Basis.IDENTITY, Vector3(PILE_X, 0.155, depth * forward))
 
 
 func _sync_piles() -> void:
-	var you := _engine.players[0]
-	var rival := _engine.players[1]
-	(_pile_nodes["deck0"] as CardPile3D).set_count(you.deck.size())
-	(_pile_nodes["used0"] as CardPile3D).set_count(you.discard.size())
-	(_pile_nodes["deck1"] as CardPile3D).set_count(rival.deck.size())
-	(_pile_nodes["used1"] as CardPile3D).set_count(rival.discard.size())
+	_piles.set_counts(0, _me().deck.size(), _me().discard.size())
+	_piles.set_counts(1, _foe().deck.size(), _foe().discard.size())
 
-	# The player's own draws are animated card by card as they land in the
-	# hand dock (_deal_in); the rival's hand is hidden, so its draws are only
-	# visible as cards leaving its deck.
-	var rival_drawn := _previous_deck_sizes[1] - rival.deck.size()
-	for i in range(mini(rival_drawn, MAX_DRAW_GHOSTS)):
-		_fx.fly(null, _fx.screen_of(_pile_nodes["deck1"]), _rival_hand_anchor(),
+	# Your own draws are animated card by card as they land in the fan
+	# (deal_in); the opponent's hand is hidden, so their draws are only
+	# visible as cards leaving their deck.
+	var drawn := _previous_deck_sizes[1] - _foe().deck.size()
+	for i in range(mini(drawn, MAX_DRAW_GHOSTS)):
+		_fx.fly(null, _fx.screen_of(_piles.pile(1, "deck")), _rival_hand_anchor(),
 			BattleFx.DRAW_FLIGHT, i * 0.09)
-	_previous_deck_sizes[0] = you.deck.size()
-	_previous_deck_sizes[1] = rival.deck.size()
-
-
-func _on_used_pile_clicked(_pile: CardPile3D) -> void:
-	_show_used_cards()
+	_previous_deck_sizes[0] = _me().deck.size()
+	_previous_deck_sizes[1] = _foe().deck.size()
 
 
 ## Every card the player has used this battle, most recent first.
 func _show_used_cards() -> void:
 	for child in %UsedGrid.get_children():
 		child.queue_free()
-	var discard: Array = _engine.players[0].discard
+	var discard: Array = _me().discard
 	%UsedTitle.text = "Used cards — %d" % discard.size()
 	for i in range(discard.size() - 1, -1, -1):
 		var holder := Control.new()
@@ -805,10 +804,10 @@ func _rival_hand_anchor() -> Vector2:
 	return Vector2(%HUD.size.x * 0.5, 30.0)
 
 
-## Where a card being played leaves from: the actual hand card for the
-## player, the rival's unseen hand for the AI.
-func _hand_origin(side: int, hand_index: int) -> Vector2:
-	if side != 0:
+## Where a card being played leaves from: the real card in your fan for
+## your own plays, the opponent's unseen hand for theirs.
+func _hand_origin(owner: int, hand_index: int) -> Vector2:
+	if owner != _seat:
 		return _rival_hand_anchor()
 	var slot: Control = %Hand.slot_at(hand_index)
 	if slot != null:
@@ -817,8 +816,10 @@ func _hand_origin(side: int, hand_index: int) -> Vector2:
 
 
 ## A card leaving the hand or the table lands on its owner's used pile.
-func _fly_to_used(card: CardData, from: Vector2, side: int) -> void:
-	var pile := _pile_nodes["used%d" % side] as CardPile3D
+## `owner` is an engine player index; the pile it flies to is on that
+## player's half of the table.
+func _fly_to_used(card: CardData, from: Vector2, owner: int) -> void:
+	var pile := _piles.pile(_table_side(owner), "used")
 	_fx.fly(card, from, _fx.screen_of(pile), BattleFx.DISCARD_FLIGHT, 0.0, _fx.pile_thump.bind(pile))
 
 
@@ -828,9 +829,9 @@ func _fly_to_used(card: CardData, from: Vector2, side: int) -> void:
 ## keeps the shared field card displayed beside the center line.
 func _sync_board() -> void:
 	var alive: Dictionary = {}
-	for side in range(2):
-		var player := _engine.players[side]
-		var dinos := player.dinos_in_play()
+	for owner in range(2):
+		var side := _table_side(owner)
+		var dinos := _engine.players[owner].dinos_in_play()
 		for i in range(dinos.size()):
 			var dino := dinos[i]
 			alive[dino] = true
@@ -844,7 +845,7 @@ func _sync_board() -> void:
 				card3d.transform = enter
 				card3d.clicked.connect(_on_board_card_clicked)
 				_card_nodes[dino] = card3d
-				_card_sides[dino] = side
+				_card_sides[dino] = owner
 			elif card3d.card_data != dino.card():
 				card3d.show_card(dino.card())  # evolved into a new face
 			card3d.move_home(BoardSlots.transform_for(side, i))
@@ -886,13 +887,13 @@ func _env_name(player: BattlePlayerState) -> String:
 
 ## Each side keeps its own Environment card beside its rows.
 func _sync_environments() -> void:
-	for side in range(2):
-		var env_id: String = _engine.players[side].environment_id
-		var node: Card3D = _env_nodes[side]
+	for owner in range(2):
+		var env_id: String = _engine.players[owner].environment_id
+		var node: Card3D = _env_nodes[owner]
 		if env_id == "":
 			continue
 		var card := GameData.get_card(env_id)
-		var forward := 1.0 if side == 0 else -1.0
+		var forward := 1.0 if _table_side(owner) == 0 else -1.0
 		if node == null:
 			node = Card3D.new()
 			node.card_data = card
@@ -900,22 +901,23 @@ func _sync_environments() -> void:
 			node.transform = Transform3D(Basis.IDENTITY, Vector3(-4.6, 0.18, 0.7 * forward))
 			node.clicked.connect(_on_board_card_clicked)
 			node.move_home(Transform3D(Basis.IDENTITY, Vector3(-3.6, 0.18, 0.7 * forward)))
-			_env_nodes[side] = node
+			_env_nodes[owner] = node
 		elif node.card_data != card:
 			node.show_card(card)
 			node.pulse()
 
 
-## Fire-and-forget presentation for an action about to be applied.
-func _animate_action(action: Dictionary, side: int) -> void:
-	var player := _engine.players[side]
+## Fire-and-forget presentation for an action about to be applied, by
+## whichever player is about to apply it.
+func _animate_action(action: Dictionary, owner: int) -> void:
+	var player := _engine.players[owner]
 	match action["type"]:
 		"attack":
 			var attacker: Card3D = _card_nodes.get(player.active)
-			var defender := _engine.players[_engine.opponent_of(side)].active
+			var defender := _engine.players[_engine.opponent_of(owner)].active
 			var target: Card3D = _card_nodes.get(defender)
 			if attacker != null and target != null:
-				var damage := _engine.preview_damage_for(side, int(action["index"]))
+				var damage := _engine.preview_damage_for(owner, int(action["index"]))
 				attacker.lunge(target.home_transform.origin)
 				_fx.camera_punch()
 				# Impact lands a beat after the lunge starts.
@@ -936,19 +938,19 @@ func _animate_action(action: Dictionary, side: int) -> void:
 				card3d.flash(Color("ffd166") if action["type"] == "attach" else Color("6fd98a"))
 			if action["type"] == "evolve":
 				# The pre-evolution card is used up as the new stage lands.
-				_fly_to_used(dino.card(), _fx.screen_of(_card_nodes.get(dino) as Node3D), side)
+				_fly_to_used(dino.card(), _fx.screen_of(_card_nodes.get(dino) as Node3D), owner)
 		"trainer":
 			# Healing and draw effects read on the active dinosaur.
 			if _card_nodes.has(player.active):
 				(_card_nodes[player.active] as Card3D).flash(Color("6fd98a"))
 			# Spells and Supports are spent the moment they resolve.
 			_fly_to_used(GameData.get_card(player.hand[int(action["hand"])]),
-				_hand_origin(side, int(action["hand"])), side)
+				_hand_origin(owner, int(action["hand"])), owner)
 		"environment":
 			# Setting an Environment discards the one it replaces.
 			if player.environment_id != "":
 				_fly_to_used(GameData.get_card(player.environment_id),
-					_fx.screen_of(_env_nodes[side] as Node3D), side)
+					_fx.screen_of(_env_nodes[owner] as Node3D), owner)
 
 
 ## Your own dinosaurs open the action zoom — energy, attacks and retreat.
@@ -965,8 +967,8 @@ func _on_board_card_clicked(card3d: Card3D) -> void:
 			_end_choice()
 			_apply_player_action(action)
 		return
-	if dino != null and int(_card_sides.get(dino, 1)) == 0:
-		_zoom.open(_engine, dino)
+	if dino != null and int(_card_sides.get(dino, -1)) == _seat:
+		_zoom.open(_engine, dino, _seat)
 		return
 	%BattleViewer.open(card3d.card_data)
 

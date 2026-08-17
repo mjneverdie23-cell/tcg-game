@@ -14,6 +14,7 @@ const SCREENS: Dictionary = {
 	"shop": "res://scenes/shop/shop.tscn",
 	"packs": "res://scenes/packs/packs.tscn",
 	"battle": "res://scenes/battle/battle.tscn",
+	"online": "res://scenes/online/online.tscn",
 }
 
 ## Screens reachable from the tab bar. Home stays the root of the stack.

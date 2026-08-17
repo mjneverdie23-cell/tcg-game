@@ -6,12 +6,12 @@ extends Control
 ## counters, coins — so the home screen has no state of its own to keep in
 ## sync beyond the battle mode, which is a navigation argument.
 
-## Mode dropdown entries: label, whether trophies are staked, and whether the
-## entry can be picked at all.
+## Mode dropdown entries: label, whether trophies are staked, and whether
+## BATTLE opens the online lobby instead of starting a match against the AI.
 const MODES: Array = [
-	{"label": "Ranked — trophies at stake", "ranked": true, "enabled": true},
-	{"label": "Practice — no trophies", "ranked": false, "enabled": true},
-	{"label": "Versus player — online only", "ranked": false, "enabled": false},
+	{"label": "Ranked — trophies at stake", "ranked": true, "online": false},
+	{"label": "Practice — no trophies", "ranked": false, "online": false},
+	{"label": "Versus player — over the network", "ranked": false, "online": true},
 ]
 
 var _quest_path: QuestPath = null
@@ -58,10 +58,8 @@ func _build() -> void:
 
 	for i in range(MODES.size()):
 		%ModeSelect.add_item(str(MODES[i]["label"]), i)
-		if not bool(MODES[i]["enabled"]):
-			%ModeSelect.set_item_disabled(i, true)
-			%ModeSelect.set_item_tooltip(
-				i, "This build runs entirely offline — there is no matchmaking server.")
+	%ModeSelect.set_item_tooltip(MODES.size() - 1,
+		"Play someone running this same build, on your network or over the internet.")
 	%ModeSelect.selected = 0 if SceneRouter.battle_ranked else 1
 
 
@@ -160,8 +158,14 @@ func _start_quest_match(index: int) -> void:
 
 func _on_mode_selected(index: int) -> void:
 	SceneRouter.battle_ranked = bool(MODES[index]["ranked"])
+	%BattleButton.text = "FIND OPPONENT" if _versus_player() else "BATTLE"
+
+
+## True when the mode dropdown is on the versus-player entry.
+func _versus_player() -> bool:
+	return bool(MODES[%ModeSelect.selected]["online"])
 
 
 func _on_battle_pressed() -> void:
 	SceneRouter.quest_match = -1  # the BATTLE button is always a free battle
-	SceneRouter.go_to("battle")
+	SceneRouter.go_to("online" if _versus_player() else "battle")
