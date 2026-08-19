@@ -82,6 +82,8 @@ var _seat := 0
 @onready var _field := FieldSurface.new()
 ## Notices a player who has walked away, and eventually passes for them.
 @onready var _afk := AfkWatch.new()
+## The coin toss, the deal, and the beat before the first instruction.
+@onready var _opening := BattleOpening.new()
 
 
 func _ready() -> void:
@@ -129,8 +131,10 @@ func _ready() -> void:
 	_energy.pick_requested.connect(_on_energy_pressed)
 	%ChoiceCancel.pressed.connect(_end_choice)
 	%SurrenderButton.pressed.connect(_on_surrender_pressed)
-	%CoinFlip.landed.connect(_on_coin_landed)
-	%CoinFlip.finished.connect(_on_coin_dismissed)
+	add_child(_opening)
+	_opening.setup(%CoinPanel, %CoinFlip, %CoinDetail)
+	_opening.dismissed.connect(_on_coin_dismissed)
+	_opening.settled.connect(_on_opening_settled)
 	%ReturnButton.pressed.connect(SceneRouter.back)
 	%LogToggle.toggled.connect(_on_log_toggled)
 	%UsedClose.pressed.connect(func() -> void: %UsedPanel.visible = false)
@@ -252,30 +256,7 @@ func _begin_battle(deck_a: Array, deck_b: Array, battle_seed: int, my_seat: int)
 		%EnergyDock: Vector2(0, 180),
 	})
 	_refresh()
-	_show_coin_toss()
-
-
-## The toss decides who acts first, so the player sees it before any card
-## moves. Play only begins once it is dismissed.
-func _show_coin_toss() -> void:
-	var mine := _engine.first_player == _seat
-	%CoinDetail.text = (
-		"Heads — you go first." if _engine.heads_player == _seat
-		else "Tails — your rival goes first.")
-	%CoinDetail.add_theme_color_override(
-		"font_color", CardStyle.GOLD if mine else Color("ff8a7a"))
-	%CoinDetail.modulate.a = 0.0
-	%CoinPanel.visible = true
-	# The coin lands on the face the toss produced; the line underneath only
-	# says what it means, and only once it has landed.
-	%CoinFlip.flip(_engine.heads_player == _seat)
-
-
-func _on_coin_landed() -> void:
-	if Settings.reduced_motion:
-		%CoinDetail.modulate.a = 1.0
-		return
-	%CoinDetail.create_tween().tween_property(%CoinDetail, "modulate:a", 1.0, 0.22)
+	_opening.begin(_engine.heads_player == _seat, _engine.first_player == _seat)
 
 
 func _on_coin_dismissed() -> void:
@@ -285,6 +266,13 @@ func _on_coin_dismissed() -> void:
 	_refresh()
 	if _engine.current != _seat:
 		_run_ai_turn()
+
+
+## The coin is away and the hand has finished arriving: the screen may now
+## start asking the player for things.
+func _on_opening_settled() -> void:
+	if _engine != null and not _engine.is_over():
+		_prompt_for_environment(_engine.current == _seat)
 
 
 func _on_log_line(text: String) -> void:
@@ -698,7 +686,7 @@ func _fill_hand(your_turn: bool) -> void:
 ## once. Called from the refresh and after any drop, because ending a drag
 ## darkens every target it was lighting, this one included.
 func _prompt_for_environment(your_turn: bool) -> void:
-	var wanted := your_turn and _me().environment_id == "" \
+	var wanted := _opening.is_settled() and your_turn and _me().environment_id == "" \
 		and _me().has_environment_in_hand()
 	_slots.highlight(0, BoardSlots.ENV_PLACE,
 		BoardSlots.LEGAL if wanted else BoardSlots.OFF)

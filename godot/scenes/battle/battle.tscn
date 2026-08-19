@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scenes/battle/battle.gd" id="1"]
 
@@ -44,6 +44,8 @@ content_margin_left = 16.0
 content_margin_right = 16.0
 content_margin_top = 8.0
 content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxEmpty" id="StyleBox_none"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBox_panel"]
 bg_color = Color(0.043, 0.063, 0.125, 0.9)
@@ -225,7 +227,7 @@ mouse_filter = 2
 
 [node name="CoinBox" type="PanelContainer" parent="UI/Root/CoinPanel/CoinCenter"]
 layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBox_panel")
+theme_override_styles/panel = SubResource("StyleBox_none")
 
 [node name="CoinColumn" type="VBoxContainer" parent="UI/Root/CoinPanel/CoinCenter/CoinBox"]
 layout_mode = 2

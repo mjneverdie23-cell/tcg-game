@@ -18,6 +18,14 @@ const PLANE_SIZE := Vector2(11.0, 3.25)
 ## Just above the table, below the slot outlines so they stay readable.
 const HEIGHT := 0.152
 const SWEEP_TIME := 1.15
+## Draw order against everything else on the table. A card's face is a
+## transparent material, so it writes no depth and cannot occlude anything;
+## transparent surfaces are simply sorted by distance, and the ground —
+## whose centre sits nearer the camera than the cards standing on it — wins
+## that sort and paints straight over them. A negative priority takes the
+## ground out of the argument: it is drawn before every card, pile and
+## Environment, whatever the distances happen to be.
+const GROUND_PRIORITY := -8
 
 ## Shader theme per dinosaur type. The order matches the shader's constants.
 const THEME_LAVA := 0
@@ -50,6 +58,7 @@ func build() -> void:
 		plane.mesh = mesh
 		var material := ShaderMaterial.new()
 		material.shader = SHADER
+		material.render_priority = GROUND_PRIORITY
 		material.set_shader_parameter("plane_size", PLANE_SIZE)
 		material.set_shader_parameter("progress", 0.0)
 		plane.material_override = material

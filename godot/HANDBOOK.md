@@ -96,7 +96,7 @@ godot/
 │   ├── shop/  packs/        coins and pack opening
 │   ├── online/              versus-player lobby
 │   ├── cards/               card face, 3D card, pile, full-screen viewer
-│   ├── battle/              the battle screen and its nine helpers
+│   ├── battle/              the battle screen and its ten helpers
 │   │   └── field_surface.gdshader   the terrain each Environment lays down
 │   └── tests/               headless test scenes
 ├── HANDBOOK.md              this file
@@ -486,6 +486,7 @@ that owns one of them:
 | `battle_link.gd` | `BattleLink` | Keeping an online match in step with the opponent's |
 | `field_surface.gd` | `FieldSurface` | The terrain an Environment lays over its owner's half |
 | `afk_watch.gd` | `AfkWatch` | Noticing a player who has walked away, and passing for them |
+| `battle_opening.gd` | `BattleOpening` | The coin, the deal, and the beat before the first instruction |
 
 ### Seats: "you" is not always player 0
 
@@ -517,6 +518,18 @@ helpers exist to prevent.
    action → apply it. Several → the card returns to the fan and a
    **dinosaur choice** opens.
 5. A drop on nothing returns the card to the fan, having cost nothing.
+
+### The opening
+
+`BattleOpening` owns the beats between pressing start and playing: the coin
+spins, lands on the face the engine's toss produced, and only then does the
+line underneath fade in saying what it means. The panel closes itself, the
+hand deals, and `SETTLE_SECONDS` later the screen is allowed to start asking
+things of the player.
+
+That last delay is the whole reason the class exists. The first instruction
+of a battle used to appear while the coin was still spinning and vanish
+before the cards had stopped moving, which is a line nobody reads.
 
 ### The ground
 
@@ -654,6 +667,7 @@ Each recipe names the file, the symbol, and anything that changes with it.
 | **Change a terrain's look** | `field_surface.gdshader` → `lava()`, `grass()`, `wind()`, `ocean()`. Each is self-contained: colours are literal `vec3`s, and the numbers are frequencies |
 | **Change which terrain a type gets** | `FieldSurface.THEMES` (dinosaur type → theme) and `RIM_COLORS` (the colour of the wave front) |
 | **Change the sweep speed** | `FieldSurface.SWEEP_TIME`; the wave's shape is `reach`, `softness` and `rim_width` in the shader |
+| **Change the opening pacing** | `CoinFlip.SPIN_TIME` / `HOLD_TIME` for the toss, `BattleOpening.SETTLE_SECONDS` for the pause before the first instruction |
 | **Change button or panel styling** | `MenuStyle.style_button()`, `style_tab()`, `style_pill()`, `panel()` |
 | **Change the tab bar** | `NavBar.TABS` — screen name, label and icon per tab. Add an entry and a `SceneRouter.SCREENS` route and the bar builds itself |
 | **Add a tab-bar icon** | Add a constant to `NavIcon`, then a branch in its `_draw()` |
@@ -725,3 +739,4 @@ you spend the same hours.
 | **Tearing down a network peer in its own callback** | `peer_disconnected` is raised from inside the multiplayer poll; closing the connection there frees what the poll is still walking. Defer it (`call_deferred`) |
 | **Reserved words in shaders** | Godot's shader language accepts names that the GLSL it compiles to reserves — `noise2`, `patch` and friends. Both were in the first draft of the field shader and both would have failed on a real GPU. `tools/check_shaders.py` catches them |
 | **Un-normalised fbm** | Four octaves at halving amplitude never reach 0 or 1, so every `smoothstep` threshold taken against it lands somewhere other than intended. Divide by the sum of the amplitudes |
+| **Transparent surfaces do not occlude each other** | A material with `TRANSPARENCY_ALPHA` writes no depth, so two transparent surfaces are ordered by distance between their *origins*, not per pixel. The ground plane's centre sits nearer the camera than the cards standing on it, so it painted straight over them. `Material.render_priority` is the fix — the ground is pinned to `-8` so it draws before every card, whatever the distances say |
