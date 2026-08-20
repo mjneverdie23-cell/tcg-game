@@ -454,6 +454,7 @@ crisp at any window size. All are reusable `Control`s.
 | `QuestPath` | The four quest nodes and the trail between them | `NODE_RADIUS` |
 | `FanHand` | A hand of cards in an arc, and every gesture on it | `CARD_SCALE`, `HOLD_SECONDS`, `MAX_SPREAD`, `HOVER_LIFT` |
 | `TurnClock` | The countdown dial that appears when a player stops playing | `URGENT_SECONDS`, `RING_WIDTH` |
+| `SlotFrame` | The drawn frame marking any empty place on the table — a card slot or a pile's footprint | `PRIORITY`, and the shader's `corner` / `border` / `rest_stroke` |
 | `EnergyOrb` | The energy ball | `color`, `spent` |
 | `DropSlot` | The hollow dashed frame in the middle of the table | `DASH`, `GAP`, `active` |
 | `CoinFlip` | The opening coin toss | `SPIN_TIME`, `HALF_TURNS`, `HOLD_TIME` |
@@ -653,7 +654,8 @@ Each recipe names the file, the symbol, and anything that changes with it.
 | **Change the coin toss** | `CoinFlip.SPIN_TIME`, `HALF_TURNS`, `ARC_HEIGHT`, `HOLD_TIME`; the faces are `_draw_claw()` and `_draw_bone()` |
 | **Move the deck/discard piles** | `BattlePiles.PILE_X`, `DECK_DEPTH`, `USED_DEPTH` |
 | **Move the board slots** | `BoardSlots.transform_for()` — the one place that decides where a card stands. The board rendering and the drop tests both ask it, so they cannot disagree |
-| **Change slot highlight strength** | `BoardSlots.ALPHA` (`[OFF, LEGAL, ARMED]`) |
+| **Change slot highlight strength** | `BoardSlots.LIT` (`[OFF, LEGAL, ARMED]`), which drives the frame shader's `lit` |
+| **Change how a placeholder looks** | `scripts/ui/slot_frame.gdshader` — `border` and `corner` for the shape, `rest_stroke` / `rest_fill` for how loud it is when nothing is happening |
 | **Change the camera** | The `Camera3D` node in `battle.tscn` is the resting pose; `BattleFx` captures it at `setup()` and returns to it. Bench framing is `battle.gd` → `BENCH_FOCUS` + `BENCH_FOCUS_DISTANCE` |
 | **Change card size on the table** | `Card3D.WIDTH` / `HEIGHT`; `BoardSlots` and `CardPile3D` size themselves from these |
 
@@ -739,4 +741,5 @@ you spend the same hours.
 | **Tearing down a network peer in its own callback** | `peer_disconnected` is raised from inside the multiplayer poll; closing the connection there frees what the poll is still walking. Defer it (`call_deferred`) |
 | **Reserved words in shaders** | Godot's shader language accepts names that the GLSL it compiles to reserves — `noise2`, `patch` and friends. Both were in the first draft of the field shader and both would have failed on a real GPU. `tools/check_shaders.py` catches them |
 | **Un-normalised fbm** | Four octaves at halving amplitude never reach 0 or 1, so every `smoothstep` threshold taken against it lands somewhere other than intended. Divide by the sum of the amplitudes |
-| **Transparent surfaces do not occlude each other** | A material with `TRANSPARENCY_ALPHA` writes no depth, so two transparent surfaces are ordered by distance between their *origins*, not per pixel. The ground plane's centre sits nearer the camera than the cards standing on it, so it painted straight over them. `Material.render_priority` is the fix — the ground is pinned to `-8` so it draws before every card, whatever the distances say |
+| **Transparent surfaces do not occlude each other** | A material with `TRANSPARENCY_ALPHA` writes no depth, so two transparent surfaces are ordered by distance between their *origins*, not per pixel. The ground plane's centre sits nearer the camera than the cards standing on it, so it painted straight over them. `Material.render_priority` is the fix — the ground is `-8`, placeholders `-4`, cards `0`, so the table stacks in that order whatever the distances say |
+| **A translucent wash is not a placeholder** | 6% white reads on a dark table and vanishes completely over bright ground. Anything that must be visible on *any* background needs both a light stroke and a dark one — `slot_frame.gdshader` draws a bright outline with a dark fill inside it, which survives lava, turf, water and bare table alike |

@@ -16,11 +16,16 @@ const CARD_THICKNESS := 0.005
 const EMPTY_HEIGHT := 0.012
 ## A full deck would otherwise stand taller than the dinosaurs beside it.
 const MAX_HEIGHT := 0.16
+## The footprint drawn under the pile, so its place on the table is marked
+## even when there is nothing in it. Sits low enough that the slab hides it
+## as soon as the pile has cards.
+const FOOTPRINT_HEIGHT := 0.002
 
 var count: int = 0
 var pile_name: String = ""
 
 var _slab: MeshInstance3D
+var _footprint: MeshInstance3D
 var _box: BoxMesh
 var _label: Label3D
 var _area: Area3D
@@ -63,6 +68,18 @@ func _build() -> void:
 	_slab.mesh = _box
 	_slab.material_override = _material
 	add_child(_slab)
+
+	# The same frame that marks an empty slot, so an empty pile still shows
+	# where it belongs — including over an Environment's terrain, which a
+	# plain translucent wash would disappear into.
+	var outline := QuadMesh.new()
+	outline.size = Vector2(WIDTH, DEPTH)
+	_footprint = MeshInstance3D.new()
+	_footprint.mesh = outline
+	_footprint.material_override = SlotFrame.material(outline.size)
+	_footprint.position.y = FOOTPRINT_HEIGHT
+	_footprint.rotate_object_local(Vector3.RIGHT, -PI / 2)
+	add_child(_footprint)
 
 	_label = Label3D.new()
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED

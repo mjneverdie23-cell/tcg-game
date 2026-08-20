@@ -17,9 +17,12 @@ extends Node3D
 ## here; ARMED means the pointer is on it and letting go plays it here.
 enum { OFF, LEGAL, ARMED }
 
-## Alpha per level, and how long a LEGAL slot takes to breathe once. ARMED
-## does not pulse — a target under the pointer should sit still.
-const ALPHA: Array = [0.06, 0.34, 0.75]
+## The shader's `lit` value per level, and how long a LEGAL slot takes to
+## breathe once. ARMED does not pulse — a target under the pointer should
+## sit still.
+const LIT: Array = [0.0, 0.8, 1.0]
+## How far a breathing slot dips before coming back.
+const PULSE_LOW := 0.3
 const PULSE_TIME := 0.6
 ## Outlines are drawn slightly proud of the card they mark.
 const MARKER_SCALE := 1.06
@@ -61,7 +64,7 @@ func build() -> void:
 		for slot in range(ENV_PLACE + 1):
 			var marker := MeshInstance3D.new()
 			marker.mesh = mesh
-			marker.material_override = _marker_material(float(ALPHA[OFF]))
+			marker.material_override = SlotFrame.material(mesh.size)
 			var placement := transform_for(side, slot)
 			placement.origin.y = MARKER_HEIGHT
 			marker.transform = placement
@@ -77,16 +80,15 @@ func highlight(side: int, index: int, level: int) -> void:
 	if marker == null:
 		return
 	_stop_pulse(key)
-	var material := marker.material_override as StandardMaterial3D
-	var lit := float(ALPHA[level])
-	material.albedo_color.a = lit
+	var material := marker.material_override as ShaderMaterial
+	var lit := float(LIT[level])
+	material.set_shader_parameter("lit", lit)
 	if level != LEGAL or Settings.reduced_motion:
 		return
+	var breathe := func(value: float) -> void: material.set_shader_parameter("lit", value)
 	var pulse := marker.create_tween().set_loops()
-	pulse.tween_property(material, "albedo_color:a", lit * 0.45, PULSE_TIME) \
-		.set_trans(Tween.TRANS_SINE)
-	pulse.tween_property(material, "albedo_color:a", lit, PULSE_TIME) \
-		.set_trans(Tween.TRANS_SINE)
+	pulse.tween_method(breathe, lit, PULSE_LOW, PULSE_TIME).set_trans(Tween.TRANS_SINE)
+	pulse.tween_method(breathe, PULSE_LOW, lit, PULSE_TIME).set_trans(Tween.TRANS_SINE)
 	_pulses[key] = pulse
 
 
@@ -110,14 +112,6 @@ func screen_rect(camera: Camera3D, side: int, index: int) -> Rect2:
 		var point := camera.unproject_position(corner)
 		rect = Rect2(point, Vector2.ZERO) if i == 0 else rect.expand(point)
 	return rect
-
-
-func _marker_material(alpha: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(CardStyle.GOLD, alpha)
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	return material
 
 
 func _stop_pulse(key: String) -> void:

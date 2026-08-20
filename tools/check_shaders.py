@@ -56,6 +56,12 @@ def main(path: str) -> int:
     failed = 0
     print("== %s" % path)
     for stage in ("vert", "frag"):
+        # A Godot shader may define only one of the two stages; the engine
+        # fills the other in, and there is nothing here to check.
+        entry = "vertex" if stage == "vert" else "fragment"
+        if ("void %s(" % entry) not in source:
+            print("%s stage: not defined" % stage)
+            continue
         glsl = "/tmp/godot_shader_check.%s" % stage
         open(glsl, "w").write(to_glsl(source, stage))
         result = subprocess.run(
