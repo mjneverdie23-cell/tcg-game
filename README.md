@@ -1,4 +1,4 @@
-# footypred 2.0 — four-market football prediction
+# footypred 2.1 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
