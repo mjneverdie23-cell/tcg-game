@@ -1,10 +1,14 @@
+# runtime artifacts at the project root only (anchored with a leading slash
+# so the footypred/data and footypred/models *packages* are never ignored)
+/data/
+/models/
+/logs/
+catboost_info/
+
+# python
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
 build/
 dist/
 .pytest_cache/
-data/
-models/
-logs/
-catboost_info/

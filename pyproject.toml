@@ -33,6 +33,9 @@ footy = "footypred.cli:main"
 [tool.setuptools.packages.find]
 include = ["footypred*"]
 
+[tool.setuptools.package-data]
+footypred = ["ui/static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning", "ignore::FutureWarning"]

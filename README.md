@@ -14,6 +14,28 @@ All of these come from one joint score distribution. The probabilities are
 therefore always consistent with each other: BTTS can never exceed either
 team's chance of scoring, Over 2.5 agrees with both team totals, and so on.
 
+## Pick league and teams (interactive)
+
+```bash
+footy app        # web app at http://127.0.0.1:8765 — League + Team dropdowns
+footy pick       # same in the terminal: numbered lists, or type a team name
+```
+
+The **web app** has a League and a Team dropdown for each side, so it
+handles fixtures within one league and across leagues (European cups,
+internationals). Set the date and neutral venue, then press **Predict**. It
+shows:
+* the four market cards with picks, fair odds and confidence
+* most likely scores
+* past-match evidence for both teams and the head-to-head record
+* what moved each market
+* a model comparison table
+* the full analysis dashboard (downloadable PNG)
+
+A **Model report** tab shows the out-of-sample evaluation. It runs locally
+with no extra dependencies, works on phones, supports light and dark mode,
+and remembers your last fixture.
+
 ## Quick start
 
 ```bash
@@ -114,6 +136,19 @@ because the data sites are unreachable from the build environment. Run
 figures. Football outcomes are very noisy, so skill scores of a few percent
 are normal and nothing here guarantees profit.
 
+## Debugging log (v1.0.0 → v2)
+
+| Problem | Where | Fix |
+|---|---|---|
+| `.gitignore` rule `data/` also matched the `footypred/data/` package, so the v1.0.0 archive had no database, scraper or updater code and failed with `ModuleNotFoundError` | v1.0.0 | — |
+| Same bug in the first v2 zip (`data/` and `models/` ignored, so `footypred/data` and `footypred/models` were missing) | v2.0.0 | Rules anchored to the project root (`/data/`); a test fails if any package file is untracked |
+| 1X2 calibrator fitted and scored on the same predictions, so the leaderboard was in-sample | v1 selection | Nested chronological CV: the calibration layer is only scored on later seasons |
+| Ensemble weights chosen from the same scores they were judged on | v1 selection | Same nested scheme |
+| Predicting a past date gave rest days of −994, which the tree models extrapolated on (+6 pts home win) | v2 features | Rest days clamped at 0 or more, congestion counts only earlier games, and a "not a fair backtest" warning |
+| Cross-league fixtures silently used the home league's scoring level | v2 predictor | Now stated as a warning |
+| Team-totals picks rendered as `[object HTMLSpanElement]`; low contrast on violet in dark mode | v2 web app | Fixed |
+| Feature drivers showed internal codes (`P(a_o15)`, `mv`) | v2 explanations | Plain-English labels |
+
 ## Charts
 
 `footy predict ... --chart` produces a 3×3 dashboard:
@@ -147,7 +182,7 @@ rate-limited per host, retried with backoff and cached on disk.
 
 ```
 footypred/
-├── cli.py                  footy bootstrap|update|train|predict|evaluate|teams
+├── cli.py                  footy bootstrap|update|train|predict|evaluate|teams|app|pick
 ├── config.py, logging_utils.py
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
 │              synthetic.py (minute-level game-state simulator) · pipeline.py
@@ -155,8 +190,10 @@ footypred/
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
 │              trainer.py (nested CV, selection) · metrics.py · registry.py · summary.py
-└── predict/   predictor.py · explain.py · report.py · charts.py
+├── predict/   predictor.py · explain.py · report.py · charts.py
+└── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      17 tests: market identities, reconciliation, leakage,
-                            state pickling/replay, DC recovery, parsers, end-to-end
+tests/                      21 tests: market identities, reconciliation, leakage,
+                            state pickling/replay, DC recovery, parsers, end-to-end,
+                            web API, terminal menu, past dates, packaging
 ```

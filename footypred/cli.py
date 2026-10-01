@@ -97,6 +97,18 @@ def cmd_teams(cfg, args):
         print(f"{lg} ({len(teams)}): {', '.join(teams)}")
 
 
+def cmd_app(cfg, args):
+    from footypred.ui.web import serve
+    serve(cfg, host=args.host, port=args.port, open_browser=not args.no_browser)
+
+
+def cmd_pick(cfg, args):
+    from footypred.ui.menu import Menu
+    from footypred.ui.service import PredictionService
+    print("Loading model and match history ...")
+    Menu(PredictionService(cfg)).run()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="footy", description="Football prediction for 1X2, "
                                 "O/U 2.5, team goals O/U 0.5-2.5 and BTTS")
@@ -126,6 +138,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     t = sub.add_parser("teams", help="list known teams by league")
     t.add_argument("--league")
+
+    a = sub.add_parser("app", help="open the web app: pick league and teams from dropdowns")
+    a.add_argument("--port", type=int, default=8765)
+    a.add_argument("--host", default="127.0.0.1")
+    a.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    sub.add_parser("pick", help="terminal menu: pick league and teams from numbered lists")
     return p
 
 
@@ -135,7 +153,8 @@ def main(argv=None):
     cfg.paths.ensure()
     setup_logging(cfg.paths.log_dir, "DEBUG" if args.verbose else "INFO")
     {"bootstrap": cmd_bootstrap, "update": cmd_update, "train": cmd_train,
-     "predict": cmd_predict, "evaluate": cmd_evaluate, "teams": cmd_teams}[args.cmd](cfg, args)
+     "predict": cmd_predict, "evaluate": cmd_evaluate, "teams": cmd_teams,
+     "app": cmd_app, "pick": cmd_pick}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

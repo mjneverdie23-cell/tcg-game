@@ -53,7 +53,11 @@ def humanize(feat: str, home: str = "Home", away: str = "Away") -> str:
         return OTHER_TEXT[feat]
     m = re.match(r"pr_(.+)", feat)
     if m:
-        return f"rating-implied P({m.group(1)})"
+        what = {"home": "home win", "draw": "draw", "away": "away win", "o25": "over 2.5",
+                "btts": "BTTS", "h_o05": f"{home} over 0.5", "h_o15": f"{home} over 1.5",
+                "h_o25": f"{home} over 2.5", "a_o05": f"{away} over 0.5",
+                "a_o15": f"{away} over 1.5", "a_o25": f"{away} over 2.5"}.get(m.group(1), m.group(1))
+        return f"rating-implied P({what})"
     m = re.match(r"m_([ha])(v?)_s(\d)", feat)
     if m:
         team = home if m.group(1) == "h" else away
@@ -61,7 +65,9 @@ def humanize(feat: str, home: str = "Home", away: str = "Away") -> str:
     m = re.match(r"x_(\w+)_(h|a|diff)", feat)
     if m:
         who = {"h": home, "a": away, "diff": "difference"}[m.group(2)]
-        return f"{m.group(1)} ({who})"
+        what = {"mv": "squad market value", "clubelo": "ClubElo rating",
+                "fifa": "FIFA ranking points"}.get(m.group(1), m.group(1))
+        return f"{what} ({who})"
     m = re.match(r"([ha])_(s5|l10|ew|v)_(\w+)", feat)
     if m:
         team = home if m.group(1) == "h" else away

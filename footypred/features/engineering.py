@@ -172,8 +172,10 @@ class FeatureState:
         out[f"{p}_n_hist"] = min(n, 50)
         out[f"{p}_trusted"] = float(n >= self.min_hist)
         ds = self.dates.get(team, ())
-        out[f"{p}_rest"] = min(date_ord - ds[-1], 21) if ds else np.nan
-        out[f"{p}_cong21"] = sum(1 for d in ds if date_ord - d <= 21)
+        # clamp: a fixture dated before the latest stored result must not
+        # produce negative rest (garbage the tree models would extrapolate on)
+        out[f"{p}_rest"] = min(max(date_ord - ds[-1], 0), 21) if ds else np.nan
+        out[f"{p}_cong21"] = sum(1 for d in ds if 0 <= date_ord - d <= 21)
         out[f"{p}_elo"] = self.elo.rating(team)
         out[f"{p}_rt_att"] = self.rt.att.get(team, 0.0)
         out[f"{p}_rt_def"] = self.rt.dfn.get(team, 0.0)

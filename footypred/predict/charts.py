@@ -79,6 +79,21 @@ def js_divergence(p: np.ndarray, q: np.ndarray) -> float:
     return 0.5 * kl(p, m) + 0.5 * kl(q, m)
 
 
+def _save(fig, out):
+    """Save to a path (returns the Path) or a binary file-like (returns it)."""
+    try:
+        if hasattr(out, "write"):
+            fig.savefig(out, format="png", dpi=120, facecolor=SURFACE)
+            return out
+        out = Path(out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out, dpi=120, facecolor=SURFACE)
+        log.info("chart saved -> %s", out)
+        return out
+    finally:
+        plt.close(fig)
+
+
 # ===================================================================== panels
 def _p_1x2(ax, pred):
     o = pred.markets["1x2"]
@@ -288,7 +303,7 @@ def _p_reliability(ax, pred):
     _reliability(ax, items, f"Out-of-sample reliability ({len(ep['y_h'])} matches)")
 
 
-def plot_prediction(pred, out_path) -> Path:
+def plot_prediction(pred, out_path):
     if pred.score_matrix is None:
         raise ValueError("prediction carries no score matrix")
     fig, axes = plt.subplots(3, 3, figsize=(18, 15))
@@ -303,16 +318,11 @@ def plot_prediction(pred, out_path) -> Path:
              f"{eg['away']:.2f}   ·   overall confidence {pred.confidence['overall']}/100",
              color=INK_2, fontsize=10)
     fig.tight_layout(rect=(0.01, 0.01, 0.99, 0.95), h_pad=3.0, w_pad=2.5)
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120, facecolor=SURFACE)
-    plt.close(fig)
-    log.info("chart saved -> %s", out_path)
-    return out_path
+    return _save(fig, out_path)
 
 
 # ================================================================ evaluation
-def plot_evaluation(result, out_path) -> Path:
+def plot_evaluation(result, out_path):
     rep, ep = result.report, result.eval_preds
     fig, axes = plt.subplots(2, 3, figsize=(18, 10.5))
     fig.patch.set_facecolor(SURFACE)
@@ -392,8 +402,4 @@ def plot_evaluation(result, out_path) -> Path:
     fig.suptitle(f"Model evaluation — out of sample, {rep['eval_matches']} matches",
                  color=INK, fontsize=14, fontweight="bold", x=0.02, ha="left", y=0.99)
     fig.tight_layout(rect=(0.01, 0.01, 0.99, 0.95), h_pad=3.0, w_pad=2.5)
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120, facecolor=SURFACE)
-    plt.close(fig)
-    return out_path
+    return _save(fig, out_path)

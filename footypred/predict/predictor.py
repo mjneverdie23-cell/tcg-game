@@ -154,6 +154,14 @@ class Predictor:
             warn.append("very little match history for one side - treat with caution")
         if league == "UNK":
             warn.append("league unknown; using global scoring levels")
+        lh, la = self.team_league.get(home), self.team_league.get(away)
+        if lh and la and lh != la and league != "INT":
+            warn.append(f"cross-league fixture ({lh} vs {la}): scoring level of the home "
+                        "side's league is used")
+        last = self.state.last_date
+        if last is not None and date < last:
+            warn.append(f"date is before the latest result on record ({last.date()}); the "
+                        "model already knows later results, so this is not a fair backtest")
 
         return Prediction(
             home=home, away=away, date=str(date.date()), league=league,
