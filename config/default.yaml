@@ -48,7 +48,7 @@ features:
 training:
   cv_min_train_seasons: 2       # expanding window: first test season = 3rd
   dc_half_life_days: 480        # Dixon-Coles time decay (tuned by CV)
-  dc_half_life_grid: [240, 480, 720, 1000]
+  dc_half_life_grid: [240, 480, 720, 1000, 1500]
   random_state: 42
   models: [poisson, dixon_coles, bayesian, xgboost, lightgbm, catboost,
            random_forest, neural_net]

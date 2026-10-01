@@ -46,7 +46,7 @@ def render(pred: Prediction) -> str:
     m, pk, cf = pred.markets, pred.picks, pred.confidence
     eg = pred.expected_goals
     L = ["═" * W,
-         f" {pred.home} vs {pred.away}  ·  {pred.date}  ·  {pred.league}"
+         f" {pred.home} vs {pred.away}  ·  {pred.date}  ·  {pred.league_name}"
          f"{'  ·  neutral venue' if pred.neutral else ''}",
          f" model: {pred.model} ({pred.version})  ·  xG {eg['home']:.2f} – {eg['away']:.2f}"
          f"  (total {eg['total']:.2f})  ·  confidence {cf['overall']}/100",

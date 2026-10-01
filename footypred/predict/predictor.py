@@ -23,11 +23,14 @@ from footypred.predict.explain import drivers, evidence
 
 log = get_logger("predict")
 
-STRENGTH = [(0.70, "strong"), (0.60, "solid"), (0.55, "lean"), (0.0, "toss-up")]
+# pick-strength labels; a 3-way market's favourite needs less probability
+STRENGTH_2WAY = [(0.70, "strong"), (0.60, "solid"), (0.55, "lean"), (0.0, "toss-up")]
+STRENGTH_3WAY = [(0.60, "strong"), (0.50, "solid"), (0.42, "lean"), (0.0, "toss-up")]
 
 
-def strength(p: float) -> str:
-    return next(lbl for t, lbl in STRENGTH if p >= t)
+def strength(p: float, three_way: bool = False) -> str:
+    table = STRENGTH_3WAY if three_way else STRENGTH_2WAY
+    return next(lbl for t, lbl in table if p >= t)
 
 
 @dataclass
@@ -36,6 +39,7 @@ class Prediction:
     away: str
     date: str
     league: str
+    league_name: str
     neutral: bool
     model: str
     version: str
@@ -152,7 +156,10 @@ class Predictor:
             warn.append("league unknown; using global scoring levels")
 
         return Prediction(
-            home=home, away=away, date=str(date.date()), league=league, neutral=neutral,
+            home=home, away=away, date=str(date.date()), league=league,
+            league_name=(self.cfg.leagues.get(league, {}) or {}).get(
+                "name", "International" if league == "INT" else league),
+            neutral=neutral,
             model=res.selected, version=self.bundle.version, markets=markets, picks=picks,
             confidence=conf,
             expected_goals={"home": round(sm.lam_home, 2), "away": round(sm.lam_away, 2),
@@ -182,7 +189,8 @@ class Predictor:
         k = int(np.argmax(probs))
         side = [f"{home} win", "Draw", f"{away} win"][k]
         picks["1x2"] = {"pick": side, "prob": round(float(probs[k]), 4),
-                        "fair_odds": round(1 / probs[k], 2), "strength": strength(probs[k])}
+                        "fair_odds": round(1 / probs[k], 2),
+                        "strength": strength(probs[k], three_way=True)}
         conf["1x2"] = score(probs[k], (probs[k] - 1 / 3) / (2 / 3),
                             spread(lambda mm: mm["1x2"]["home"]))
         # O/U 2.5 and BTTS
