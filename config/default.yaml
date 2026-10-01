@@ -1,0 +1,60 @@
+# footypred configuration. Override with --config or FOOTY_CONFIG=path.
+# Paths are relative to the project root unless absolute.
+
+paths:
+  data_dir: data
+  db_file: data/footy.sqlite
+  cache_dir: data/cache
+  models_dir: models
+  log_dir: logs
+
+http:
+  rate_limit_seconds: 3.0       # minimum gap between requests to one host
+  timeout_seconds: 30
+  max_retries: 4
+  cache_ttl_hours: 12           # disk cache for scraped pages
+
+leagues:                        # football-data.co.uk code -> metadata
+  E0:  {name: Premier League, country: England,     understat: EPL}
+  SP1: {name: La Liga,        country: Spain,       understat: La_liga}
+  I1:  {name: Serie A,        country: Italy,       understat: Serie_A}
+  D1:  {name: Bundesliga,     country: Germany,     understat: Bundesliga}
+  F1:  {name: Ligue 1,        country: France,      understat: Ligue_1}
+  N1:  {name: Eredivisie,     country: Netherlands}
+  P1:  {name: Primeira Liga,  country: Portugal}
+
+seasons: [2021, 2022, 2023, 2024, 2025, 2026]   # season = year it starts
+
+sources:                        # each source fails in isolation
+  football_data: true           # results, HT, shots, corners, cards, odds
+  understat: true               # xG
+  clubelo: true                 # external Elo
+  transfermarkt: false          # squad market values (slow, opt-in)
+  fifa: true                    # international rankings
+  weather: false                # Open-Meteo match-day weather (opt-in)
+
+features:
+  windows: [5, 10]              # short / long rolling windows (matches)
+  ew_halflife: 8                # exponentially-weighted form half-life (matches)
+  venue_window: 8               # home-only / away-only window
+  h2h_matches: 6
+  min_history: 3                # matches before a team's features are "trusted"
+  rt_lr: 0.01                   # goals-based rating learning rate  } auto-tuned
+  rx_lr: 0.03                   # xG-blend rating learning rate     } by `footy
+  rx_xg_weight: 0.75            # xG share of the blend target       } train`
+  auto_tune_ratings: true
+  elo_k: 20
+
+training:
+  cv_min_train_seasons: 2       # expanding window: first test season = 3rd
+  dc_half_life_days: 480        # Dixon-Coles time decay (tuned by CV)
+  dc_half_life_grid: [240, 480, 720, 1000]
+  random_state: 42
+  models: [poisson, dixon_coles, bayesian, xgboost, lightgbm, catboost,
+           random_forest, neural_net]
+  direct_markets: true          # per-market classifiers; used per market only
+                                # where they beat calibration-only out of sample
+  max_goals: 10
+
+prediction:
+  min_confidence_warn: 35

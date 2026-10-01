@@ -1,0 +1,214 @@
+"""Fixture prediction for the four target markets.
+
+name resolution -> cached feature state (+ replay of any newer results)
+-> every goal model's score matrix -> backbone (selected model/ensemble)
+-> per-market head -> matrix reconciled to all markets -> report.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+
+from footypred.data.db import Database
+from footypred.data.names import NameResolver
+from footypred.features.engineering import FeatureBuilder
+from footypred.logging_utils import get_logger
+from footypred.models.market_head import probs_from_grids, reconcile
+from footypred.models.registry import ModelRegistry
+from footypred.models.scorematrix import ScoreMatrix
+from footypred.predict.explain import drivers, evidence
+
+log = get_logger("predict")
+
+STRENGTH = [(0.70, "strong"), (0.60, "solid"), (0.55, "lean"), (0.0, "toss-up")]
+
+
+def strength(p: float) -> str:
+    return next(lbl for t, lbl in STRENGTH if p >= t)
+
+
+@dataclass
+class Prediction:
+    home: str
+    away: str
+    date: str
+    league: str
+    neutral: bool
+    model: str
+    version: str
+    markets: dict
+    picks: dict
+    confidence: dict
+    expected_goals: dict
+    top_scores: list
+    model_markets: dict = field(default_factory=dict)
+    evidence: dict = field(default_factory=dict)
+    drivers: dict = field(default_factory=dict)
+    warnings: list = field(default_factory=list)
+    # raw objects for charts (not serialised)
+    score_matrix: ScoreMatrix | None = None
+    model_matrices: dict = field(default_factory=dict)
+    eval_preds: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        skip = {"score_matrix", "model_matrices", "eval_preds"}
+        return {k: v for k, v in self.__dict__.items() if k not in skip}
+
+
+def _market_view(p: dict) -> dict:
+    """Flat market probabilities -> the four structured markets."""
+    r = lambda x: round(float(x), 4)
+    tt = lambda s: {f"over_{l}": r(p[f"{s}_o{l.replace('.', '')}"]) for l in ("0.5", "1.5", "2.5")}
+    return {
+        "1x2": {"home": r(p["1x2"][0]), "draw": r(p["1x2"][1]), "away": r(p["1x2"][2])},
+        "over_under_2.5": {"over": r(p["o25"]), "under": r(1 - p["o25"])},
+        "btts": {"yes": r(p["btts"]), "no": r(1 - p["btts"])},
+        "team_totals": {"home": tt("h"), "away": tt("a")},
+    }
+
+
+class Predictor:
+    def __init__(self, cfg, db: Database | None = None, version: str | None = None):
+        self.cfg = cfg
+        self.db = db or Database(cfg.paths.db_file)
+        self.bundle = ModelRegistry(cfg.paths.models_dir).load(version)
+        self.res = self.bundle.result
+        self.state = self._sync_state()
+        self.resolver = NameResolver(self.db.teams(), self.db.load_aliases())
+        self.team_league = self.db.team_league()
+
+    def _sync_state(self):
+        """Use the cached state; replay only results newer than it. Fall back
+        to a full rebuild if older history changed underneath it."""
+        state = self.bundle.state
+        m = self.db.load_matches()
+        if state is None or state.last_date is None:
+            return self._rebuild()
+        old = m[m["date"] <= state.last_date]
+        if len(old) != state.n_matches:
+            log.info("history changed since training; rebuilding feature state")
+            return self._rebuild()
+        new = m[m["date"] > state.last_date]
+        if len(new):
+            log.info("replaying %d results newer than the model", len(new))
+            state.replay(new)
+        return state
+
+    def _rebuild(self):
+        fb = FeatureBuilder(self.cfg, self.db, self.res.feature_params)
+        fb.build_training_frame()
+        return fb.state
+
+    def _league_for(self, home, away):
+        lh, la = self.team_league.get(home), self.team_league.get(away)
+        if "INT" in (lh, la):
+            return "INT"
+        return lh or la or "UNK"
+
+    def predict(self, home: str, away: str, date=None, neutral: bool = False) -> Prediction:
+        home, away = self.resolver.resolve(home), self.resolver.resolve(away)
+        if home == away:
+            raise ValueError("home and away must be different teams")
+        date = pd.Timestamp(date) if date is not None else pd.Timestamp.today().normalize()
+        league = self._league_for(home, away)
+        res = self.res
+        fcols = res.feature_cols
+
+        f = self.state.features(home, away, date, league, neutral)
+        row = pd.DataFrame([{**f, "home": home, "away": away, "league": league,
+                             "neutral": float(neutral), "date": date}])
+        for c in fcols:
+            if c not in row:
+                row[c] = np.nan
+
+        # every model's matrix (also used for agreement / divergence)
+        G = int(res.config.get("max_goals", 10)) + 1
+        mats = {name: m.predict_grids(row, fcols, G) for name, m in res.models.items()}
+        if res.selected == "ensemble":
+            backbone = sum(w * mats[n] for n, w in res.weights.items() if w > 0)
+        else:
+            backbone = mats[res.selected]
+        direct = res.direct.predict(row, fcols) if res.head.needs_direct else None
+        target = res.head.predict(probs_from_grids(backbone), direct)
+        final = reconcile(backbone, target)[0]
+        sm = ScoreMatrix.from_grid(final)
+        p = {k: v[0] for k, v in probs_from_grids(final[None]).items()}
+        markets = _market_view(p)
+
+        model_markets = {}
+        for name, g in mats.items():
+            mp = {k: v[0] for k, v in probs_from_grids(g).items()}
+            model_markets[name] = _market_view(mp)
+
+        picks, conf = self._picks_and_confidence(p, markets, model_markets, f, home, away)
+        warn = []
+        nh, na = f.get("h_n_hist", 0), f.get("a_n_hist", 0)
+        if min(nh, na) < self.cfg.features.get("min_history", 3):
+            warn.append("very little match history for one side - treat with caution")
+        if league == "UNK":
+            warn.append("league unknown; using global scoring levels")
+
+        return Prediction(
+            home=home, away=away, date=str(date.date()), league=league, neutral=neutral,
+            model=res.selected, version=self.bundle.version, markets=markets, picks=picks,
+            confidence=conf,
+            expected_goals={"home": round(sm.lam_home, 2), "away": round(sm.lam_away, 2),
+                            "total": round(sm.lam_home + sm.lam_away, 2)},
+            top_scores=[(s, round(q, 4)) for s, q in sm.top_scores(6)],
+            model_markets=model_markets, evidence=evidence(self.state, home, away, neutral),
+            drivers=drivers(res.direct, row, fcols, home, away), warnings=warn,
+            score_matrix=sm, model_matrices={n: ScoreMatrix.from_grid(g[0]) for n, g in mats.items()},
+            eval_preds=res.eval_preds,
+        )
+
+    def _picks_and_confidence(self, p, markets, model_markets, f, home, away):
+        picks, conf = {}, {}
+        hist = min(f.get("h_n_hist", 0) or 0, f.get("a_n_hist", 0) or 0)
+        data_q = min(hist / 20.0, 1.0)
+
+        def spread(getter):
+            vals = [getter(mm) for mm in model_markets.values()]
+            return float(np.std(vals)) if len(vals) > 1 else 0.0
+
+        def score(prob_pick, decis, sp):
+            agree = max(0.0, 1 - sp / 0.12)
+            return round(100 * (0.5 * decis + 0.3 * agree + 0.2 * data_q))
+
+        # 1X2
+        probs = p["1x2"]
+        k = int(np.argmax(probs))
+        side = [f"{home} win", "Draw", f"{away} win"][k]
+        picks["1x2"] = {"pick": side, "prob": round(float(probs[k]), 4),
+                        "fair_odds": round(1 / probs[k], 2), "strength": strength(probs[k])}
+        conf["1x2"] = score(probs[k], (probs[k] - 1 / 3) / (2 / 3),
+                            spread(lambda mm: mm["1x2"]["home"]))
+        # O/U 2.5 and BTTS
+        for key, yes, no, getter in (
+                ("over_under_2.5", "Over 2.5", "Under 2.5", lambda mm: mm["over_under_2.5"]["over"]),
+                ("btts", "BTTS Yes", "BTTS No", lambda mm: mm["btts"]["yes"])):
+            q = p["o25"] if key == "over_under_2.5" else p["btts"]
+            pick, pp = (yes, q) if q >= 0.5 else (no, 1 - q)
+            picks[key] = {"pick": pick, "prob": round(float(pp), 4),
+                          "fair_odds": round(1 / pp, 2), "strength": strength(pp)}
+            conf[key] = score(pp, abs(q - 0.5) * 2, spread(getter))
+        # team totals: best line per team
+        tt_conf = []
+        picks["team_totals"] = {}
+        for side, team in (("h", home), ("a", away)):
+            lines = []
+            for line in ("0.5", "1.5", "2.5"):
+                q = p[f"{side}_o{line.replace('.', '')}"]
+                pick, pp = (f"Over {line}", q) if q >= 0.5 else (f"Under {line}", 1 - q)
+                lines.append({"line": line, "pick": pick, "prob": round(float(pp), 4),
+                              "fair_odds": round(1 / pp, 2), "strength": strength(pp)})
+                tkey = "home" if side == "h" else "away"
+                sp = spread(lambda mm, t=tkey, l=line: mm["team_totals"][t][f"over_{l}"])
+                tt_conf.append(score(pp, abs(q - 0.5) * 2, sp))
+            picks["team_totals"][team] = lines
+        conf["team_totals"] = round(float(np.mean(tt_conf)))
+        conf["overall"] = round(float(np.mean([conf["1x2"], conf["over_under_2.5"],
+                                               conf["btts"], conf["team_totals"]])))
+        return picks, conf
