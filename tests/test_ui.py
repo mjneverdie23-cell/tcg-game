@@ -105,6 +105,25 @@ def test_data_and_backtest_endpoints(server):
     assert code == 200 and csv.count(b"\n") == r["matches"] + 1 and b"pick_balanced" in csv
 
 
+def test_follow_ups_and_batch_picks(server):
+    code, body = _get(server + "/api/predict?home=Arsenal&away=Chelsea&date=2026-07-15&chart=0")
+    f = json.loads(body)["form"]
+    assert code == 200 and set(f["by_style"]) == {"safe", "balanced", "bold"}
+    assert isinstance(f["follow_ups"], list) and len(f["follow_ups"]) <= 4
+    best = f["best_pick"]["key"] if f["best_pick"] else None
+    assert all(c["key"] != best for c in f["follow_ups"])
+    assert all("why" in c for c in f["follow_ups"] if c.get("lean"))
+    code, rows = _post(server + "/api/predict-batch", {"fixtures": [
+        {"id": 1, "home": "Arsenal", "away": "Chelsea", "date": "2026-07-15", "competition": "E0"},
+        {"id": 2, "home": "Nowhere FC", "away": "Chelsea"}], "pick_opts": {"style": "bold"}})
+    assert code == 200 and [r["ok"] for r in rows] == [True, False]
+    assert rows[0]["style"] == "bold" and set(rows[0]["by_style"]) == {"safe", "balanced", "bold"}
+    assert "1x2" in rows[0] and "Did you mean" in rows[1]["error"]
+    code, sch = _get(server + "/api/schedule")
+    sch = json.loads(sch)
+    assert code == 200 and sch["back"] == 3 and sch["ahead"] == 5 and sch["ready"] is True
+
+
 def test_merge_endpoint(server, cfg, tmp_path):
     from footypred.data.localfile import csv_path
     assert _post(server + "/api/data/merge", {"paths": ""})[0] == 400

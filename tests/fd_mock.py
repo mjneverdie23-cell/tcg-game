@@ -40,8 +40,15 @@ def match(mid, comp, utc, home, away, ft, ht, stage="REGULAR_SEASON", status="FI
     y = int(utc[:4]) if int(utc[5:7]) >= 7 else int(utc[:4]) - 1
     return {"id": mid, "utcDate": utc, "status": status, "matchday": 1, "stage": stage,
             "season": {"startDate": season_start or f"{y}-08-01"},
-            "homeTeam": {"name": OFFICIAL.get(home, home)}, "awayTeam": {"name": OFFICIAL.get(away, away)},
+            "homeTeam": {"name": OFFICIAL.get(home, home), "crest": f"https://crests.test/{mid}h.png"},
+            "awayTeam": {"name": OFFICIAL.get(away, away), "crest": f"https://crests.test/{mid}a.png"},
             "score": score, "lastUpdated": utc, "competition": {"code": comp}}
+
+
+def pd_days(lo: str, hi: str) -> int:
+    from datetime import date
+    a, b = date.fromisoformat(lo), date.fromisoformat(hi)
+    return (b - a).days + 1
 
 
 class MockFDOrg:
@@ -50,6 +57,7 @@ class MockFDOrg:
         self.matches, self.key, self.restricted = matches, key, set(restricted)
         self.throttle_once = throttle_once
         self.calls: list[str] = []
+        self.window_calls = 0
         mock = self
 
         class H(BaseHTTPRequestHandler):
@@ -78,6 +86,18 @@ class MockFDOrg:
                 parts = u.path.strip("/").split("/")
                 if parts == ["v4", "competitions"]:
                     return self._json(200, {"competitions": COMPETITIONS})
+                if parts == ["v4", "matches"]:          # date window across competitions
+                    codes = q.get("competitions", "").split(",") if q.get("competitions") else list(mock.matches)
+                    if set(codes) & mock.restricted:
+                        return self._json(403, {"message": "The resource you are looking for is "
+                                                           "restricted."})
+                    lo, hi = q.get("dateFrom", "0000"), q.get("dateTo", "9999")
+                    if (pd_days(lo, hi)) > 10:
+                        return self._json(400, {"message": "dateFrom and dateTo more than 10 days apart"})
+                    mock.window_calls += 1
+                    ms = [m for c in codes for m in mock.matches.get(c, [])
+                          if lo <= m["utcDate"][:10] <= hi]
+                    return self._json(200, {"matches": ms})
                 if len(parts) == 4 and parts[:2] == ["v4", "competitions"] and parts[3] == "matches":
                     code = parts[2]
                     if code in mock.restricted:

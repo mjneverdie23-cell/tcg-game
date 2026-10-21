@@ -122,6 +122,8 @@ def make_handler(service):
                     self._json(service.data_info())
                 elif url.path == "/api/date-range":
                     self._json(service.date_range())
+                elif url.path == "/api/schedule":
+                    self._json(service.schedule())
                 elif url.path == "/api/data/names":
                     self._json(service.name_pairs())
                 elif url.path == "/api/settings":
@@ -160,6 +162,13 @@ def make_handler(service):
             try:
                 if url.path == "/api/data/reload":
                     self._json(service.reload_data())
+                elif url.path == "/api/schedule/refresh":
+                    self._json(service.refresh_schedule())
+                elif url.path == "/api/predict-batch":
+                    b = self._body_json()
+                    self._json(service.predict_batch(
+                        b.get("fixtures") or [],
+                        pick_opts({k: str(v) for k, v in (b.get("pick_opts") or {}).items()})))
                 elif url.path == "/api/data/merge":
                     self._json(service.merge_files(self._body_json()))
                 elif url.path == "/api/data/update":

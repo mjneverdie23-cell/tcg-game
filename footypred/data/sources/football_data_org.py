@@ -50,6 +50,7 @@ class FDOrgClient:
         if not api_key:
             raise FDOrgError("no football-data.org API key: set FOOTBALL_DATA_API_KEY "
                              "(free key at https://www.football-data.org/client/register)")
+        self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.min_interval = min_interval
         self.max_retries = max_retries
@@ -103,6 +104,19 @@ class FDOrgClient:
         data = self.get(f"competitions/{competition}/matches", season=season,
                         dateFrom=date_from, dateTo=date_to)
         return data.get("matches", [])
+
+    def matches_between(self, date_from: str, date_to: str,
+                        competitions: list[str] | None = None) -> list[dict]:
+        """Every match (played or not) between two dates across competitions,
+        in chunks of at most 10 days (the API's limit for this call)."""
+        out, start, end = [], pd.Timestamp(date_from), pd.Timestamp(date_to)
+        while start <= end:
+            stop = min(start + pd.Timedelta(days=9), end)
+            data = self.get("matches", dateFrom=str(start.date()), dateTo=str(stop.date()),
+                            competitions=",".join(competitions) if competitions else None)
+            out += data.get("matches", [])
+            start = stop + pd.Timedelta(days=1)
+        return out
 
 
 def _error_message(r) -> str:
@@ -193,5 +207,8 @@ def parse_matches(raw: list[dict], spec: CompetitionSpec, include_unplayed: bool
             "duration": duration, "home_aet": aet_h, "away_aet": aet_a,
             "neutral": 1 if m.get("stage") == "FINAL" else 0,
             "fd_id": m.get("id"), "updated_at": m.get("lastUpdated"),
+            # for the schedule (not part of the match file)
+            "utc": utc or None, "home_crest": (m.get("homeTeam") or {}).get("crest"),
+            "away_crest": (m.get("awayTeam") or {}).get("crest"),
         })
     return pd.DataFrame(rows)

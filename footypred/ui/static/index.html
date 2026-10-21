@@ -179,6 +179,67 @@ code { font: 12.5px ui-monospace, "SF Mono", Menlo, Consolas, monospace; backgro
   padding: 1px 5px; border-radius: 4px; }
 td.hit { color: var(--good); font-weight: 600; } td.miss { color: var(--err-ink); }
 .setup { border-left: 4px solid var(--accent); }
+.sched { padding: 12px 14px; }
+.sched-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sched-head select { width: auto; border: 0; background: none; font-weight: 700; font-size: 16px; text-align: center; cursor: pointer; }
+.iconbtn { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--page); color: var(--ink);
+  font: 600 18px/1 system-ui, sans-serif; cursor: pointer; flex: none; }
+.iconbtn:disabled { opacity: .35; cursor: default; }
+.iconbtn.spin { animation: rot 1s linear infinite; opacity: .6; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .iconbtn.spin { animation: none; } }
+.sched-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--grid); }
+.pill { border: 1px solid var(--baseline); background: var(--card); color: var(--ink); border-radius: 999px; padding: 6px 14px;
+  font: 600 14px/1.2 system-ui, sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pill[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill[aria-pressed="true"] .dot, .live-dot { background: var(--good); }
+.pill-select { width: auto !important; border-radius: 999px !important; padding: 6px 10px !important; font-size: 14px; }
+.filter { flex: 1; min-width: 160px; display: flex !important; grid-template-columns: none; align-items: center; gap: 6px;
+  border: 1px solid var(--baseline); border-radius: 999px; padding: 0 12px; background: var(--surface); color: var(--muted); }
+.filter input { border: 0; background: none; padding: 7px 0; font: inherit; color: var(--ink); width: 100%; outline: none; }
+.sched-note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.comp { padding: 0; overflow: hidden; margin-top: 14px; }
+.comp-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 0; background: var(--page);
+  color: var(--ink); font: 700 15px/1.2 system-ui, sans-serif; cursor: pointer; text-align: left; }
+.comp-head .count { color: var(--muted); font-weight: 500; font-size: 13px; }
+.comp-head .chev { margin-left: auto; color: var(--muted); transition: transform .15s; }
+.comp-head[aria-expanded="false"] .chev { transform: rotate(180deg); }
+.match { display: grid; grid-template-columns: minmax(0, 1fr) 24px 5.2em 24px minmax(0, 1fr); align-items: center; gap: 10px;
+  padding: 12px 16px; border-top: 1px solid var(--grid); cursor: pointer; }
+.match:hover, .match:focus-visible { background: var(--surface); outline: none; }
+.match .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.match .t.home { text-align: right; } .match .t.unknown { color: var(--muted); }
+.match .mid { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; line-height: 1.15; white-space: nowrap; }
+.fu th:nth-child(2), .fu td:nth-child(2) { text-align: left; }
+.match .mid small { display: block; font-size: 11px; font-weight: 500; color: var(--muted); }
+.match .mid.live small { color: var(--good); font-weight: 700; }
+.match .mid.done { font-weight: 700; }
+.crest { width: 24px; height: 24px; object-fit: contain; display: block; }
+.crest.ini { border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui, sans-serif;
+  color: #fff; letter-spacing: .02em; position: relative; overflow: hidden; }
+.crest.ini img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; }
+.crest.ini.has-img { background: none !important; color: transparent; border-radius: 0; }
+.crest.ini.has-img img { opacity: 1; }
+.match .comp-tag { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); margin-top: -6px; text-align: center; }
+.mpicks { padding: 0 16px 12px; margin-top: -4px; font-size: 13px; color: var(--ink-2); text-align: center; }
+.mpicks b { color: var(--ink); } .mpicks .then { color: var(--muted); }
+.mpicks .err { color: var(--muted); font-style: italic; }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+.fu { margin-top: 12px; }
+.fu h3 { font-size: 13px; margin: 0 0 6px; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.styles3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.styles3 > div { border: 1px solid var(--ring); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: var(--surface); }
+.styles3 .k { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.styles3 .yours { border-color: var(--accent); }
+.styles3 b { display: block; color: var(--ink); font-size: 14px; }
+.then-line { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; margin-top: 2px; }
+@media (max-width: 520px) {
+  .match { grid-template-columns: minmax(0, 1fr) 20px 4.9em 20px minmax(0, 1fr); gap: 6px; padding: 11px 10px; }
+  .match .t { font-size: 14px; } .crest { width: 20px; height: 20px; } .match .mid { font-size: 13.5px; }
+  nav { gap: 1px; } nav button { font-size: 14px; padding: 6px 5px !important; }
+  .styles3 { grid-template-columns: 1fr; }
+}
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
 .steps > li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
 .steps .num { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center;
@@ -227,6 +288,7 @@ nav .sm { display: none; }
     <div class="brand">footypred</div>
     <div class="status" id="status">loading…</div>
     <nav role="tablist">
+      <button role="tab" aria-selected="false" data-tab="schedule"><span class="lg">Schedule</span><span class="sm">Games</span></button>
       <button role="tab" aria-selected="true" data-tab="predict">Predict</button>
       <button role="tab" aria-selected="false" data-tab="image"><span class="lg">From image</span><span class="sm">Image</span></button>
       <button role="tab" aria-selected="false" data-tab="backtest">Backtest</button>
@@ -237,6 +299,28 @@ nav .sm { display: none; }
 </header>
 
 <main class="wrap">
+  <section id="tab-schedule" class="hidden">
+    <div class="card sched">
+      <div class="sched-head">
+        <button type="button" class="iconbtn" id="sch-prev" aria-label="Previous day">‹</button>
+        <select id="sch-day" aria-label="Day"></select>
+        <button type="button" class="iconbtn" id="sch-next" aria-label="Next day">›</button>
+      </div>
+      <div class="sched-tools">
+        <button type="button" class="pill" id="sch-live" aria-pressed="false"><span class="dot"></span>Live</button>
+        <button type="button" class="pill" id="sch-bytime" aria-pressed="false">By time</button>
+        <button type="button" class="pill" id="sch-picks" aria-pressed="false">★ Picks</button>
+        <select id="sch-style" class="pill-select" aria-label="Pick style">
+          <option value="safe">Safe</option><option value="balanced" selected>Balanced</option><option value="bold">Bold</option>
+        </select>
+        <label class="filter"><span aria-hidden="true">⌕</span><input type="search" id="sch-filter" placeholder="Filter teams or leagues" aria-label="Filter"></label>
+        <button type="button" class="iconbtn" id="sch-refresh" aria-label="Refresh the schedule" title="Refresh from football-data.org">↻</button>
+      </div>
+      <div class="sched-note" id="sch-note"></div>
+    </div>
+    <div id="sch-list"></div>
+  </section>
+
   <section id="tab-predict">
     <form class="card picker" id="picker">
       <div class="side home">
@@ -489,6 +573,21 @@ function bestPickCard(p) {
     kids.push(el("div", { class: "top" }, el("div", { class: "big" }, "No clear pick")),
       el("p", { class: "pick" }, "No selection is backed by both recent form and the model with the current market and odds settings."));
   }
+  const fu = f.follow_ups || [];
+  if (fu.length) kids.push(el("div", { class: "fu" }, el("h3", {}, b ? "Follow-up picks" : "Options anyway"),
+    el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, ["#", "Selection", "Model", "Form", "Fair odds", ""].map((t) => el("th", {}, t)))),
+      el("tbody", {}, fu.map((c, i) => el("tr", {}, el("td", {}, String(b ? i + 2 : i + 1)),
+        el("td", { class: "team" }, c.label, c.lean ? el("span", { class: "chip" }, "lean") : null),
+        el("td", {}, pct(c.model_prob)), el("td", {}, c.form_rate == null ? "–" : pct(c.form_rate)),
+        el("td", {}, c.fair_odds.toFixed(2)), el("td", { class: "src", title: c.lean ? c.why : c.agreement }, c.lean ? c.why : c.agreement)))))),
+    fu.some((c) => c.lean) ? el("p", { class: "pick", style: "margin:6px 0 0" }, "A lean misses one of your style's rules (shown in the last column), so treat it as a weaker option.") : null));
+  const bs = f.by_style || {};
+  if (Object.keys(bs).length) kids.push(el("div", { class: "styles3" }, ["safe", "balanced", "bold"].map((k) => {
+    const c = bs[k], yours = k === st.style;
+    return el("div", { class: yours ? "yours" : "" }, el("div", { class: "k" }, k + (yours ? " · your style" : "")),
+      c ? [el("b", {}, c.label), `${pct(c.model_prob)} · odds ${c.fair_odds.toFixed(2)}`] : el("span", { class: "muted" }, "no clear pick"));
+  })));
   for (const [side, team, venue] of [["home", p.home, "at home"], ["away", p.away, "away"]]) {
     const tags = f.profiles[side][venue].length ? f.profiles[side][venue] : f.profiles[side].overall;
     if (tags.length) kids.push(el("div", { class: "tags" }, el("b", {}, `${team} ${venue}: `), tags.join(" · ")));
@@ -628,7 +727,9 @@ function openTab(name) { document.querySelector(`nav button[data-tab="${name}"]`
 let reportLoaded = false;
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", async () => {
   document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
-  for (const t of ["predict", "image", "backtest", "report", "data"]) $("tab-" + t).classList.toggle("hidden", b.dataset.tab !== t);
+  store.set("tab", b.dataset.tab);
+  for (const t of ["schedule", "predict", "image", "backtest", "report", "data"]) $("tab-" + t).classList.toggle("hidden", b.dataset.tab !== t);
+  if (b.dataset.tab === "schedule") openSchedule();
   if (b.dataset.tab === "data") loadData();
   if (b.dataset.tab === "backtest") initBacktest();
   if (b.dataset.tab === "report" && !reportLoaded) {
@@ -736,7 +837,8 @@ function renderBatch(out) {
     const open = el("button", { type: "button", class: "ghost small" }, "Open");
     open.addEventListener("click", () => openFixture(p.home, p.away, p.date));
     return el("tr", {}, el("td", { class: "team" }, `${p.home} vs ${p.away}`), el("td", { "data-label": "Date" }, p.date),
-      el("td", { class: "pick-cell", "data-label": "Best pick" }, b ? el("b", {}, b.label) : el("span", { class: "muted" }, "no clear pick")),
+      el("td", { class: "pick-cell", "data-label": "Best pick" }, b ? el("b", {}, b.label) : el("span", { class: "muted" }, "no clear pick"),
+        (p.form.follow_ups || []).length ? el("span", { class: "then-line" }, (b ? "then: " : "leans: ") + p.form.follow_ups.slice(0, 3).map((c) => `${c.label} ${c.fair_odds.toFixed(2)}${c.lean && b ? " (lean)" : ""}`).join(" · ")) : null),
       el("td", { "data-label": "Model" }, b ? pct(b.model_prob) : "–"), el("td", { "data-label": "Odds" }, b ? b.fair_odds.toFixed(2) : "–"),
       el("td", { "data-label": "Form" }, b ? pct(b.form_rate) : "–"),
       el("td", { "data-label": "1X2 H·D·A" }, `${pct(m["1x2"].home)} · ${pct(m["1x2"].draw)} · ${pct(m["1x2"].away)}`),
@@ -750,13 +852,15 @@ function renderBatch(out) {
   box.classList.remove("hidden");
   box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
-async function openFixture(home, away, date) {
+async function openFixture(home, away, date, competition) {
   const idx = await teamIndex();
   document.querySelector('nav button[data-tab="predict"]').click();
   $("home-league").value = idx[home]; await fillTeams($("home-league"), $("home-team"), home);
   $("away-league").value = idx[away]; awayFollows = idx[home] === idx[away];
   await fillTeams($("away-league"), $("away-team"), away);
   $("date").value = date;
+  const c = $("competition");
+  c.value = competition && [...c.options].some((o) => o.value === competition) ? competition : "";
   $("picker").requestSubmit();
 }
 $("img-file").addEventListener("change", (e) => readImage(e.target.files[0]));
@@ -798,7 +902,7 @@ async function fillCompetitions() {
       showError(s.has_data ? "Your matches are loaded — train a model to start predicting."
                            : "Welcome! First add your matches and train a model.", true);
       openTab("data");
-    }
+    } else openTab(store.get("tab") || "schedule");
   } catch (err) { showError("Could not start: " + err.message); $("status").textContent = "not ready"; }
 })();
 
@@ -1095,6 +1199,157 @@ function renderSettings() {
       " — the key arrives by email. Settings are saved in ", el("code", {}, st.settings_path), " on this PC (never committed or uploaded)."),
     el("div", { class: "actions" }, st.api_key_source === "settings" ? clear : null, save));
 }
+
+// ------------------------------------------------------------ schedule tab
+let SCH = null, SCH_DAY = 0, SCH_TIMER = null, SCH_BUSY = false;
+const SCH_PICKS = {};
+const schPrefs = Object.assign({ live: false, bytime: false, picks: false, collapsed: {} }, store.get("sched") || {});
+const localDay = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+const dayOffset = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d; };
+function dayLabel(n) {
+  if (n === 0) return "Today"; if (n === -1) return "Yesterday"; if (n === 1) return "Tomorrow";
+  return dayOffset(n).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+}
+const matchDay = (m) => m.utc ? localDay(m.utc) : m.date;
+const pickKey = (m) => `${m.home}|${m.away}|${m.date}|${$("sch-style").value}`;
+function crest(url, name) {
+  // initials underneath, the crest image on top once it loads (none offline)
+  let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const ini = name.replace(/[^A-Za-z ]/g, "").split(" ").filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+  const box = el("span", { class: "crest ini", style: `background:hsl(${h} 45% 42%)`, "aria-hidden": "true" }, ini);
+  if (url) {
+    const img = el("img", { src: url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    img.addEventListener("load", () => box.classList.add("has-img"));
+    img.addEventListener("error", () => img.remove());
+    box.append(img);
+  }
+  return box;
+}
+function midCell(m) {
+  const done = m.status === "FINISHED" || m.status === "AWARDED";
+  const score = m.fthg != null && m.ftag != null ? `${m.fthg} – ${m.ftag}` : null;
+  if (m.live) return el("div", { class: "mid live" }, score || "–", el("small", {}, "● LIVE"));
+  if (done) return el("div", { class: "mid done" }, score || "–", el("small", {}, "FT"));
+  if (["POSTPONED", "SUSPENDED", "CANCELLED"].includes(m.status)) return el("div", { class: "mid" }, "–", el("small", {}, m.status.slice(0, 5).toLowerCase() + "."));
+  const t = m.utc ? new Date(m.utc).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "–";
+  return el("div", { class: "mid" }, t, m.odds_h ? el("small", {}, `${(+m.odds_h).toFixed(2)} · ${(+m.odds_d).toFixed(2)} · ${(+m.odds_a).toFixed(2)}`) : null);
+}
+function schPickLine(m) {
+  if (!schPrefs.picks || !m.predictable) return null;
+  const r = SCH_PICKS[pickKey(m)];
+  if (r === undefined) return el("div", { class: "mpicks" }, el("span", { class: "err" }, "…"));
+  if (!r.ok) return el("div", { class: "mpicks" }, el("span", { class: "err" }, r.error.length > 90 ? r.error.slice(0, 90) + "…" : r.error));
+  const b = r.best, fu = r.follow_ups.slice(0, 2);
+  const list = (xs) => xs.map((c) => `${c.label} ${c.fair_odds.toFixed(2)}${c.lean && b ? " (lean)" : ""}`).join(" · ");
+  return el("div", { class: "mpicks" }, b ? [el("b", {}, "★ " + b.label), ` ${b.fair_odds.toFixed(2)} · model ${pct(b.model_prob)}` + (b.form_rate != null ? ` · form ${pct(b.form_rate)}` : "")]
+    : el("span", { class: "err" }, "no clear pick"),
+    fu.length ? el("span", { class: "then" }, (b ? "  ·  then: " : "  ·  leans: ") + list(fu)) : null);
+}
+function matchRow(m, showComp) {
+  const row = el("div", { class: "match", role: "button", tabindex: "0", title: m.known ? "Open the full prediction" : "Not enough history for one of these teams in your data" },
+    el("span", { class: "t home" + (m.home_known ? "" : " unknown"), title: m.home_known ? "" : `${m.home}: no matches in your data` }, m.home),
+    crest(m.home_crest, m.home), midCell(m), crest(m.away_crest, m.away),
+    el("span", { class: "t away" + (m.away_known ? "" : " unknown"), title: m.away_known ? "" : `${m.away}: no matches in your data` }, m.away),
+    showComp ? el("span", { class: "comp-tag" }, m.competition_name || m.competition) : null);
+  const open = () => { if (STATUS && STATUS.ready) openFixture(m.home, m.away, matchDay(m), m.competition); else openTab("data"); };
+  row.addEventListener("click", open);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  return [row, schPickLine(m)];
+}
+function dayMatches() {
+  if (!SCH) return [];
+  const want = localDay(dayOffset(SCH_DAY));
+  const q = $("sch-filter").value.trim().toLowerCase();
+  return SCH.matches.filter((m) => matchDay(m) === want && (!schPrefs.live || m.live) &&
+    (!q || `${m.home} ${m.away} ${m.competition_name || ""} ${m.competition}`.toLowerCase().includes(q)));
+}
+function renderSchedule() {
+  if (!SCH) return;
+  for (const [id, k] of [["sch-live", "live"], ["sch-bytime", "bytime"], ["sch-picks", "picks"]]) $(id).setAttribute("aria-pressed", schPrefs[k]);
+  const counts = {};
+  for (const m of SCH.matches) counts[matchDay(m)] = (counts[matchDay(m)] || 0) + 1;
+  put($("sch-day"), Array.from({ length: SCH.back + SCH.ahead + 1 }, (_, i) => i - SCH.back).map((n) =>
+    el("option", { value: String(n) }, `${dayLabel(n)}${counts[localDay(dayOffset(n))] ? "  ·  " + counts[localDay(dayOffset(n))] : ""}`)));
+  $("sch-day").value = String(SCH_DAY);
+  $("sch-prev").disabled = SCH_DAY <= -SCH.back; $("sch-next").disabled = SCH_DAY >= SCH.ahead;
+  $("sch-picks").disabled = !SCH.ready; $("sch-picks").title = SCH.ready ? "Best pick and follow-ups for each match" : "Train a model first (Data tab)";
+  const list = dayMatches(), box = $("sch-list");
+  if (!list.length) {
+    const none = !SCH.matches.length;
+    put(box, el("div", { class: "card empty" }, none
+      ? (SCH.has_key ? "No schedule yet — click ↻ to fetch it from football-data.org." : ["No schedule yet. Add your football-data.org API key in ", setupButton("Data → Settings"), " to see upcoming matches."])
+      : schPrefs.live ? "No live matches right now." : `No matches ${SCH_DAY === 0 ? "today" : "on " + dayLabel(SCH_DAY)} in your leagues.`));
+    return;
+  }
+  if (schPrefs.bytime) {
+    put(box, el("div", { class: "card comp" }, list.map((m) => matchRow(m, true))));
+  } else {
+    const groups = {};
+    for (const m of list) (groups[m.competition] = groups[m.competition] || []).push(m);
+    put(box, Object.entries(groups).sort((a, b) => a[1][0].order - b[1][0].order).map(([code, ms]) => {
+      const closed = !!schPrefs.collapsed[code];
+      const head = el("button", { type: "button", class: "comp-head", "aria-expanded": String(!closed) },
+        el("span", { "aria-hidden": "true" }, "⚽"), ms[0].competition_name || code, el("span", { class: "count" }, String(ms.length)), el("span", { class: "chev", "aria-hidden": "true" }, "▴"));
+      head.addEventListener("click", () => { schPrefs.collapsed[code] = !closed; store.set("sched", schPrefs); renderSchedule(); });
+      return el("div", { class: "card comp" }, head, closed ? null : ms.map((m) => matchRow(m, false)));
+    }));
+  }
+  if (schPrefs.picks) loadPicks(list);
+}
+async function loadPicks(list) {
+  const need = list.filter((m) => m.predictable && SCH_PICKS[pickKey(m)] === undefined);
+  if (!need.length || SCH_BUSY) return;
+  SCH_BUSY = true;
+  try {
+    for (let i = 0; i < need.length; i += 12) {
+      const chunk = need.slice(i, i + 12);
+      const res = await api("/api/predict-batch", { fixtures: chunk.map((m, j) => ({ id: j, home: m.home, away: m.away,
+        date: matchDay(m), competition: m.competition, neutral: m.neutral ? 1 : 0 })), pick_opts: { style: $("sch-style").value } });
+      res.forEach((r, j) => { SCH_PICKS[pickKey(chunk[j])] = r; });
+      renderScheduleRowsOnly();
+    }
+  } catch (err) { $("sch-note").textContent = "Picks: " + err.message; }
+  finally { SCH_BUSY = false; }
+}
+function renderScheduleRowsOnly() { const y = window.scrollY; renderSchedule(); window.scrollTo(0, y); }
+function schNote() {
+  if (!SCH) return;
+  const f = SCH.fetched_at ? new Date(SCH.fetched_at) : null;
+  const ago = f ? Math.round((Date.now() - f) / 60000) : null;
+  const bits = [f ? `updated ${ago < 1 ? "just now" : ago < 90 ? ago + " min ago" : f.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "not fetched yet",
+    "times in your time zone", "results from football-data.org and your match file"];
+  $("sch-note").textContent = bits.join(" · ") + ((SCH.notes || []).length ? " · " + SCH.notes.join(" · ") : "");
+}
+async function refreshSchedule(quiet) {
+  const b = $("sch-refresh"); b.disabled = true; b.classList.add("spin");
+  if (!quiet) $("sch-note").textContent = "Refreshing…";
+  try {
+    SCH = await api("/api/schedule/refresh", {});
+    for (const k of Object.keys(SCH_PICKS)) delete SCH_PICKS[k];
+    renderSchedule(); schNote();
+  } catch (err) { $("sch-note").textContent = "Couldn't refresh: " + err.message; }
+  finally { b.disabled = false; b.classList.remove("spin"); }
+}
+async function openSchedule() {
+  try { SCH = await api("/api/schedule"); } catch (err) { put($("sch-list"), el("div", { class: "msg err" }, err.message)); return; }
+  $("sch-style").value = $("style").value;
+  renderSchedule(); schNote();
+  const stale = !SCH.fetched_at || Date.now() - new Date(SCH.fetched_at) > 30 * 60000;
+  if (SCH.has_key && stale) refreshSchedule(true);
+  clearInterval(SCH_TIMER);
+  SCH_TIMER = setInterval(() => {          // keep live scores moving while the page is open
+    if ($("tab-schedule").classList.contains("hidden") || document.hidden || !SCH || !SCH.has_key) return;
+    if (SCH.matches.some((m) => m.live) || Date.now() - new Date(SCH.fetched_at || 0) > 30 * 60000) refreshSchedule(true);
+  }, 5 * 60000);
+}
+$("sch-prev").addEventListener("click", () => { SCH_DAY = Math.max(-SCH.back, SCH_DAY - 1); renderSchedule(); });
+$("sch-next").addEventListener("click", () => { SCH_DAY = Math.min(SCH.ahead, SCH_DAY + 1); renderSchedule(); });
+$("sch-day").addEventListener("change", () => { SCH_DAY = +$("sch-day").value; renderSchedule(); });
+for (const [id, k] of [["sch-live", "live"], ["sch-bytime", "bytime"], ["sch-picks", "picks"]])
+  $(id).addEventListener("click", () => { schPrefs[k] = !schPrefs[k]; store.set("sched", schPrefs); renderSchedule(); });
+$("sch-filter").addEventListener("input", () => renderSchedule());
+$("sch-style").addEventListener("change", () => { $("style").value = $("sch-style").value; renderSchedule(); });
+$("sch-refresh").addEventListener("click", () => refreshSchedule(false));
 
 // ------------------------------------------------------------ backtest tab
 let BT_READY = false, BT_RANGE = null, BT_JOB = null;

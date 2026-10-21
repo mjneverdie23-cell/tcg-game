@@ -32,6 +32,7 @@ class PredictionService:
             sync_db(cfg, db)
         self.db = db
         self._lock = threading.Lock()          # models + matplotlib aren't thread-safe
+        self._schedule_lock = threading.Lock()
         self.jobs = JobRunner()
         self._load()
 
@@ -246,6 +247,7 @@ class PredictionService:
             with self._lock:
                 lf.sync_db(self.cfg, self.db)
                 self._load()
+            self._refresh_schedule_quietly(job.say)
             return {**r, "info": self.data_info()}
         return self.jobs.start("update", work)
 
@@ -289,6 +291,67 @@ class PredictionService:
                 # earliest sensible start: about a year of history first
                 "min_start": str((d.min() + pd.Timedelta(days=365)).date())}
 
+    # ------------------------------------------------------------ schedule
+    def schedule(self) -> dict:
+        """Fixtures and results from 3 days back to 5 ahead (Schedule tab)."""
+        from footypred.data import schedule as sch
+        w = sch.window(self.cfg)
+        teams = set(self.db.teams())
+        for m in w["matches"]:
+            m["home_known"], m["away_known"] = m["home"] in teams, m["away"] in teams
+            m["known"] = m["home_known"] and m["away_known"]
+            m["predictable"] = (m["known"] and self.predictor is not None
+                                and m["status"] not in ("FINISHED", "AWARDED", "CANCELLED"))
+        w["has_key"] = self.settings()["api_key_set"]
+        w["ready"] = self.predictor is not None
+        return w
+
+    def refresh_schedule(self) -> dict:
+        """Fetch the window again (football-data.org + co.uk fixture lists)."""
+        from footypred.data import localfile as lf
+        from footypred.data import schedule as sch
+        if not self._schedule_lock.acquire(blocking=False):
+            raise ValueError("the schedule is already being refreshed")
+        try:
+            from footypred.data.http import HttpClient
+            from footypred.data.sources.football_data_org import FDOrgClient
+            f = lf.make_fetcher(self.cfg, progress=None)
+            # the page waits for this: fail fast instead of the downloader's long retries
+            client = f.client and FDOrgClient(f.client.api_key, base_url=f.client.base_url,
+                                              min_interval=f.client.min_interval, max_retries=2,
+                                              timeout=20)
+            http = f.http and HttpClient(self.cfg.paths.cache_dir, 1.0, 15, 1)
+            r = sch.refresh(self.cfg, client, http)
+        finally:
+            self._schedule_lock.release()
+        return {**self.schedule(), "notes": r["notes"]}
+
+    def _refresh_schedule_quietly(self, say) -> None:
+        try:
+            r = self.refresh_schedule()
+            say(f"Schedule refreshed: {len(r['matches'])} matches from "
+                f"{(pd.Timestamp(r['today']) - pd.Timedelta(days=r['back'])).date()} to "
+                f"{(pd.Timestamp(r['today']) + pd.Timedelta(days=r['ahead'])).date()}")
+        except Exception as exc:                  # the schedule is a bonus here
+            say(f"(schedule not refreshed: {exc})")
+
+    def predict_batch(self, items: list[dict], pick_opts: dict | None = None) -> list[dict]:
+        """Best pick + follow-ups for several fixtures at once."""
+        from footypred.predict.batch import pick_summary
+        predictor = self._model()
+        out = []
+        for it in (items or [])[:80]:
+            comp = it.get("competition")
+            comp = comp if comp in predictor.competitions else None
+            try:
+                pred, _ = self.predict(it.get("home", ""), it.get("away", ""), it.get("date") or None,
+                                       bool(it.get("neutral")), chart=False, pick_opts=pick_opts,
+                                       competition=comp)
+                out.append({"ok": True, "id": it.get("id"), **pick_summary(pred)})
+            except Exception as exc:              # one fixture never stops the rest
+                out.append({"ok": False, "id": it.get("id"), "error": str(exc)})
+        return out
+
     # --------------------------------------------------------- setup jobs
     def start_download(self, force: bool = False) -> dict:
         """Background job: build the match file from football-data.org (+ the
@@ -323,6 +386,7 @@ class PredictionService:
             with self._lock:
                 lf.sync_db(self.cfg, self.db)
                 self._load()
+            self._refresh_schedule_quietly(job.say)
             return {"rows": len(df), "info": self.data_info()}
         return self.jobs.start("download", work)
 

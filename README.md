@@ -1,4 +1,4 @@
-# footypred 2.5 — four-market football prediction
+# footypred 2.6 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -40,6 +40,7 @@ Everything you need afterwards is in the page:
 
 | Tab | What you do there |
 |---|---|
+| **Schedule** | Today's matches, three days back and five days ahead, grouped by competition. Times are in your time zone; live games show ● LIVE, finished ones the score. Filter by team or league, show live games only, or sort **by time**. **★ Picks** puts the best pick and follow-ups under every upcoming match. Click a match for the full prediction. |
 | **Predict** | Pick league, teams, date and competition. You get the four markets, the best pick, past-match evidence and the analysis dashboard. |
 | **From image** | Drop a screenshot of fixtures, then predict them all. |
 | **Backtest** | Pick a date range with the slider. The system trains on matches before the start and predicts each day after it. You get hit rates, profit, charts and a CSV. |
@@ -66,6 +67,42 @@ Long jobs (download, update, training, backtests) run in the background
 with a progress bar. If you reload the page, it picks the running job up
 again. `python -m footypred` also opens the app. The terminal commands
 below still exist, for scripting and scheduled tasks.
+
+## Schedule
+
+The schedule comes from football-data.org. One call fetches every match of
+your API competitions in the window, played or not, with kick-off time,
+live status, score and crest. It is refreshed when you open the Schedule
+tab (if it's older than 30 minutes), when you click ↻, every 5 minutes
+while a match is live, and with every **Update**.
+
+Süper Lig and Eliteserien aren't in the API's free plan. Their upcoming
+matches come from football-data.co.uk's weekly fixture lists (`fixtures.csv`
+and `new_league_fixtures.csv`), including pre-match odds, and their recent
+results come from your match file. Without an API key, every league is
+covered that way, except the Champions League. The window is saved as
+`fixtures.csv` next to your match file. It is kept apart from the match
+file, which only ever holds finished results.
+
+Teams with no matches in your data (e.g. a Champions League club from a
+league you don't follow) are shown greyed out; they can't be predicted.
+
+## Follow-up picks
+
+Every prediction (Predict, From image, Schedule, and `footy predict`)
+lists, after the best pick:
+
+* **Follow-up picks:** up to four more selections, taken from different
+  markets first (match result, total goals, BTTS, each team's goals), then
+  the next best. They pass the same rules as the best pick: form and model
+  both back them and the fair odds fit your style.
+* **Leans:** when fewer selections pass those rules (or none, so there's no
+  clear pick), the list is topped up with the closest misses. Each is
+  marked *lean* with the rule it missed ("odds below this style's range",
+  "hardly above a typical game", …), and none is offered below 40% model
+  and form.
+* **By style:** the best pick under each of Safe, Balanced and Bold, so you
+  can see the safer and the bolder option side by side.
 
 ## Best pick from last-5 form
 
@@ -571,6 +608,7 @@ footypred/
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
 │              localfile.py (your match CSV: download, update, merge, import)
 │              extra_leagues.py (Süper Lig + Eliteserien from football-data.co.uk)
+│              schedule.py (fixtures window for the Schedule tab)
 │              synthetic.py (minute-level game-state simulator, incl. a Champions League)
 │              pipeline.py
 │              sources/ football_data_org · football_data · understat · clubelo ·
@@ -589,7 +627,7 @@ config/default.yaml         every tunable setting (your own: config/local.yaml, 
 start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
 start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      55 tests: market identities, reconciliation, leakage,
+tests/                      60 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -600,7 +638,9 @@ tests/                      55 tests: market identities, reconciliation, leakage
                             merge (co.uk / Excel formats, names, ±1 day), extra
                             leagues build + script (awarded results, odds fallback,
                             ISO dates, schema upgrade), setup from the browser
-                            (no model/data, settings, download, train, demo, names), file
+                            (no model/data, settings, download, train, demo, names),
+                            schedule (API window, co.uk fixtures, results, time
+                            zones), follow-up picks & leans, batch picks, file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```

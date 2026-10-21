@@ -412,18 +412,88 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
     gap = {"favourite": (home, away)[fav], "win_prob": round(float(max(p1[0], p1[2])), 4),
            "elo_gap": round(index.rating(home, date) - index.rating(away, date), 1),
            "lopsided": bool(max(p1[0], p1[2]) >= 0.62)}
+    follow_ups = follow_up_picks(ranked, best)
+    by_style = {}
+    style_free = {k: v for k, v in (opts or {}).items()
+                  if k not in ("style", "min_odds", "max_odds", "min_model", "min_form")}
+    for name in STYLES:
+        if name == o["style"]:
+            by_style[name] = _slim(best) if best else None
+            continue
+        alt = score_candidates(win, probs, home, away, {**style_free, "style": name}, neutral, base)
+        top = alt[0] if alt and alt[0]["eligible"] else None
+        by_style[name] = _slim(top) if top else None
     # model leans one way, recent form clearly doesn't (>= 10 points lower)
     conflicts = [r for r in ranked if r["form_rate"] is not None and r["model_prob"] >= 0.5
                  and r["form_rate"] < o["min_form"] and r["form_rate"] <= r["model_prob"] - 0.10
                  and r["market"] != "1x2"][:3]
     return {"window": int(o["window"]), "counts": counts, "profiles": profiles,
             "best_pick": best, "top_picks": [r for r in ranked if r["eligible"]][:5],
+            "follow_ups": follow_ups, "by_style": by_style,
             "too_short": too_short, "gap": gap,
             "best_by_market": best_by_market,
             "conflicts": conflicts, "candidates": ranked,
             "settings": {k: o[k] for k in ("style", "form_weight", "min_form", "min_model",
                                            "min_odds", "max_odds", "min_lift", "markets")},
             "reason": _reason(best, counts, profiles, home, away, too_short, gap)}
+
+
+def _group(c: dict) -> str:
+    """Market family of a pick: 1X2, totals, BTTS, or one team's goals."""
+    if c["market"] == "team_totals":
+        return "team_" + c["key"].split("_", 1)[0]
+    return c["market"]
+
+
+def _slim(c: dict, evidence: int = 2) -> dict:
+    out = {k: c[k] for k in ("key", "market", "label", "model_prob", "form_rate", "fair_odds",
+                             "score", "agreement", "lift", "typical") if k in c}
+    out["evidence"] = sorted(c.get("evidence") or [], key=lambda e: -e["weight"])[:evidence]
+    return out
+
+
+WHY_NOT = {"form": "recent form below this style's bar", "model": "model below this style's bar",
+           "too short": "odds below this style's range", "too long": "odds above this style's range",
+           "ordinary": "hardly above a typical game"}
+
+
+def follow_up_picks(ranked: list[dict], best: dict | None, n: int = 4) -> list[dict]:
+    """The next options after the best pick, from different markets first
+    (one per market family), then the next-best of any market.
+
+    Eligible picks (form and model both back them, odds fit the style) come
+    first. If there are fewer than n, the list is topped up with *leans*:
+    selections that miss one of the style's rules but are still backed by
+    the model and recent form at 40%+, marked lean=True with the reason."""
+    def diverse(pool, used, k):
+        out = []
+        for c in pool:                                # a new market family each
+            if _group(c) not in used:
+                out.append(c)
+                used.add(_group(c))
+            if len(out) == k:
+                return out
+        for c in pool:                                # then by score
+            if len(out) == k:
+                break
+            if c not in out:
+                out.append(c)
+        return out
+    skip = best["key"] if best else None
+    used = {_group(best)} if best else set()
+    strict = diverse([c for c in ranked if c["eligible"] and c["key"] != skip], used, n)
+    strict.sort(key=lambda c: -c["score"])
+    out = [_slim(c) for c in strict]
+    if len(out) < n:
+        # closest to the style first: fewest rules missed, "odds too short" last
+        near = lambda c: (len(c["fails"]), "too short" in c["fails"], -c["score"])
+        soft = sorted([c for c in ranked if not c["eligible"] and "market off" not in c["fails"]
+                       and c["model_prob"] >= 0.40 and (c["form_rate"] is None or c["form_rate"] >= 0.40)],
+                      key=near)
+        for c in sorted(diverse(soft, set(used) | {_group(x) for x in strict}, n - len(out)), key=near):
+            out.append({**_slim(c), "lean": True,
+                        "why": "; ".join(WHY_NOT.get(f, f) for f in c["fails"])})
+    return out
 
 
 def _reason(best, counts, profiles, home, away, too_short=None, gap=None) -> str:

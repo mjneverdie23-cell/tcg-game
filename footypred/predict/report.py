@@ -68,6 +68,21 @@ def _best_pick_lines(pred: Prediction) -> list[str]:
     else:
         L.append("    No clear pick — nothing in the odds range is backed by both recent form "
                  "and the model.")
+    fu = f.get("follow_ups") or []
+    if fu:
+        L.append("    Follow-up picks:")
+        for i, c in enumerate(fu, 2):
+            form = "-" if c["form_rate"] is None else f"{100 * c['form_rate']:.0f}%"
+            lean = f"  (lean: {c['why']})" if c.get("lean") else ""
+            L.append(f"      {i}. {c['label'][:40]:<41}model {100 * c['model_prob']:3.0f}%  "
+                     f"odds {c['fair_odds']:5.2f}  form {form:>4}{lean}")
+    bs = f.get("by_style") or {}
+    if bs:
+        cur = st.get("style")
+        L.append("    By style:   " + "   ·   ".join(
+            f"{name}{' (yours)' if name == cur else ''}: "
+            + (f"{c['label']} {c['fair_odds']:.2f}" if c else "no clear pick")
+            for name, c in bs.items()))
     for side, team, venue in (("home", pred.home, "at home"), ("away", pred.away, "away")):
         tags = f["profiles"][side].get(venue) or f["profiles"][side].get("overall")
         if tags:
