@@ -53,6 +53,7 @@ class Prediction:
     evidence: dict = field(default_factory=dict)
     drivers: dict = field(default_factory=dict)
     form: dict = field(default_factory=dict)          # last-5 form check + best pick
+    halftime: dict = field(default_factory=dict)      # first-half markets (if the model has them)
     warnings: list = field(default_factory=list)
     # raw objects for charts (not serialised)
     score_matrix: ScoreMatrix | None = None
@@ -96,6 +97,42 @@ def market_grids(res, rows: pd.DataFrame):
     direct = res.direct.predict(rows, fcols) if res.head.needs_direct else None
     target = res.head.predict(probs_from_grids(backbone), direct)
     return reconcile(backbone, target), mats
+
+
+def halftime_view(res, row, fcols, lam_home: float, lam_away: float) -> tuple[dict, dict]:
+    """First-half markets for one fixture: (view for the report/UI, flat
+    probabilities ht_* for the pick engine). Empty when the model has no
+    first-half part (bundles trained before 2.7)."""
+    from footypred.models.halftime import ht_probs
+    ht = getattr(res, "halftime", None)
+    if ht is None:
+        return {}, {}
+    grid = ht.predict_grids(row, fcols, (np.array([lam_home]), np.array([lam_away])))
+    p = {k: v[0] for k, v in ht_probs(grid).items()}
+    sm = ScoreMatrix.from_grid(grid[0])
+    r = lambda x: round(float(x), 4)
+    pick2 = lambda q, yes, no: ({"pick": yes, "prob": r(q)} if q >= 0.5 else {"pick": no, "prob": r(1 - q)})
+    k = int(np.argmax(p["1x2"]))
+    picks = {"1x2": {"pick": ["Home", "Draw", "Away"][k], "prob": r(p["1x2"][k]),
+                     "strength": strength(p["1x2"][k], three_way=True)},
+             "btts": pick2(p["btts"], "BTTS Yes", "BTTS No")}
+    for line, key in (("0.5", "o05"), ("1.5", "o15"), ("2.5", "o25")):
+        picks[f"over_under_{line}"] = pick2(p[key], f"Over {line}", f"Under {line}")
+    for v in picks.values():
+        v["fair_odds"] = round(1 / max(v["prob"], 1e-9), 2)
+        v.setdefault("strength", strength(v["prob"]))
+    view = {"1x2": {"home": r(p["1x2"][0]), "draw": r(p["1x2"][1]), "away": r(p["1x2"][2])},
+            "totals": {"over_0.5": r(p["o05"]), "over_1.5": r(p["o15"]), "over_2.5": r(p["o25"])},
+            "btts": {"yes": r(p["btts"]), "no": r(1 - p["btts"])},
+            "team_scores": {"home": r(p["h_o05"]), "away": r(p["a_o05"])},
+            "expected_goals": {"home": round(sm.lam_home, 2), "away": round(sm.lam_away, 2),
+                               "total": round(sm.lam_home + sm.lam_away, 2)},
+            "top_scores": [(sc, round(q, 4)) for sc, q in sm.top_scores(5)],
+            "picks": picks, "model": (ht.report or {}).get("selected"),
+            "skill": ((ht.report or {}).get("eval") or {}).get("combined_skill")}
+    flat = {"ht_1x2": p["1x2"], "ht_o05": p["o05"], "ht_o15": p["o15"], "ht_o25": p["o25"],
+            "ht_btts": p["btts"]}
+    return view, flat
 
 
 class Predictor:
@@ -187,6 +224,8 @@ class Predictor:
             model_markets[name] = _market_view(mp)
 
         picks, conf = self._picks_and_confidence(p, markets, model_markets, f, home, away)
+        halftime, ht_flat = halftime_view(res, row, fcols, sm.lam_home, sm.lam_away)
+        p_all = {**p, **ht_flat}                  # first-half lines for the pick engine
         warn = []
         nh, na = f.get("h_n_hist", 0), f.get("a_n_hist", 0)
         if min(nh, na) < self.cfg.features.get("min_history", 3):
@@ -223,10 +262,10 @@ class Predictor:
             top_scores=[(s, round(q, 4)) for s, q in sm.top_scores(6)],
             model_markets=model_markets, evidence=evidence(self.state, home, away, neutral),
             drivers=drivers(res.direct, row, fcols, home, away),
-            form=form_check(self.form_index, home, away, date, p,
+            form=form_check(self.form_index, home, away, date, p_all,
                             {**self.pick_opts, **(pick_opts or {})}, neutral,
                             self.base_rates.get(league) or self.base_rates.get("_all")),
-            warnings=warn,
+            warnings=warn, halftime=halftime,
             score_matrix=sm, model_matrices={n: ScoreMatrix.from_grid(g[0]) for n, g in mats.items()},
             eval_preds=res.eval_preds,
         )

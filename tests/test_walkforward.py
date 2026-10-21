@@ -53,6 +53,10 @@ def test_walk_forward_is_out_of_sample(cfg, short_db, cached_training, monkeypat
     assert np.allclose(p.sum(axis=1), 1, atol=2e-3)
     assert r.picks["balanced"]["picks"] > 0 and r.betting["value_1x2"]["bets"] >= 0
     assert set(r.rows["league"]) >= {"E0", "D1"}
+    h = r.metrics["halftime"]                                    # first half, same walk
+    assert h["matches"] == len(r.rows) and 0.9 < h["1x2"]["logloss"] < 1.2
+    assert {"p_ht_home", "p_ht_o05", "p_ht_btts"} <= set(r.rows.columns)
+    assert (r.rows["p_ht_o05"] < 1 - 1e-9).all() and "first half" in wf.render(r)
 
     # change every result on the last day: that day's predictions must not move
     last = r.rows["date"].max()

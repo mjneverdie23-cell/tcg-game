@@ -39,6 +39,10 @@ def summary_row(pred) -> dict:
         "home_over_0.5": m["team_totals"]["home"]["over_0.5"],
         "away_over_0.5": m["team_totals"]["away"]["over_0.5"],
         "confidence": pred.confidence["overall"],
+        **({"ht_home": pred.halftime["1x2"]["home"], "ht_draw": pred.halftime["1x2"]["draw"],
+            "ht_away": pred.halftime["1x2"]["away"], "ht_over_0.5": pred.halftime["totals"]["over_0.5"],
+            "ht_over_1.5": pred.halftime["totals"]["over_1.5"], "ht_btts": pred.halftime["btts"]["yes"]}
+           if pred.halftime else {}),
     }
 
 
@@ -80,4 +84,6 @@ def pick_summary(pred) -> dict:
             "style": (f.get("settings") or {}).get("style"),
             "1x2": m["1x2"], "over_2.5": m["over_under_2.5"]["over"], "btts": m["btts"]["yes"],
             "xg": pred.expected_goals, "confidence": pred.confidence["overall"],
+            "ht": ({"1x2": pred.halftime["1x2"], "totals": pred.halftime["totals"],
+                    "btts": pred.halftime["btts"]["yes"]} if pred.halftime else None),
             "warnings": pred.warnings[:2]}

@@ -51,6 +51,22 @@ def render_training_report(rep: dict) -> str:
         L.append(f"\nBookmaker closing-odds benchmark (same matches):"
                  f"\n  1X2 log loss  model {b['model_1x2_logloss']:.4f}  vs  book {b['1x2_logloss']:.4f}"
                  f"\n  O2.5 log loss model {b['model_o25_logloss']:.4f}  vs  book {b['o25_logloss']:.4f}")
+    h = rep.get("halftime")
+    if h and h.get("eval"):
+        e = h["eval"]
+        L.append(f"\nFirst half (out of sample, {h['eval_matches']} matches with half-time "
+                 f"scores): {h['selected']} model, combined skill {e['combined_skill']:+.4f}")
+        L.append(f"  {'market':<14}{'log loss':>10}{'skill':>9}{'accuracy':>10}{'calib. err':>12}")
+        for k in ("1x2", "o05", "o15", "o25", "btts"):
+            x = e[k]
+            L.append(f"  {('HT ' + {'1x2': '1X2', 'o05': 'over 0.5', 'o15': 'over 1.5', 'o25': 'over 2.5', 'btts': 'BTTS'}[k]):<14}"
+                     f"{x['logloss']:10.4f}{x['skill']:+9.4f}{100 * x['accuracy']:9.1f}%{100 * x['ece']:11.1f}%")
+        others = {c: v["combined_skill"] for c, v in h.get("candidates", {}).items() if c != h["selected"]}
+        if others:
+            L.append("  other candidates: " + ", ".join(f"{c} {v:+.4f}" for c, v in others.items()))
+    elif h:
+        L.append(f"\nFirst half: trained on {h['matches']} matches with half-time scores "
+                 "(too few seasons to evaluate out of sample)")
     L.append(f"\n{rep['n_matches']} matches · {rep['n_features']} features · "
              f"DC half-life {rep['dc_half_life_days']:.0f} days · trained in {rep['train_seconds']}s")
     return "\n".join(L)

@@ -32,7 +32,7 @@ def pick_opts(q: dict) -> dict:
     """Best-pick settings from query parameters (invalid values are ignored)."""
     o = {}
     if q.get("markets"):
-        allowed = {"1x2", "totals", "ou25", "btts", "team_totals"}
+        allowed = {"1x2", "totals", "ou25", "btts", "team_totals", "first_half"}
         o["markets"] = [m for m in q["markets"].split(",") if m in allowed]
     if q.get("style") in ("safe", "balanced", "bold"):
         o["style"] = q["style"]

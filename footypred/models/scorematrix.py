@@ -34,7 +34,7 @@ def _masks(G: int) -> dict[str, np.ndarray]:
     i, j = np.indices((G, G))
     return {
         "home": i > j, "draw": i == j, "away": i < j,
-        "o15": (i + j) > 1, "o25": (i + j) > 2, "o35": (i + j) > 3,
+        "o05": (i + j) > 0, "o15": (i + j) > 1, "o25": (i + j) > 2, "o35": (i + j) > 3,
         "btts": (i > 0) & (j > 0),
         "h_o05": i > 0, "h_o15": i > 1, "h_o25": i > 2,
         "a_o05": j > 0, "a_o15": j > 1, "a_o25": j > 2,

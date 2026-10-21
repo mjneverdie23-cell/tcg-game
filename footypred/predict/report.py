@@ -186,6 +186,23 @@ def render(pred: Prediction) -> str:
     p4 = pk["btts"]
     L.append(f"    → {p4['pick']} ({p4['strength']}, {100 * p4['prob']:.1f}%)")
 
+    ht = pred.halftime
+    if ht:
+        e = ht["expected_goals"]
+        sk = f"  ·  out-of-sample skill {ht['skill']:+.3f}" if ht.get("skill") is not None else ""
+        L += ["", f" 5) FIRST HALF  ·  xG {e['home']:.2f} – {e['away']:.2f} (total {e['total']:.2f}){sk}"]
+        for lbl, p in ((f"{pred.home} ahead", ht["1x2"]["home"]), ("Level", ht["1x2"]["draw"]),
+                       (f"{pred.away} ahead", ht["1x2"]["away"])):
+            L.append(f"    {lbl:<22}{_pct(p)}  {_bar(p)}  fair {1 / p:5.2f}")
+        L.append("    " + "  ·  ".join(f"Over {l} {_pct(ht['totals'][f'over_{l}']).strip()}"
+                                      for l in ("0.5", "1.5", "2.5"))
+                 + f"  ·  BTTS {_pct(ht['btts']['yes']).strip()}")
+        L.append("    most likely at half-time: " + "  ".join(f"{sc} {100 * q:.0f}%"
+                                                         for sc, q in ht["top_scores"][:4]))
+        hp = ht["picks"]
+        L.append("    → " + " · ".join(f"{hp[k]['pick']} {100 * hp[k]['prob']:.0f}%"
+                                     for k in ("1x2", "over_under_0.5", "over_under_1.5", "btts")))
+
     L += _form_table(pred)
     L += ["", " PAST-MATCH EVIDENCE"]
     L += _team_lines(pred.home, pred.evidence["home"])

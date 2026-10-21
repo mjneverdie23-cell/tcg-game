@@ -43,6 +43,33 @@ def test_full_pipeline(cfg, populated_db, tmp_path):
                     "PAST-MATCH EVIDENCE"):
         assert section in text
 
+    # first half: its own model, tested out of sample, consistent with full time
+    h = rep["halftime"]
+    assert h["selected"] in h["candidates"] and h["eval_matches"] > 100
+    assert "First half (out of sample" in render_training_report(rep)
+    ht = pred.halftime
+    assert abs(sum(ht["1x2"].values()) - 1) < 1e-3
+    assert ht["totals"]["over_0.5"] >= ht["totals"]["over_1.5"] >= ht["totals"]["over_2.5"]
+    assert ht["btts"]["yes"] <= ht["totals"]["over_1.5"] + 1e-6         # both scoring = 2+ goals
+    assert ht["expected_goals"]["total"] < pred.expected_goals["total"]
+    assert ht["btts"]["yes"] < m["btts"]["yes"] and ht["totals"]["over_1.5"] < m["totals"]["over_1.5"]
+    assert "FIRST HALF" in text
+    # the first half as an opt-in best-pick market, judged on half-time scores
+    f = Predictor(cfg, populated_db).predict("Arsenal", "Chelsea", date="2026-07-15",
+                                             pick_opts={"markets": ["first_half"], "style": "bold",
+                                                        "min_lift": 0})
+    cands = [c for c in f.form["candidates"] if c["market"] == "first_half"]
+    assert len(cands) == 9 and all(e["event"].endswith(("half-time", "by half-time")) or
+                                   "half-time" in e["event"] for c in cands for e in c["evidence"])
+    assert f.form["best_pick"] is None or f.form["best_pick"]["market"] == "first_half"
+    assert "first_half" not in pred.form["settings"]["markets"]            # off by default
+
+    old = Predictor(cfg, populated_db)                                     # a model saved
+    old.res.halftime = None                                                # before 2.7
+    o = old.predict("Arsenal", "Chelsea", date="2026-07-15")
+    assert o.halftime == {} and "FIRST HALF" not in render(o)
+    assert abs(sum(o.markets["1x2"].values()) - 1) < 1e-3
+
     out = plot_prediction(pred, tmp_path / "pred.png")
     assert out.stat().st_size > 50_000
     out = plot_evaluation(res, tmp_path / "eval.png")

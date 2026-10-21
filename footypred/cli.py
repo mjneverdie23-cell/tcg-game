@@ -178,7 +178,7 @@ def _add_pick_args(p):
                    help="pick style = fair-odds range: safe 1.15-1.60, balanced 1.25-2.20 "
                         "(default), bold 1.60-3.50")
     p.add_argument("--markets", help="markets the best pick may come from, comma separated: "
-                   "1x2,totals,btts,team_totals (default: all)")
+                   "1x2,totals,btts,team_totals,first_half (default: all but first_half)")
     p.add_argument("--max-odds", type=float, help="skip selections with fair odds above this")
     p.add_argument("--min-odds", type=float, help="skip selections with fair odds below this "
                    "(default: set by --style)")

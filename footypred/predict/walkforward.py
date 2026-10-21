@@ -89,7 +89,10 @@ def train_until(cfg, db, matches: pd.DataFrame, cutoff, models: list[str] | None
     return res, fb.state, info
 
 
-def _predict_day(res, state, games: list[dict]) -> np.ndarray:
+def _predict_day(res, state, games: list[dict]):
+    """Full-time score matrices for the day's games, plus first-half market
+    probabilities (None when the model has no first-half part)."""
+    from footypred.models.halftime import expected_goals, ht_probs
     from footypred.predict.predictor import market_grids
     feats = []
     for r in games:
@@ -97,8 +100,15 @@ def _predict_day(res, state, games: list[dict]) -> np.ndarray:
         f = state.features(r["home"], r["away"], r["date"], r["league"], neutral, r["match_id"])
         feats.append({**f, "home": r["home"], "away": r["away"], "league": r["league"],
                       "neutral": float(neutral), "date": r["date"]})
-    grids, _ = market_grids(res, pd.DataFrame(feats))
-    return grids
+    rows = pd.DataFrame(feats)
+    grids, _ = market_grids(res, rows)
+    ht = getattr(res, "halftime", None)
+    if ht is None:
+        return grids, None
+    for c in res.feature_cols:
+        if c not in rows:
+            rows[c] = np.nan
+    return grids, ht_probs(ht.predict_grids(rows, res.feature_cols, expected_goals(grids)))
 
 
 # --------------------------------------------------------------- the walk
@@ -133,7 +143,7 @@ def walk_forward(cfg, db, start, end=None, competitions: list[str] | None = None
 
     days = sorted(test["date"].unique())
     by_day = {d: g.to_dict("records") for d, g in test.groupby("date")}
-    out_rows, out_grids = [], []
+    out_rows, out_grids, out_ht = [], [], []
     for i, day in enumerate(days):
         if should_stop and should_stop():
             raise InterruptedError("backtest cancelled")
@@ -146,7 +156,9 @@ def walk_forward(cfg, db, start, end=None, competitions: list[str] | None = None
         games = by_day[day]
         mine = [g for g in games if comps is None or g["league"] in comps]
         if mine:
-            out_grids.append(_predict_day(res, state, mine))
+            g, h = _predict_day(res, state, mine)
+            out_grids.append(g)
+            out_ht.append(h)
             out_rows += [{**g, "model_version": len(trainings)} for g in mine]
         for g in games:                    # results go in only after the predictions
             state.update(g)
@@ -156,15 +168,17 @@ def walk_forward(cfg, db, start, end=None, competitions: list[str] | None = None
     grids = np.concatenate(out_grids)
     rows = pd.DataFrame(out_rows).reset_index(drop=True)
     probs = probs_from_grids(grids)
+    ht = ({k: np.concatenate([h[k] for h in out_ht]) for k in out_ht[0]}
+          if out_ht and all(h is not None for h in out_ht) else None)
     return _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, value_edge,
                   {"competitions": sorted(comps) if comps else None,
                    "retrain_every": retrain_every, "models": trainings[0]["models"],
-                   "tune": tune, "value_edge": value_edge}, t0)
+                   "tune": tune, "value_edge": value_edge}, t0, ht)
 
 
 # ----------------------------------------------------------------- scoring
 def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, value_edge,
-           settings, t0) -> WalkForwardResult:
+           settings, t0, ht=None) -> WalkForwardResult:
     yh, ya = rows["fthg"].to_numpy(int), rows["ftag"].to_numpy(int)
     G = grids.shape[-1]
     k = np.arange(G)
@@ -179,6 +193,22 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
 
     metrics = evaluate(probs, yh, ya) if len(rows) >= 30 and len(set(out["1x2"])) == 3 else None
     bookmaker = _vs_bookmaker(rows, probs, out)
+    pick_probs = probs
+    if ht is not None:                             # first half: predicted vs half-time scores
+        from footypred.models.halftime import evaluate_ht
+        for c, (k, j) in (("p_ht_home", ("1x2", 0)), ("p_ht_draw", ("1x2", 1)), ("p_ht_away", ("1x2", 2)),
+                          ("p_ht_o05", ("o05", None)), ("p_ht_o15", ("o15", None)),
+                          ("p_ht_o25", ("o25", None)), ("p_ht_btts", ("btts", None))):
+            rows[c] = np.round(ht[k][:, j] if j is not None else ht[k], 4)
+        has = rows["hthg"].notna() & rows["htag"].notna() if "hthg" in rows else pd.Series(False, index=rows.index)
+        if metrics is not None and has.sum() >= 30:
+            m = has.to_numpy()
+            metrics["halftime"] = {**evaluate_ht({k: v[m] for k, v in ht.items()},
+                                                 rows.loc[has, "hthg"].astype(int),
+                                                 rows.loc[has, "htag"].astype(int)),
+                                   "matches": int(m.sum())}
+        pick_probs = {**probs, **{f"ht_{k}": v for k, v in ht.items() if k in
+                                  ("1x2", "o05", "o15", "o25", "btts")}}
 
     # best picks per style, form windows strictly before each match
     index = FormIndex(allm)
@@ -186,7 +216,7 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
     base_opts = {**(cfg.raw.get("picks") or {}), **(pick_opts or {})}
     picks, betting = {}, {}
     for style in STYLES:
-        r = backtest(index, rows, probs, {**base_opts, "style": style}, base=typical,
+        r = backtest(index, rows, pick_probs, {**base_opts, "style": style}, base=typical,
                      keep_rows=True)
         prs = r.pop("rows")
         rows[f"pick_{style}"] = [p.get("label") for p in prs]
@@ -311,6 +341,14 @@ def render(r: WalkForwardResult) -> str:
                          f"{pct(x['ece']):>12}")
         L.append(f"combined 4-market skill {m['combined_skill']:.4f} "
                  "(log-loss gain over always predicting the period's base rate)")
+        h = m.get("halftime")
+        if h:
+            L.append(f"first half ({h['matches']} matches with half-time scores):")
+            for key, name in (("1x2", "HT 1X2"), ("o05", "HT over 0.5"), ("o15", "HT over 1.5"),
+                              ("o25", "HT over 2.5"), ("btts", "HT BTTS")):
+                x = h[key]
+                L.append(f"{name:<14}{x['logloss']:10.4f}{x['skill']:9.4f}{pct(x['accuracy']):>10}"
+                         f"{pct(x['ece']):>12}")
     else:
         L.append("(too few matches for per-market metrics)")
     if r.bookmaker:

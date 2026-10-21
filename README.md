@@ -1,4 +1,4 @@
-# footypred 2.6.1 — four-market football prediction
+# footypred 2.7 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -86,6 +86,53 @@ file, which only ever holds finished results.
 
 Teams with no matches in your data (e.g. a Champions League club from a
 league you don't follow) are shown greyed out; they can't be predicted.
+
+## First half (1X2, over/under, BTTS)
+
+Every prediction also covers the first 45 minutes:
+- the half-time result (home / draw / away)
+- first-half goals over/under 0.5, 1.5 and 2.5
+- first-half BTTS
+- each team scoring before the break
+- expected goals and the most likely half-time scores
+
+It appears as a **First half** card in Predict and as a column in From
+image. You also get a section in `footy predict` and columns in the
+walk-forward backtest CSV, and the Backtest tab and Model report show how
+it scored.
+
+It's a separate model, trained when you click **Train** (about 10 seconds
+extra), on the same pre-match features and the same out-of-sample folds.
+Three candidates compete, each tested only on seasons it wasn't fitted on:
+
+* **scaled:** the full-time model's expected goals turned into first-half
+  rates (`log λ_HT = a + b·log λ_FT + c·log λ_FT(opponent)`), fitted on
+  half-time scores, with a low-score adjustment because first halves
+  often end 0-0. It stays consistent with the full-time prediction: fewer
+  goals, less BTTS.
+* Dixon-Coles and Poisson regression fitted directly on half-time scores.
+* a 50/50 blend of the best two.
+
+The best one is kept. In testing, the scaled model won and every
+first-half market beat its base rate, with calibration errors of about
+0.5–2%. First halves are harder to call than full matches (skill about
++0.01 against about +0.035 for full time), so expect smaller edges.
+
+Matches without a half-time score are left out of this model only.
+football-data.co.uk's Eliteserien file has none; first-half predictions
+for Eliteserien come from the full-time model's expected goals. Switch it
+off with `training.halftime: false`.
+
+**First-half picks** are opt-in. Tick **1st half** under "Best pick from"
+(or pass `--markets ...,first_half`) and these join the best pick,
+follow-ups and leans:
+- HT result
+- HT over/under 0.5 and 1.5
+- HT BTTS yes/no
+
+Their form evidence is counted on half-time scores, e.g. "2 of last 5
+home games had 1+ goals before half-time". The Over / Under boxes apply to
+them too.
 
 ## Follow-up picks
 
@@ -625,7 +672,8 @@ footypred/
 │                       transfermarkt · fifa · weather
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
-│              trainer.py (nested CV, selection) · pipeline.py (train + save) ·
+│              trainer.py (nested CV, selection) · halftime.py (first-half model) ·
+│              pipeline.py (train + save) ·
 │              metrics.py · registry.py · summary.py
 ├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
 │              walkforward.py (date-range backtest) · explain.py · report.py · charts.py ·
@@ -651,7 +699,8 @@ tests/                      62 tests: market identities, reconciliation, leakage
                             (no model/data, settings, download, train, demo, names),
                             schedule (API window, co.uk fixtures, results, time
                             zones), follow-up picks & leans, batch picks,
-                            over/under tick boxes, file
+                            over/under tick boxes, first half (out-of-sample,
+                            consistency with full time, opt-in picks, old models), file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```

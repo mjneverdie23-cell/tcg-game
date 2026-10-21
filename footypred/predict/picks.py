@@ -36,9 +36,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-MARKETS = ("1x2", "totals", "btts", "team_totals")
+MARKETS = ("1x2", "totals", "btts", "team_totals")          # the default "pick from"
+ALL_MARKETS = MARKETS + ("first_half",)                     # first half: opt-in
 MARKET_NAMES = {"1x2": "Match result", "totals": "Total goals", "btts": "Both teams to score",
-                "team_totals": "Team goals"}
+                "team_totals": "Team goals", "first_half": "First half"}
 MARKET_ALIASES = {"ou25": "totals", "ou": "totals", "total": "totals"}
 
 # pick styles = fair-odds range + how strongly form and model must agree
@@ -76,7 +77,7 @@ def direction(key: str) -> str | None:
     """'over' / 'under' for goal lines (total or team), None otherwise
     (match result, BTTS)."""
     for d in DIRECTIONS:
-        if key.startswith((f"{d}_", f"home_{d}_", f"away_{d}_")):
+        if key.startswith((f"{d}_", f"home_{d}_", f"away_{d}_", f"ht_{d}_")):
             return d
     return None
 
@@ -92,6 +93,9 @@ class FormIndex:
         self.away = m["away"].to_numpy()
         self.gh = m["fthg"].to_numpy(int)
         self.ga = m["ftag"].to_numpy(int)
+        nan = np.full(len(m), np.nan)
+        self.hgh = pd.to_numeric(m["hthg"], errors="coerce").to_numpy(float) if "hthg" in m else nan
+        self.hga = pd.to_numeric(m["htag"], errors="coerce").to_numpy(float) if "htag" in m else nan
         self.neutral = m["neutral"].fillna(0).to_numpy(int) if "neutral" in m else np.zeros(len(m), int)
         allx, homex, awayx, pair = (defaultdict(list) for _ in range(4))
         for i, (h, a) in enumerate(zip(self.home, self.away)):
@@ -157,9 +161,12 @@ class FormIndex:
     def _rec(self, i: int, team: str) -> dict:
         at_home = self.home[i] == team
         gf, ga = (self.gh[i], self.ga[i]) if at_home else (self.ga[i], self.gh[i])
+        hf, ha = (self.hgh[i], self.hga[i]) if at_home else (self.hga[i], self.hgh[i])
+        known = not (np.isnan(hf) or np.isnan(ha))
         return {"date": str(self.date[i]), "opponent": self.away[i] if at_home else self.home[i],
                 "venue": "N" if self.neutral[i] else ("H" if at_home else "A"),
                 "gf": int(gf), "ga": int(ga),
+                "hgf": int(hf) if known else None, "hga": int(ha) if known else None,
                 "result": "W" if gf > ga else ("D" if gf == ga else "L")}
 
 
@@ -221,6 +228,7 @@ class Candidate:
     desc_home_side: str     # what a hit means in the home team's games
     desc_away_side: str     # ... in the away team's games
     desc_h2h: str           # ... in head-to-head meetings
+    half: bool = False      # tested on half-time scores
 
 
 def _goals(k: int, verb: str, under: bool) -> str:
@@ -277,6 +285,31 @@ def _candidates() -> list[Candidate]:
                                "{home} " + _goals(k, "conceded", under),
                                "{away} " + _goals(k, "scored", under),
                                "{away} " + _goals(k, "scored", under)))
+    # first half (opt-in market): the same tests on half-time scores
+    C += [
+        Candidate("ht_home_win", "first_half", "HT: {home} ahead", "ht_1x2:0", False,
+                  lambda f, a: f > a, lambda f, a: f < a, "{home} led at half-time",
+                  "{away} trailed at half-time", "{home} led at half-time", half=True),
+        Candidate("ht_draw", "first_half", "HT: Draw", "ht_1x2:1", False,
+                  lambda f, a: f == a, lambda f, a: f == a, *both("level at half-time"), half=True),
+        Candidate("ht_away_win", "first_half", "HT: {away} ahead", "ht_1x2:2", False,
+                  lambda f, a: f < a, lambda f, a: f > a, "{home} trailed at half-time",
+                  "{away} led at half-time", "{away} led at half-time", half=True),
+    ]
+    for k, line in ((0, "0.5"), (1, "1.5")):
+        mk = "ht_o" + line.replace(".", "")
+        C += [Candidate(f"ht_over_{line}", "first_half", f"HT over {line} goals", mk, False,
+                        lambda f, a, k=k: f + a > k, lambda f, a, k=k: f + a > k,
+                        *both(f"{k + 1}+ goals before half-time"), half=True),
+              Candidate(f"ht_under_{line}", "first_half", f"HT under {line} goals", mk, True,
+                        lambda f, a, k=k: f + a <= k, lambda f, a, k=k: f + a <= k,
+                        *both(f"{k} or fewer goals before half-time"), half=True)]
+    C += [Candidate("ht_btts_yes", "first_half", "HT: both teams score", "ht_btts", False,
+                    lambda f, a: f > 0 and a > 0, lambda f, a: f > 0 and a > 0,
+                    *both("both scored before half-time"), half=True),
+          Candidate("ht_btts_no", "first_half", "HT: BTTS — No", "ht_btts", True,
+                    lambda f, a: not (f > 0 and a > 0), lambda f, a: not (f > 0 and a > 0),
+                    *both("a side hadn't scored by half-time"), half=True)]
     return C
 
 
@@ -286,8 +319,11 @@ CANDIDATES = _candidates()
 def _model_prob(probs: dict, c: Candidate) -> float | None:
     """None when the model output lacks this line (e.g. a bundle trained
     before total O/U 1.5/3.5 existed): the selection is then skipped."""
-    if c.model_key.startswith("1x2:"):
-        p = float(np.asarray(probs["1x2"]).ravel()[int(c.model_key[-1])])
+    if ":" in c.model_key:                         # 3-way market, e.g. "1x2:0", "ht_1x2:2"
+        name, k = c.model_key.split(":")
+        if name not in probs:
+            return None
+        p = float(np.asarray(probs[name]).ravel()[int(k)])
     elif c.model_key not in probs:
         return None
     else:
@@ -326,13 +362,24 @@ def base_rates(matches: pd.DataFrame, min_league_games: int = 200) -> dict:
     """How often each selection lands in a typical game, per league (and
     overall): the yardstick for whether a pick is notable for *this* match."""
     gh, ga = matches["fthg"].to_numpy(int), matches["ftag"].to_numpy(int)
+    hh = pd.to_numeric(matches.get("hthg"), errors="coerce").to_numpy(float) \
+        if "hthg" in matches else np.full(len(matches), np.nan)
+    ha = pd.to_numeric(matches.get("htag"), errors="coerce").to_numpy(float) \
+        if "htag" in matches else np.full(len(matches), np.nan)
+    has_ht = ~(np.isnan(hh) | np.isnan(ha))
     lg = matches["league"].to_numpy()
     out = {}
     for c in CANDIDATES:
-        hits = np.array([bool(c.test_home_side(h, a)) for h, a in zip(gh, ga)])
-        out.setdefault("_all", {})[c.key] = float(hits.mean()) if len(hits) else 0.5
+        if c.half:
+            ok = has_ht
+            hits = np.array([bool(c.test_home_side(int(h), int(a))) if k else False
+                             for h, a, k in zip(hh, ha, ok)])
+        else:
+            ok = np.ones(len(gh), bool)
+            hits = np.array([bool(c.test_home_side(h, a)) for h, a in zip(gh, ga)])
+        out.setdefault("_all", {})[c.key] = float(hits[ok].mean()) if ok.any() else 0.5
         for league in np.unique(lg):
-            m = lg == league
+            m = (lg == league) & ok
             if m.sum() >= min_league_games:
                 out.setdefault(league, {})[c.key] = float(hits[m].mean())
     return out
@@ -349,6 +396,8 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
         evidence = []
         for key, side, w, label in WINDOW_SPEC:
             recs = windows[key]
+            if c.half:                             # half-time scores (where recorded)
+                recs = [{**r, "gf": r["hgf"], "ga": r["hga"]} for r in recs if r.get("hgf") is not None]
             if not recs or (key == "h2h" and len(recs) < 2):
                 continue
             if neutral and key in ("home_home", "home_away", "away_away", "away_home"):
@@ -409,7 +458,7 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
     ranked.sort(key=lambda d: (d["eligible"], d["score"]), reverse=True)
     best = ranked[0] if ranked and ranked[0]["eligible"] else None
     best_by_market = {}
-    for mk in MARKETS:
+    for mk in ALL_MARKETS:
         group = [r for r in ranked if r["market"] == mk]
         if group:
             top = max(group, key=lambda d: (d["eligible"] or mk not in allowed,
@@ -580,12 +629,20 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
         if best is None:
             rows.append({"pick": None})
             continue
-        hit = bool(cand[best["key"]].test_home_side(int(r["fthg"]), int(r["ftag"])))
+        c = cand[best["key"]]
+        if c.half:
+            hh, ha = r.get("hthg"), r.get("htag")
+            hit = None if hh is None or ha is None or pd.isna(hh) or pd.isna(ha) \
+                else bool(c.test_home_side(int(hh), int(ha)))
+        else:
+            hit = bool(c.test_home_side(int(r["fthg"]), int(r["ftag"])))
         rows.append({"pick": best["key"], "label": best["label"], "market": best["market"],
                      "hit": hit, "model": best["model_prob"], "form": best["form_rate"],
                      "score": best["score"], "odds": best["fair_odds"]})
     df = pd.DataFrame(rows)
     picked = df[df["pick"].notna()] if "pick" in df else df
+    if "hit" in picked:                        # a first-half pick without a half-time score
+        picked = picked[picked["hit"].notna()].assign(hit=lambda x: x["hit"].astype(bool))
     out = {"matches": len(df), "picks": int(len(picked)),
            "coverage": float(len(picked) / max(len(df), 1))}
     if len(picked):

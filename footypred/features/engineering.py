@@ -40,7 +40,8 @@ from footypred.models.scorematrix import market_probs, poisson_grids
 log = get_logger("features")
 
 META_COLS = ["match_id", "date", "season", "league", "home", "away",
-             "y_h", "y_a", "odds_h", "odds_d", "odds_a", "odds_o25", "odds_u25"]
+             "y_h", "y_a", "y_ht_h", "y_ht_a",           # targets (full time, half time)
+             "odds_h", "odds_d", "odds_a", "odds_o25", "odds_u25"]
 
 # record layout (per team, per past match)
 GF, GA, HTF, HTA, XGF, XGA, SOTF, SOTA, EGF, EGA, PBT, PO25, VEN, DAY = range(14)
@@ -339,6 +340,10 @@ class FeatureBuilder:
                                    bool(r.get("neutral") or 0), r["match_id"])
                 f.update({k: r.get(k) for k in META_COLS if k in r})
                 f["y_h"], f["y_a"] = int(r["fthg"]), int(r["ftag"])
+                ht = r.get("hthg"), r.get("htag")
+                f["y_ht_h"], f["y_ht_a"] = ((float(ht[0]), float(ht[1]))
+                                            if not any(v is None or pd.isna(v) for v in ht)
+                                            else (np.nan, np.nan))
                 rows.append(f)
             for r in batch:          # ... then apply the day's results
                 state.update(r)

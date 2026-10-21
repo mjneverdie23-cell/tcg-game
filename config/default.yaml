@@ -58,6 +58,8 @@ training:
   direct_markets: true          # per-market classifiers; used per market only
                                 # where they beat calibration-only out of sample
   max_goals: 10
+  halftime: true                # also train the first-half model (HT 1X2, O/U, BTTS)
+  ht_models: [poisson, dixon_coles]
 
 prediction:
   min_confidence_warn: 35

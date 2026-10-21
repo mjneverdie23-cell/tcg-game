@@ -227,6 +227,7 @@ td.hit { color: var(--good); font-weight: 600; } td.miss { color: var(--err-ink)
 .mpicks .err { color: var(--muted); font-style: italic; }
 .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
 .fu { margin-top: 12px; }
+h3.sub { margin: 0 0 8px; font-size: 13px; color: var(--ink-2); font-weight: 600; }
 .fu h3 { font-size: 13px; margin: 0 0 6px; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 .styles3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .styles3 > div { border: 1px solid var(--ring); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: var(--surface); }
@@ -345,6 +346,7 @@ nav .sm { display: none; }
           <label class="inline"><input type="checkbox" value="totals" checked> Total goals</label>
           <label class="inline"><input type="checkbox" value="btts" checked> BTTS</label>
           <label class="inline"><input type="checkbox" value="team_totals" checked> Team goals</label>
+          <label class="inline" title="Half-time result, over/under and BTTS for the first 45 minutes"><input type="checkbox" value="first_half"> 1st half</label>
         </fieldset>
         <fieldset class="mk" id="directions" title="Applies to total goals and team goals"><legend>Goal lines</legend>
           <label class="inline"><input type="checkbox" value="over" checked> Over</label>
@@ -538,6 +540,23 @@ const pickLine = (pk) => el("div", { class: "pick" }, "Pick: ", el("b", {}, pk.p
 function card(title, conf, ...body) {
   return el("div", { class: "card" }, el("h2", {}, title, el("span", { class: "conf" }, `confidence ${conf}/100`)), ...body);
 }
+function halftimeCard(p) {
+  const h = p.halftime, e = h.expected_goals, hp = h.picks, t = h.totals;
+  const sk = h.skill != null ? ` · out-of-sample skill ${h.skill >= 0 ? "+" : ""}${h.skill.toFixed(3)}` : "";
+  return el("div", { class: "card section" },
+    el("h2", {}, "First half", el("span", { class: "conf" }, `xG ${e.home.toFixed(2)} – ${e.away.toFixed(2)} (total ${e.total.toFixed(2)})${sk}`)),
+    el("div", { class: "grid2" },
+      el("div", {}, el("h3", { class: "sub" }, "Half-time result"), el("div", { class: "bars" },
+        barRow(p.home, h["1x2"].home, "var(--home)"), barRow("Draw", h["1x2"].draw, "var(--neutral)"),
+        barRow(p.away, h["1x2"].away, "var(--away)")), pickLine(hp["1x2"])),
+      el("div", {}, el("h3", { class: "sub" }, "First-half goals"), el("div", { class: "bars" },
+        ["0.5", "1.5", "2.5"].map((l) => barRow(`Over ${l}`, t["over_" + l], "var(--yes)"))),
+        el("div", { style: "margin-top:10px" }, splitBar("BTTS Yes", "No", h.btts.yes)),
+        el("div", { class: "pick" }, "Picks: ", ["over_under_0.5", "over_under_1.5", "btts"].map((k, i) =>
+          [i ? " · " : "", el("b", {}, hp[k].pick), ` ${pct(hp[k].prob)} (${hp[k].fair_odds.toFixed(2)})`])))),
+    el("div", { class: "scores" }, el("span", { class: "muted", style: "border:0;background:none;padding-left:0" }, "Most likely at half-time:"),
+      h.top_scores.slice(0, 5).map(([sc, q]) => el("span", {}, `${sc}  ${pct(q, 1)}`))));
+}
 function evidenceList(name, ev) {
   const L = ev.last, V = ev.venue;
   if (!L.n) return el("div", {}, el("h3", {}, name), el("p", { class: "muted" }, "No match history on record."));
@@ -661,6 +680,7 @@ function render(p) {
         el("tbody", {}, ttRow("home", p.home, "var(--home)"), ttRow("away", p.away, "var(--away)"))), ttPicks),
     card("Both teams to score", c.btts, splitBar("Yes", "No", m.btts.yes), pickLine(pk.btts))));
 
+  if (p.halftime && p.halftime["1x2"]) out.push(halftimeCard(p));
   out.push(el("div", { class: "scores" }, el("span", { class: "muted", style: "border:0;background:none;padding-left:0" }, "Most likely scores:"),
     p.top_scores.slice(0, 6).map(([s, q]) => el("span", {}, `${s}  ${pct(q, 1)}`))));
 
@@ -859,7 +879,7 @@ async function predictAll(tbody, btn) {
 }
 function renderBatch(out) {
   const rows = out.map(({ f, p, err }) => {
-    if (err) return el("tr", {}, el("td", { class: "team" }, `${f.home} vs ${f.away}`), el("td", { colspan: "9", class: "pick-cell" }, "✗ " + err));
+    if (err) return el("tr", {}, el("td", { class: "team" }, `${f.home} vs ${f.away}`), el("td", { colspan: "10", class: "pick-cell" }, "✗ " + err));
     const b = p.form && p.form.best_pick, m = p.markets;
     const open = el("button", { type: "button", class: "ghost small" }, "Open");
     open.addEventListener("click", () => openFixture(p.home, p.away, p.date));
@@ -869,12 +889,15 @@ function renderBatch(out) {
       el("td", { "data-label": "Model" }, b ? pct(b.model_prob) : "–"), el("td", { "data-label": "Odds" }, b ? b.fair_odds.toFixed(2) : "–"),
       el("td", { "data-label": "Form" }, b ? pct(b.form_rate) : "–"),
       el("td", { "data-label": "1X2 H·D·A" }, `${pct(m["1x2"].home)} · ${pct(m["1x2"].draw)} · ${pct(m["1x2"].away)}`),
-      el("td", { "data-label": "Over 2.5" }, pct(m["over_under_2.5"].over)), el("td", { "data-label": "BTTS" }, pct(m.btts.yes)), el("td", {}, open));
+      el("td", { "data-label": "Over 2.5" }, pct(m["over_under_2.5"].over)), el("td", { "data-label": "BTTS" }, pct(m.btts.yes)),
+      el("td", { "data-label": "1st half", title: "Half-time: over 0.5 · over 1.5 · level" }, p.halftime && p.halftime.totals
+        ? `o0.5 ${pct(p.halftime.totals["over_0.5"])} · o1.5 ${pct(p.halftime.totals["over_1.5"])} · level ${pct(p.halftime["1x2"].draw)}` : "–"),
+      el("td", {}, open));
   });
   const box = $("img-results");
   put(box, el("h2", {}, "Predictions", el("span", { class: "conf" }, "best pick = last-5 form + model · Open for the full analysis")),
     el("div", { class: "scroll" }, el("table", { class: "batch" },
-      el("thead", {}, el("tr", {}, ["Fixture", "Date", "Best pick", "Model", "Odds", "Form", "1X2 H·D·A", "Over 2.5", "BTTS", ""].map((t) => el("th", {}, t)))),
+      el("thead", {}, el("tr", {}, ["Fixture", "Date", "Best pick", "Model", "Odds", "Form", "1X2 H·D·A", "Over 2.5", "BTTS", "1st half", ""].map((t) => el("th", {}, t)))),
       el("tbody", {}, rows))));
   box.classList.remove("hidden");
   box.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1461,7 +1484,11 @@ function renderBacktest(r, jobId) {
     el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, ["Market", "Log loss", "Skill", "Accuracy", "Calibration err", "Bookmaker log loss"].map((t) => el("th", {}, t)))),
       el("tbody", {}, mk.filter(([k]) => m[k]).map(([k, n]) => el("tr", {}, el("td", { class: "team" }, n), el("td", {}, m[k].logloss.toFixed(4)),
         el("td", {}, m[k].skill.toFixed(4)), el("td", {}, pct(m[k].accuracy, 1)), el("td", {}, pct(m[k].ece, 1)),
-        el("td", {}, b[k] ? b[k].book_logloss.toFixed(4) : "–"))))))) : null;
+        el("td", {}, b[k] ? b[k].book_logloss.toFixed(4) : "–"))),
+        m.halftime ? [["1x2", "HT 1X2"], ["o05", "HT over 0.5"], ["o15", "HT over 1.5"], ["o25", "HT over 2.5"], ["btts", "HT BTTS"]].map(([k, n]) =>
+          el("tr", {}, el("td", { class: "team" }, n), el("td", {}, m.halftime[k].logloss.toFixed(4)), el("td", {}, m.halftime[k].skill.toFixed(4)),
+            el("td", {}, pct(m.halftime[k].accuracy, 1)), el("td", {}, pct(m.halftime[k].ece, 1)), el("td", {}, "–"))) : null))),
+    m.halftime ? el("p", { class: "pick" }, `First-half rows: ${m.halftime.matches} matches with a recorded half-time score.`) : null) : null;
   const picks = el("div", { class: "card section" }, el("h2", {}, "Best picks", el("span", { class: "conf" }, "last-5 form + model, as on the day · profit at bookmaker odds where the file has them")),
     el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, ["Style", "Picks", "Landed", "Model said", "Avg fair odds", "Bets with odds", "Profit"].map((t) => el("th", {}, t)))),
       el("tbody", {}, ["safe", "balanced", "bold"].map((s) => { const p = r.picks[s], x = bt["picks_" + s];

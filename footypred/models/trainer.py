@@ -110,6 +110,7 @@ class TrainResult:
     config: dict = field(default_factory=dict)
     feature_params: dict = field(default_factory=dict)
     eval_preds: dict = field(default_factory=dict)
+    halftime: object = None          # HalfTimeModel (first-half markets), if trained
 
 
 class Trainer:
@@ -304,10 +305,33 @@ class Trainer:
         eval_preds = {"final": final_probs[selected], "raw": raw_probs[selected],
                       "y_h": yh_ev, "y_a": ya_ev,
                       "match_id": frame.loc[idx[ev_mask], "match_id"].to_numpy()}
+        # full-time expected goals behind the out-of-fold predictions (for the
+        # first-half model's "scaled" candidate)
+        from footypred.models.halftime import expected_goals
+        g_sel = (sum(w * grids[m] for w, m in zip(w_all, self.model_names))
+                 if selected == "ensemble" else grids[selected])
+        lh, la = expected_goals(g_sel)
+        halftime = self._halftime(frame, fcols, tests, pd.DataFrame({"lh": lh, "la": la}, index=idx))
+        if halftime is not None:
+            report["halftime"] = halftime.report
+        report["train_seconds"] = round(time.time() - t0, 1)
         return TrainResult(models=models, direct=dm, weights=weights, head=head,
                            selected=selected, feature_cols=fcols, report=report,
                            importances=importances, config=dict(self.cfg.training),
-                           eval_preds=eval_preds)
+                           eval_preds=eval_preds, halftime=halftime)
+
+    def _halftime(self, frame, fcols, tests, ft_lam=None):
+        """First-half model on the same features and folds (never fatal)."""
+        if not self.cfg.training.get("halftime", True):
+            return None
+        from footypred.models.goal_models import REGISTRY
+        from footypred.models.halftime import HT_MODELS, train_halftime
+        names = [n for n in (self.cfg.training.get("ht_models") or HT_MODELS) if n in REGISTRY]
+        try:
+            return train_halftime(frame, fcols, tests, self._make, names, ft_lam)
+        except Exception:
+            log.exception("first-half model failed; full-time model unaffected")
+            return None
 
     @staticmethod
     def _importances(dm: DirectMarkets, models: dict, fcols) -> dict:
