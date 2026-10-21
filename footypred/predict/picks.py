@@ -469,9 +469,11 @@ def eval_matches(db_matches: pd.DataFrame, eval_preds: dict, eval_seasons) -> pd
 
 
 def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | None = None,
-             mask: np.ndarray | None = None, base: dict | None = None) -> dict:
+             mask: np.ndarray | None = None, base: dict | None = None,
+             keep_rows: bool = False) -> dict:
     """Best pick per match from pre-match form + out-of-fold model
-    probabilities; reports how often picks landed vs what was claimed."""
+    probabilities; reports how often picks landed vs what was claimed.
+    keep_rows: also return the per-match picks (out["rows"])."""
     o = resolve_opts(opts)
     cand = {c.key: c for c in CANDIDATES}
     rows = []
@@ -488,8 +490,8 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
             rows.append({"pick": None})
             continue
         hit = bool(cand[best["key"]].test_home_side(int(r["fthg"]), int(r["ftag"])))
-        rows.append({"pick": best["key"], "market": best["market"], "hit": hit,
-                     "model": best["model_prob"], "form": best["form_rate"],
+        rows.append({"pick": best["key"], "label": best["label"], "market": best["market"],
+                     "hit": hit, "model": best["model_prob"], "form": best["form_rate"],
                      "score": best["score"], "odds": best["fair_odds"]})
     df = pd.DataFrame(rows)
     picked = df[df["pick"].notna()] if "pick" in df else df
@@ -505,6 +507,8 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
                                       "mean_form": float(g["form"].mean())}
                                   for k, g in picked.groupby("market")},
                     "by_pick": picked["pick"].value_counts().head(6).to_dict()})
+    if keep_rows:
+        out["rows"] = rows
     return out
 
 

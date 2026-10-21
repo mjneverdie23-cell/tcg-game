@@ -2,7 +2,8 @@
 
 Level 1 (expanding window by season): every goal model and the direct
 market classifiers are fitted on seasons < s and predict season s, giving
-out-of-fold (OOF) predictions for every test season.
+out-of-fold (OOF) predictions for every test season. With a short history
+(fewer than four seasons) the folds are half-seasons instead.
 
 Level 2 (honest evaluation of the optimisation layer): for each later
 season s, ensemble weights and per-market stackers are fitted on the OOF
@@ -121,6 +122,7 @@ class Trainer:
         self.G = int(t.get("max_goals", 10)) + 1
         self.hl_grid = list(t.get("dc_half_life_grid") or [t.get("dc_half_life_days", 240)])
         self.dc_half_life = float(t.get("dc_half_life_days", 240))
+        self.fold_mode = "season"
 
     def _make(self, name):
         kw = {"random_state": self.rs}
@@ -132,14 +134,32 @@ class Trainer:
 
     # ------------------------------------------------------------- folds
     def _folds(self, frame):
+        """Test folds for the expanding window. Whole seasons when there are
+        enough of them; otherwise half-years (Jan-Jun / Jul-Dec), so a short
+        history (e.g. a backtest starting mid-2024) can still be evaluated."""
         seasons = sorted(frame["season"].unique())
         tests = [s for s in seasons[self.min_train:] if (frame["season"] == s).sum() >= 40]
+        if len(tests) >= 2:
+            self.fold_mode = "season"
+            frame["fold"] = frame["season"].astype(int)
+            return tests
+        d = pd.to_datetime(frame["date"])
+        frame["fold"] = d.dt.year * 2 + (d.dt.month >= 7)
+        periods = sorted(frame["fold"].unique())
+        min_train = 2 if len(periods) >= 4 else 1
+        tests = [s for s in periods[min_train:] if (frame["fold"] == s).sum() >= 40]
         if len(tests) < 2:
-            raise ValueError("need at least min_train + 2 seasons of data for nested CV")
+            raise ValueError("not enough history to train and evaluate: need about a year of "
+                             "played matches (three half-seasons) before the cut-off")
+        self.fold_mode = "half"
         return tests
 
+    @staticmethod
+    def fold_label(fold, mode) -> str:
+        return str(int(fold)) if mode == "season" else f"{int(fold) // 2} H{int(fold) % 2 + 1}"
+
     def _tune_dc(self, frame, fcols, s):
-        tr, te = frame[frame["season"] < s], frame[frame["season"] == s]
+        tr, te = frame[frame["fold"] < s], frame[frame["fold"] == s]
         best, best_hl = -np.inf, self.dc_half_life
         for hl in self.hl_grid:
             m = make_model("dixon_coles", half_life_days=hl)
@@ -156,16 +176,18 @@ class Trainer:
         frame = frame.sort_values(["date", "match_id"]).reset_index(drop=True)
         fcols = usable_features(frame, fcols)
         tests = self._folds(frame)
-        log.info("training on %d matches, %d features; test seasons %s",
-                 len(frame), len(fcols), tests)
+        log.info("training on %d matches, %d features; test %s %s", len(frame), len(fcols),
+                 "seasons" if self.fold_mode == "season" else "half-seasons",
+                 [self.fold_label(t, self.fold_mode) for t in tests])
         if "dixon_coles" in self.model_names and len(self.hl_grid) > 1:
             self._tune_dc(frame, fcols, tests[0])
 
         # ---------------- level 1: OOF predictions
         oof_idx, oof_grids, oof_direct = [], {m: [] for m in self.model_names}, []
         for s in tests:
-            tr, te = frame[frame["season"] < s], frame[frame["season"] == s]
-            log.info("fold %s: train %d, test %d", s, len(tr), len(te))
+            tr, te = frame[frame["fold"] < s], frame[frame["fold"] == s]
+            log.info("fold %s: train %d, test %d", self.fold_label(s, self.fold_mode),
+                     len(tr), len(te))
             for name in self.model_names:
                 t = time.time()
                 oof_grids[name].append(self._make(name).oof_grids(tr, te, fcols, self.G))
@@ -217,8 +239,13 @@ class Trainer:
         cat = lambda lst: {k: np.concatenate([d[k] for d in lst]) for k in lst[0]}
         yh_ev, ya_ev = yh[ev_mask], ya[ev_mask]
         out_ev = outcomes(yh_ev, ya_ev)
+        ev_frame = frame.loc[idx[ev_mask]]
         report = {"candidates": {}, "eval_matches": int(ev_mask.sum()),
-                  "eval_seasons": [int(s) for s in tests[1:]],
+                  "eval_seasons": sorted(int(s) for s in ev_frame["season"].unique()),
+                  "fold_mode": self.fold_mode,
+                  "eval_periods": [self.fold_label(s, self.fold_mode) for s in tests[1:]],
+                  "eval_from": str(pd.Timestamp(ev_frame["date"].min()).date()),
+                  "trained_until": str(pd.Timestamp(frame["date"].max()).date()),
                   "dc_half_life_days": self.dc_half_life, "heads": {}}
         finals, final_probs, raw_probs = {}, {}, {}
         for c in cands:
@@ -247,7 +274,7 @@ class Trainer:
         report["selected"] = selected
         report["weights_by_fold"] = [dict(zip(self.model_names, map(float, w)))
                                      for w in weights_hist]
-        book = bookmaker_probs(frame.loc[idx[ev_mask]])
+        book = bookmaker_probs(ev_frame)
         if book is not None:
             m = book["mask"]
             fp = final_probs[selected]

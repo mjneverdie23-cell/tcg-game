@@ -69,6 +69,61 @@ NATIONS = ["Argentina", "France", "Spain", "England", "Brazil", "Portugal", "Net
            "Poland", "Wales", "Norway", "Nigeria"]
 INTL_CODE = "INT"
 INTL_BASE, INTL_HOME = 0.02, 0.25
+CL_CODE = "CL"
+CL_BASE, CL_HOME = 0.12, 0.20
+# league strength on a common scale (for games between leagues)
+LEAGUE_LEVEL = {"E0": 0.10, "SP1": 0.07, "I1": 0.05, "D1": 0.05, "F1": 0.0, "N1": -0.12,
+                "P1": -0.08}
+CL_PLACES = {"E0": 4, "SP1": 4, "I1": 4, "D1": 4, "F1": 3, "N1": 2, "P1": 3}
+
+
+def _cl_fixtures(rng, pools, seasons, cutoff):
+    """A Champions League per season: 24-team league phase (8 games each),
+    two-legged last 16 / quarters / semis, a neutral-venue final."""
+    rows = []
+    for s in seasons:
+        entrants = []
+        for code, k in CL_PLACES.items():
+            if code in pools:
+                teams = list(pools[code][2])
+                order = sorted(range(len(teams)), key=lambda i: i + rng.normal(0, 1.5))
+                entrants += [teams[i] for i in order[:k]]
+        if len(entrants) < 8:
+            return rows
+        n = len(entrants) - len(entrants) % 2
+        order = list(rng.permutation(entrants[:n]))
+        start = pd.Timestamp(f"{s}-09-16")
+        for r in range(8):                                    # league phase
+            d = start + pd.Timedelta(days=int(r * 133 / 7))
+            d += pd.Timedelta(days=(1 - d.dayofweek) % 7)     # Tuesday
+            for i in range(n // 2):
+                h, a = order[i], order[n - 1 - i]
+                if r % 2:
+                    h, a = a, h
+                dd = d + pd.Timedelta(days=int(rng.integers(0, 2)))
+                if dd <= cutoff:
+                    rows.append((dd, CL_CODE, s, h, a, 0))
+            order = [order[0]] + [order[-1]] + order[1:-1]
+        strength = {t: rng.normal() for t in entrants}
+        alive = sorted(entrants, key=lambda t: -strength[t])[:16]
+        for days, size in ((("03-03", "03-10"), 16), (("04-07", "04-14"), 8),
+                           (("04-28", "05-05"), 4)):
+            if len(alive) < size:              # small field: start at a later round
+                continue
+            alive = list(rng.permutation(alive[:size]))
+            pairs = [(alive[i], alive[i + 1]) for i in range(0, size, 2)]
+            for leg, md in enumerate(days):
+                d = pd.Timestamp(f"{s + 1}-{md}")
+                d += pd.Timedelta(days=(1 - d.dayofweek) % 7)     # Tuesday
+                if d > cutoff:
+                    continue
+                for h, a in pairs:
+                    rows.append((d, CL_CODE, s, *((h, a) if leg == 0 else (a, h)), 0))
+            alive = [p[int(rng.random() < 0.5)] for p in pairs]
+        final = pd.Timestamp(f"{s + 1}-05-30")
+        if len(alive) >= 2 and final <= cutoff:
+            rows.append((final, CL_CODE, s, alive[0], alive[1], 1))
+    return rows
 
 
 # ------------------------------------------------------------------ schedule
@@ -212,7 +267,7 @@ def _book_probs(lam_h, lam_a, vol, margin_1x2=0.05, margin_ou=0.06, rng=None):
 
 def generate(seasons: list[int], cutoff: str | pd.Timestamp | None = None,
              seed: int = 7, leagues: list[str] | None = None,
-             internationals: bool = True) -> pd.DataFrame:
+             internationals: bool = True, champions_league: bool = True) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     cutoff = pd.Timestamp(cutoff) if cutoff is not None else pd.Timestamp.today().normalize()
     pools = {c: v for c, v in LEAGUES.items() if leagues is None or c in leagues}
@@ -227,6 +282,10 @@ def generate(seasons: list[int], cutoff: str | pd.Timestamp | None = None,
                 rows += _league_fixtures(rng, code, teams, s, cutoff)
     if internationals:
         rows += _intl_fixtures(rng, seasons, cutoff)
+    league_of = {t: c for c, (_, _, ts) in pools.items() if c != INTL_CODE for t in ts}
+    if champions_league and sum(c in pools for c in CL_PLACES) >= 2:
+        rows += _cl_fixtures(rng, pools, seasons, cutoff)
+        pools = {**pools, CL_CODE: (CL_BASE, CL_HOME, [])}
     fx = pd.DataFrame(rows, columns=["date", "league", "season", "home", "away", "neutral"])
     fx = fx.sort_values(["date", "league", "home"]).reset_index(drop=True)
     if fx.empty:
@@ -244,6 +303,13 @@ def generate(seasons: list[int], cutoff: str | pd.Timestamp | None = None,
     att_a = np.array([paths[t]["att"][w] for t, w in zip(fx["away"], wk)])
     def_a = np.array([paths[t]["def"][w] for t, w in zip(fx["away"], wk)])
     hx = np.array([traits[t]["home_x"] for t in fx["home"]]) * (hadv > 0)
+    # games between leagues: put both sides on the common strength scale
+    cross = (fx["league"] == CL_CODE).to_numpy()
+    if cross.any():
+        lv_h = np.array([LEAGUE_LEVEL.get(league_of.get(t, ""), 0.0) for t in fx["home"]])
+        lv_a = np.array([LEAGUE_LEVEL.get(league_of.get(t, ""), 0.0) for t in fx["away"]])
+        att_h, def_h = att_h + cross * lv_h, def_h + cross * lv_h
+        att_a, def_a = att_a + cross * lv_a, def_a + cross * lv_a
     lam_h = np.exp(base + hadv + hx + att_h - def_a)
     lam_a = np.exp(base + att_a - def_h)
     vol = np.array([(traits[h]["vol"] + traits[a]["vol"]) / 2

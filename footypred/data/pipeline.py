@@ -27,7 +27,9 @@ def update(cfg, db: Database, client: HttpClient | None = None) -> dict:
     from footypred.data.sources import (clubelo, fifa, football_data, transfermarkt,
                                         understat, weather)
     client = client or HttpClient.from_config(cfg)
-    leagues = list(cfg.leagues)
+    # main-league files only (cups and "extra league" countries come via `footy data`)
+    leagues = [c for c, m in cfg.leagues.items()
+               if not (m or {}).get("cup") and not (m or {}).get("couk_extra")]
     report: dict[str, int | str] = {}
 
     def run(name, fn):
@@ -41,7 +43,7 @@ def update(cfg, db: Database, client: HttpClient | None = None) -> dict:
 
     run("football_data", lambda: db.upsert_matches(
         football_data.fetch(client, leagues, cfg.seasons), "football_data"))
-    us_map = {c: m["understat"] for c, m in cfg.leagues.items() if m.get("understat")}
+    us_map = {c: m["understat"] for c, m in cfg.leagues.items() if (m or {}).get("understat")}
     run("understat", lambda: db.upsert_matches(
         understat.fetch(client, us_map, cfg.seasons), "understat"))
 

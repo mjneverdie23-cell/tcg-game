@@ -418,3 +418,125 @@ def plot_evaluation(result, out_path):
                  color=INK, fontsize=14, fontweight="bold", x=0.02, ha="left", y=0.99)
     fig.tight_layout(rect=(0.01, 0.01, 0.99, 0.95), h_pad=3.0, w_pad=2.5)
     return _save(fig, out_path)
+
+
+# ================================================================ backtest
+STYLE_COLOR = {"safe": SERIES[0], "balanced": SERIES[1], "bold": SERIES[2]}
+
+
+def _end_label(ax, x, y, text, color):
+    ax.annotate(text, (x, y), xytext=(4, 0), textcoords="offset points", va="center",
+                fontsize=7.5, color=INK_2)
+    ax.plot([x], [y], "o", color=color, ms=4, zorder=4)
+
+
+def plot_walkforward(r, out_path):
+    """Walk-forward backtest: picks over time, profit at the bookmaker's
+    odds, per-competition results, and reliability of the four markets."""
+    import pandas as pd
+    rows = r.rows.copy()
+    rows["date"] = pd.to_datetime(rows["date"])
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10.5))
+    fig.patch.set_facecolor(SURFACE)
+
+    # 1) cumulative best-pick hit rate per style
+    ax = axes[0, 0]
+    drawn = False
+    for style, color in STYLE_COLOR.items():
+        col = f"pick_{style}_hit"
+        d = rows[rows[col].notna()]
+        if len(d) < 5:
+            continue
+        hits = d[col].astype(float).to_numpy()
+        rate = np.cumsum(hits) / np.arange(1, len(hits) + 1)
+        ax.plot(d["date"], rate, color=color, lw=2, label=f"{style} ({len(d)} picks)")
+        _end_label(ax, d["date"].iloc[-1], rate[-1], f"{100 * rate[-1]:.0f}%", color)
+        drawn = True
+    if drawn:
+        ax.legend(fontsize=7.5, frameon=False, labelcolor=INK_2, loc="lower left")
+    ax.set_ylim(0, 1)
+    _pct_fmt(ax)
+    ax.tick_params(axis="x", rotation=30)
+    _style(ax, "Best pick landed — running rate by style")
+
+    # 2) cumulative profit at bookmaker odds (1 unit per bet)
+    ax = axes[0, 1]
+    series = [(f"{s} picks", rows[f"pick_{s}_book_odds"], rows[f"pick_{s}_hit"], c, "-")
+              for s, c in STYLE_COLOR.items()]
+    any_line = False
+    for lbl, odds, hit, color, ls in series:
+        m = odds.notna() & hit.notna()
+        if m.sum() < 5:
+            continue
+        p = np.where(hit[m].astype(bool), odds[m].astype(float) - 1, -1.0)
+        cum = np.cumsum(p)
+        dates = rows.loc[m, "date"]
+        ax.plot(dates, cum, ls, color=color, lw=2, label=f"{lbl} ({m.sum()})")
+        _end_label(ax, dates.iloc[-1], cum[-1], f"{cum[-1]:+.1f}", color)
+        any_line = True
+    for key, lbl, color in (("value_1x2", "value bets 1X2", YES), ("value_ou25", "value bets O/U 2.5",
+                                                                     SERIES[3])):
+        b = r.betting.get(key) or {}
+        if b.get("bets", 0) >= 5:
+            dates = pd.to_datetime(b["dates"])
+            ax.plot(dates, b["curve"], "--", color=color, lw=1.6, label=f"{lbl} ({b['bets']})")
+            _end_label(ax, dates[-1], b["curve"][-1], f"{b['curve'][-1]:+.1f}", color)
+            any_line = True
+    ax.axhline(0, color=BASELINE, lw=0.9)
+    if any_line:
+        ax.legend(fontsize=7.5, frameon=False, labelcolor=INK_2, loc="upper left")
+    else:
+        ax.text(0.5, 0.5, "no bookmaker odds in these matches", ha="center", va="center",
+                transform=ax.transAxes, color=MUTED, fontsize=9)
+    ax.tick_params(axis="x", rotation=30)
+    _style(ax, "Profit at bookmaker odds (units, 1 per bet)")
+
+    # 3) per competition: 1X2 accuracy and balanced best-pick hit rate
+    ax = axes[0, 2]
+    g = rows.groupby("league")
+    comps = list(g.size().sort_values(ascending=False).index[:10])
+    x = np.arange(len(comps))
+    w = 0.38
+    acc = [float((g.get_group(c)["result"] == g.get_group(c)["predicted"]).mean()) for c in comps]
+    hit = [float(g.get_group(c)["pick_balanced_hit"].dropna().astype(float).mean())
+           if g.get_group(c)["pick_balanced_hit"].notna().any() else np.nan for c in comps]
+    ax.bar(x - w / 2, acc, width=w - 0.04, color=NEUTRAL, zorder=3, label="1X2 accuracy")
+    ax.bar(x + w / 2, hit, width=w - 0.04, color=STYLE_COLOR["balanced"], zorder=3,
+           label="balanced pick landed")
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{c}\n{len(g.get_group(c))}" for c in comps], fontsize=7.5, color=INK_2)
+    ax.set_ylim(0, 1)
+    _pct_fmt(ax)
+    ax.legend(fontsize=7.5, frameon=False, labelcolor=INK_2, loc="upper right")
+    _style(ax, "By competition (matches under each code)")
+
+    # 4-6) reliability of the four markets
+    yh, ya = rows["fthg"].to_numpy(int), rows["ftag"].to_numpy(int)
+    out = outcomes(yh, ya)
+    P = lambda c: rows[c].to_numpy(float)
+    _reliability(axes[1, 0], [
+        ("Home win", P("p_home"), (out["1x2"] == 0).astype(float), HOME, "o-"),
+        ("Draw", P("p_draw"), (out["1x2"] == 1).astype(float), MUTED, "o-"),
+        ("Away win", P("p_away"), (out["1x2"] == 2).astype(float), AWAY, "o-")],
+        "Reliability — 1X2")
+    _reliability(axes[1, 1], [
+        ("Over 2.5", P("p_o25"), out["o25"], SERIES[1], "o-"),
+        ("BTTS", P("p_btts"), out["btts"], SERIES[2], "s-")],
+        "Reliability — O/U 2.5 and BTTS")
+    _reliability(axes[1, 2], [
+        ("Home o1.5", P("p_h_o15"), out["h_o15"], HOME, "o-"),
+        ("Away o1.5", P("p_a_o15"), out["a_o15"], AWAY, "o-"),
+        ("Home o0.5", P("p_h_o05"), out["h_o05"], HOME, "s--"),
+        ("Away o0.5", P("p_a_o05"), out["a_o05"], AWAY, "s--")],
+        "Reliability — team goals")
+
+    t = r.trainings[0]
+    fig.suptitle(f"Walk-forward backtest {r.start} → {r.end}  ·  {len(rows)} matches",
+                 color=INK, fontsize=14, fontweight="bold", x=0.02, ha="left", y=0.99)
+    skill = f"combined skill {r.metrics['combined_skill']:.4f}  ·  " if r.metrics else ""
+    fig.text(0.02, 0.955, f"{skill}trained on {t['matches']} matches before {t['cutoff']} "
+             f"({t['model']})" + (f"  ·  retrained {len(r.trainings) - 1}×" if len(r.trainings) > 1
+                                  else "  ·  results fed in day by day, no retraining"),
+             color=INK_2, fontsize=10)
+    fig.tight_layout(rect=(0.01, 0.01, 0.99, 0.94), h_pad=3.0, w_pad=2.5)
+    return _save(fig, out_path)

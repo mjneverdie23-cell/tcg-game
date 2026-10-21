@@ -22,6 +22,9 @@ leagues:                        # football-data.co.uk code -> metadata
   F1:  {name: Ligue 1,        country: France,      understat: Ligue_1}
   N1:  {name: Eredivisie,     country: Netherlands}
   P1:  {name: Primeira Liga,  country: Portugal}
+  T1:  {name: Süper Lig,      country: Turkey}
+  NOR: {name: Eliteserien,    country: Norway,      couk_extra: true}
+  CL:  {name: Champions League, country: Europe,    cup: true}
 
 seasons: [2021, 2022, 2023, 2024, 2025, 2026]   # season = year it starts
 
@@ -74,3 +77,27 @@ image:                          # reading fixtures from screenshots
   engine: auto                  # auto | ocr (offline) | claude (needs `pip install
                                 #   anthropic` + API key; sends the image to Anthropic)
   claude_model: claude-opus-5-5
+
+# ---------------------------------------------------------------- your data
+local_data:                     # the match file the whole system reads
+  csv: data/matches.csv         # path on your PC (absolute, or relative to the project)
+  auto_import: true             # re-import automatically whenever the file changes
+  aliases: data/aliases.csv     # optional: two columns "from,to" to merge team names
+
+football_data_org:              # `footy data download` / `footy data update`
+  # api_key: ...                # better: set the environment variable FOOTBALL_DATA_API_KEY
+  base_url: https://api.football-data.org/v4
+  min_interval_seconds: 6.5     # free plan allows 10 requests a minute
+  first_season: 2022            # season = the year it starts (2022 = 2022/23)
+  fallback_football_data_co_uk: true   # fill domestic leagues/seasons outside your plan
+  competitions:                 # our code: football-data.org code (or area + name to look it up)
+    E0:  {code: PL,  name: Premier League}
+    F1:  {code: FL1, name: Ligue 1}
+    D1:  {code: BL1, name: Bundesliga}
+    SP1: {code: PD,  name: La Liga}
+    N1:  {code: DED, name: Eredivisie}
+    I1:  {code: SA,  name: Serie A}
+    CL:  {code: CL,  name: Champions League, cup: true}
+    T1:  {area: Turkey, name: Süper Lig, couk: T1}
+    NOR: {area: Norway, name: Eliteserien, couk: NOR, calendar_year: true}
+

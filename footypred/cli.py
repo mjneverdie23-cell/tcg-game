@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from footypred.config import load_config
 from footypred.logging_utils import get_logger, setup_logging
@@ -12,15 +13,106 @@ from footypred.logging_utils import get_logger, setup_logging
 log = get_logger("cli")
 
 
-def _db(cfg):
+def _db(cfg, sync: bool = True):
+    """The system database; your local match file is (re)imported first
+    whenever it changed."""
     from footypred.data.db import Database
-    return Database(cfg.paths.db_file)
+    from footypred.data.localfile import sync_db
+    db = Database(cfg.paths.db_file)
+    if sync:
+        n = sync_db(cfg, db)
+        if n:
+            print(f"Imported {n} matches from your match file")
+    return db
+
+
+def _fetcher(cfg, args, progress=print):
+    from footypred.data.localfile import make_fetcher
+    return make_fetcher(cfg, progress, fallback=False if getattr(args, "no_fallback", False)
+                        else None)
+
+
+def _specs(cfg, only: str | None):
+    from footypred.data.localfile import specs_from_config
+    specs = specs_from_config(cfg)
+    if only:
+        want = {x.strip().upper() for x in only.split(",")}
+        specs = [s for s in specs if s.key.upper() in want]
+        if not specs:
+            sys.exit(f"no configured competitions match {only}")
+    return specs
+
+
+def cmd_data(cfg, args):
+    import pandas as pd
+    from footypred.data import localfile as lf
+    path = Path(args.file) if getattr(args, "file", None) else lf.csv_path(cfg)
+    first = int(getattr(args, "first_season", None) or lf.first_season(cfg))
+    to = pd.Timestamp(args.to).normalize() if getattr(args, "to", None) else pd.Timestamp.today().normalize()
+    if args.data_cmd == "download":
+        if path.exists() and not args.force:
+            sys.exit(f"{path} already exists. Use `footy data update` to add new matches, "
+                     "or --force to rebuild it from scratch.")
+        specs = _specs(cfg, args.only)
+        print(f"Downloading {len(specs)} competitions, seasons {first}/{str(first + 1)[2:]} "
+              f"to {to.date()} → {path}")
+        df = lf.download(_fetcher(cfg, args), specs, first, to)
+        lf.write_csv(df, path)
+        print(f"\nSaved {len(df)} matches to {path}")
+        if len(df):
+            print(lf.summarize(df))
+        db = _db(cfg)
+    elif args.data_cmd == "update":
+        if not path.exists():
+            sys.exit(f"{path} not found — run `footy data download` first")
+        specs = _specs(cfg, args.only)
+        print(f"Updating {path} up to {to.date()}")
+        r = lf.update(_fetcher(cfg, args), specs, path, first, to)
+        print(f"\nAdded {r['added']} new matches" +
+              (f", corrected {r['corrected']} (backup: {path.name}.bak)" if r["corrected"] else "")
+              + f" · file now has {r['rows']} matches")
+        for k, v in r["by_competition"].items():
+            if v:
+                print(f"  {k:<5} +{v}")
+        _db(cfg)
+    elif args.data_cmd == "import":
+        from footypred.data.db import Database
+        db = Database(cfg.paths.db_file)
+        if args.file:
+            n = lf.to_db(lf.read_csv(path), db, aliases=lf.load_aliases(cfg))
+        else:
+            n = lf.sync_db(cfg, db, force=True)
+        if not n:
+            sys.exit(f"nothing imported (is {path} there?)")
+        print(f"Imported {n} matches from {path} into {cfg.paths.db_file}. "
+              "Run `footy train` to retrain on it.")
+    elif args.data_cmd == "info":
+        df = lf.read_csv(path)
+        print(f"{path}: {len(df)} matches" + (f", {df['date'].min()} → {df['date'].max()}"
+                                              if len(df) else ""))
+        if len(df):
+            print(lf.summarize(df))
+    elif args.data_cmd == "check":
+        df = lf.read_csv(path)
+        pairs = lf.name_check(df)
+        if not pairs:
+            print("No suspicious team-name pairs found.")
+        for comp, a, b, r in pairs:
+            print(f"  {comp:<5} '{a}'  ~  '{b}'  ({r:.0f}%)")
+        if pairs:
+            print(f"\nIf two names are the same club, add a line '{pairs[0][1]},{pairs[0][2]}' "
+                  f"to {lf.aliases_path(cfg)} (columns from,to).")
 
 
 def cmd_bootstrap(cfg, args):
     from footypred.data.pipeline import bootstrap
-    db = _db(cfg)
+    db = _db(cfg, sync=False)
+    from footypred.data.localfile import csv_path
+    if csv_path(cfg).exists():
+        print(f"⚠ your match file {csv_path(cfg)} stays untouched; the demo data is used until "
+              "you run `footy data import` (or edit the file)")
     n = bootstrap(cfg, db, cutoff=args.cutoff, seed=args.seed)
+    db.set_meta("csv_signature", "")
     print(f"Loaded {n} synthetic matches into {cfg.paths.db_file}")
 
 
@@ -48,6 +140,7 @@ def cmd_train(cfg, args):
     frame = fb.build_training_frame(matches)
     res = Trainer(cfg).train(frame, feature_columns(frame))
     res.feature_params = fb.params
+    res.report["data_source"] = db.get_meta("data_source")
     version = ModelRegistry(cfg.paths.models_dir).save(res, fb.state)
     print(render_training_report(res.report))
     print(f"\nSaved model {version}")
@@ -86,6 +179,7 @@ def _add_pick_args(p):
 
 
 def cmd_backtest_picks(cfg, args):
+    import pandas as pd
     from footypred.data.db import Database
     from footypred.models.registry import ModelRegistry
     from footypred.predict.picks import FormIndex, backtest, eval_matches, form_reliability
@@ -96,10 +190,14 @@ def cmd_backtest_picks(cfg, args):
     em = eval_matches(allm, res.eval_preds, res.report["eval_seasons"])
     probs = res.eval_preds["final"]
     from footypred.predict.picks import base_rates
-    typical = base_rates(allm[allm["season"] < min(res.report["eval_seasons"])])
+    rep = res.report
+    before = (allm["date"] < pd.Timestamp(rep["eval_from"]) if rep.get("eval_from")
+              else allm["season"] < min(rep["eval_seasons"]))
+    typical = base_rates(allm[before])
     base = {**(cfg.raw.get("picks") or {}), **_pick_opts(args)}
+    periods = rep.get("eval_periods") or rep["eval_seasons"]
     print(f"Best-pick backtest on {len(em)} out-of-sample matches "
-          f"(seasons {', '.join(map(str, res.report['eval_seasons']))}); form from games "
+          f"({', '.join(map(str, periods))}); form from games "
           "before each match, model = out-of-fold probabilities.\n")
     print(f"{'strategy':<26}{'picks':>7}{'landed':>9}{'model said':>12}{'form said':>11}"
           "   most common picks")
@@ -118,6 +216,36 @@ def cmd_backtest_picks(cfg, args):
         print(f"  form {100 * row['form_from']:3.0f}-{100 * row['form_to']:3.0f}%  "
               f"(avg {100 * row['mean_form']:4.1f}%)  landed {100 * row['hit_rate']:4.1f}%  "
               f"n={row['n']}")
+
+
+def cmd_backtest(cfg, args):
+    from footypred.predict.charts import plot_walkforward
+    from footypred.predict.walkforward import QUICK_MODELS, render, walk_forward
+    db = _db(cfg)
+    comps = [c.strip() for c in args.competitions.split(",")] if args.competitions else None
+    models = QUICK_MODELS if args.quick else None
+    last = [0.0]
+
+    def progress(frac, msg):
+        if frac == 0 or frac >= 1 or frac - last[0] >= 0.1 or "retrain" in msg:
+            print(f"  {100 * frac:3.0f}%  {msg}")
+            last[0] = frac
+
+    print(f"Walk-forward backtest from {args.date_from} to {args.date_to or 'the last result'}"
+          f" — trains on matches before the start, then predicts each day before seeing it")
+    r = walk_forward(cfg, db, args.date_from, args.date_to, competitions=comps,
+                     retrain_every=args.retrain_every, models=models, pick_opts=_pick_opts(args),
+                     tune=not args.no_tune, value_edge=args.value_edge, progress=progress)
+    if args.json:
+        print(json.dumps(r.summary(), indent=2, default=float))
+    else:
+        print("\n" + render(r))
+    out = Path(args.out) if args.out else cfg.paths.data_dir / "backtests"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"backtest_{r.start}_{r.end}" + (f"_{'-'.join(comps)}" if comps else "")
+    r.rows.to_csv(out / f"{stem}.csv", index=False)
+    print(f"\nPer-match predictions: {out / (stem + '.csv')}")
+    print(f"Chart: {plot_walkforward(r, out / (stem + '.png'))}")
 
 
 def cmd_image(cfg, args):
@@ -171,7 +299,7 @@ def cmd_predict(cfg, args):
     from footypred.predict.predictor import Predictor
     from footypred.predict.report import render
     pred = Predictor(cfg).predict(args.home, args.away, date=args.date, neutral=args.neutral,
-                                  pick_opts=_pick_opts(args))
+                                  pick_opts=_pick_opts(args), competition=args.competition)
     if args.json:
         print(json.dumps(pred.to_dict(), indent=2, default=float))
     else:
@@ -235,12 +363,33 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--cutoff", help="last match date (default: today)")
     b.add_argument("--seed", type=int, default=7)
     sub.add_parser("update", help="scrape/refresh all enabled data sources")
+
+    d = sub.add_parser("data", help="your local match file: download / update / import / info / check")
+    dsub = d.add_subparsers(dest="data_cmd", required=True)
+    dd = dsub.add_parser("download", help="build the match CSV from football-data.org")
+    du = dsub.add_parser("update", help="append matches played since the last run")
+    for p_ in (dd, du):
+        p_.add_argument("--to", help="last date to include, YYYY-MM-DD (default: today)")
+        p_.add_argument("--only", help="comma-separated competition codes, e.g. E0,CL")
+        p_.add_argument("--first-season", type=int, help="first season (default from config: 2022)")
+        p_.add_argument("--file", help="CSV path (default: local_data.csv in the config)")
+        p_.add_argument("--no-fallback", action="store_true",
+                        help="don't fill gaps from football-data.co.uk")
+    dd.add_argument("--force", action="store_true", help="overwrite an existing file")
+    di = dsub.add_parser("import", help="load the CSV into the system (also automatic)")
+    di.add_argument("--file", help="import this CSV instead of the configured one")
+    for name, hlp in (("info", "matches per competition and season"),
+                      ("check", "spot team names that may be the same club")):
+        x = dsub.add_parser(name, help=hlp)
+        x.add_argument("--file")
     sub.add_parser("train", help="tune, cross-validate, select and save models")
 
     pr = sub.add_parser("predict", help="predict a fixture")
     pr.add_argument("home"); pr.add_argument("away")
     pr.add_argument("--date", help="match date YYYY-MM-DD (default: today)")
     pr.add_argument("--neutral", action="store_true", help="neutral venue")
+    pr.add_argument("--competition", help="competition code, e.g. CL or E0 (default: automatic; "
+                                          "teams from different leagues = Champions League)")
     pr.add_argument("--json", action="store_true", help="JSON output")
     pr.add_argument("--chart", nargs="?", const="auto", metavar="PATH",
                     help="save a dashboard PNG (optional path)")
@@ -262,6 +411,23 @@ def build_parser() -> argparse.ArgumentParser:
     _add_pick_args(bt)
     bt.add_argument("--limit", type=int, default=1500,
                     help="matches used for the form-reliability table (default 1500)")
+
+    wf = sub.add_parser("backtest", help="walk-forward backtest over a date range: train on "
+                        "matches before --from, predict each day up to --to before seeing it")
+    wf.add_argument("--from", dest="date_from", required=True, help="first match day, YYYY-MM-DD")
+    wf.add_argument("--to", dest="date_to", help="last match day (default: last result on file)")
+    wf.add_argument("--competitions", help="score only these codes, e.g. E0,CL (all matches "
+                                           "still feed the ratings)")
+    wf.add_argument("--retrain-every", type=int, metavar="DAYS",
+                    help="also retrain the models every N days (default: train once)")
+    wf.add_argument("--quick", action="store_true",
+                    help="train only Poisson, Dixon-Coles and LightGBM (much faster)")
+    wf.add_argument("--no-tune", action="store_true", help="skip rating tuning (faster)")
+    wf.add_argument("--value-edge", type=float, default=0.05,
+                    help="value bets: model edge needed over the bookmaker's price (default 0.05)")
+    wf.add_argument("--out", help="folder for the CSV and chart (default: data/backtests)")
+    wf.add_argument("--json", action="store_true")
+    _add_pick_args(wf)
 
     ev = sub.add_parser("evaluate", help="show the out-of-sample evaluation of a model")
     ev.add_argument("--version")
@@ -287,7 +453,8 @@ def main(argv=None):
     setup_logging(cfg.paths.log_dir, "DEBUG" if args.verbose else "INFO")
     {"bootstrap": cmd_bootstrap, "update": cmd_update, "train": cmd_train,
      "predict": cmd_predict, "evaluate": cmd_evaluate, "teams": cmd_teams,
-     "app": cmd_app, "pick": cmd_pick, "backtest-picks": cmd_backtest_picks, "image": cmd_image}[args.cmd](cfg, args)
+     "app": cmd_app, "pick": cmd_pick, "data": cmd_data, "backtest-picks": cmd_backtest_picks,
+     "backtest": cmd_backtest, "image": cmd_image}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

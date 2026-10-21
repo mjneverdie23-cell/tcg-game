@@ -42,6 +42,8 @@ def parse_csv(raw: bytes, league: str, season: int) -> pd.DataFrame:
     out = df.rename(columns=COLMAP)[[c for c in COLMAP.values() if c in df.rename(columns=COLMAP)]]
     out = out.copy()
     out["date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+    if "Time" in df:
+        out["kickoff"] = df["Time"].astype(str).where(df["Time"].notna(), None)
     for target, candidates in ODDS.items():
         col = next((c for c in candidates if c in df.columns), None)
         out[target] = pd.to_numeric(df[col], errors="coerce") if col else None

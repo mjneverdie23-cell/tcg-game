@@ -78,15 +78,41 @@ def _market_view(p: dict) -> dict:
     }
 
 
+def market_grids(res, rows: pd.DataFrame):
+    """Final score matrices (n, G, G) for fixture feature rows: backbone
+    (selected model or ensemble) -> per-market head -> reconciled. Also
+    returns every model's own matrices (for agreement / divergence)."""
+    fcols = res.feature_cols
+    rows = rows.copy()
+    for c in fcols:
+        if c not in rows:
+            rows[c] = np.nan
+    G = int(res.config.get("max_goals", 10)) + 1
+    mats = {name: m.predict_grids(rows, fcols, G) for name, m in res.models.items()}
+    if res.selected == "ensemble":
+        backbone = sum(w * mats[n] for n, w in res.weights.items() if w > 0)
+    else:
+        backbone = mats[res.selected]
+    direct = res.direct.predict(rows, fcols) if res.head.needs_direct else None
+    target = res.head.predict(probs_from_grids(backbone), direct)
+    return reconcile(backbone, target), mats
+
+
 class Predictor:
     def __init__(self, cfg, db: Database | None = None, version: str | None = None):
         self.cfg = cfg
-        self.db = db or Database(cfg.paths.db_file)
+        from footypred.data.localfile import cup_codes, sync_db
+        if db is None:
+            db = Database(cfg.paths.db_file)
+            sync_db(cfg, db)                     # your match file, if it changed
+        self.db = db
         self.bundle = ModelRegistry(cfg.paths.models_dir).load(version)
         self.res = self.bundle.result
         self.state = self._sync_state()
         self.resolver = NameResolver(self.db.teams(), self.db.load_aliases())
-        self.team_league = self.db.team_league()
+        self.cups = cup_codes(cfg)
+        self.team_league = self.db.team_league(self.cups)
+        self.competitions = set(self.db.load_matches()["league"].unique())
         matches = self.db.load_matches()
         self.form_index = FormIndex(matches)
         self.base_rates = base_rates(matches)
@@ -114,39 +140,43 @@ class Predictor:
         fb.build_training_frame()
         return fb.state
 
-    def _league_for(self, home, away):
+    def _league_for(self, home, away, competition=None):
+        """The competition the fixture is played in: given explicitly, else
+        the shared league; teams from different domestic leagues meet in the
+        Champions League (when that's in your data)."""
+        if competition:
+            if competition not in self.competitions:
+                raise ValueError(f"unknown competition '{competition}'; known: "
+                                 f"{', '.join(sorted(self.competitions))}")
+            return competition
         lh, la = self.team_league.get(home), self.team_league.get(away)
         if "INT" in (lh, la):
             return "INT"
+        if lh and la and lh != la:
+            cup = next((c for c in ("CL",) if c in self.competitions), None)
+            if cup and (lh in self.cups or la in self.cups or
+                        (lh not in self.cups and la not in self.cups)):
+                return cup
         return lh or la or "UNK"
 
     def predict(self, home: str, away: str, date=None, neutral: bool = False,
-                pick_opts: dict | None = None) -> Prediction:
+                pick_opts: dict | None = None, competition: str | None = None) -> Prediction:
         home, away = self.resolver.resolve(home), self.resolver.resolve(away)
         if home == away:
             raise ValueError("home and away must be different teams")
         date = pd.Timestamp(date) if date is not None else pd.Timestamp.today().normalize()
-        league = self._league_for(home, away)
+        league = self._league_for(home, away, competition)
         res = self.res
-        fcols = res.feature_cols
 
         f = self.state.features(home, away, date, league, neutral)
         row = pd.DataFrame([{**f, "home": home, "away": away, "league": league,
                              "neutral": float(neutral), "date": date}])
+        fcols = res.feature_cols
         for c in fcols:
             if c not in row:
                 row[c] = np.nan
-
-        # every model's matrix (also used for agreement / divergence)
-        G = int(res.config.get("max_goals", 10)) + 1
-        mats = {name: m.predict_grids(row, fcols, G) for name, m in res.models.items()}
-        if res.selected == "ensemble":
-            backbone = sum(w * mats[n] for n, w in res.weights.items() if w > 0)
-        else:
-            backbone = mats[res.selected]
-        direct = res.direct.predict(row, fcols) if res.head.needs_direct else None
-        target = res.head.predict(probs_from_grids(backbone), direct)
-        final = reconcile(backbone, target)[0]
+        finals, mats = market_grids(res, row)
+        final = finals[0]
         sm = ScoreMatrix.from_grid(final)
         p = {k: v[0] for k, v in probs_from_grids(final[None]).items()}
         markets = _market_view(p)
@@ -164,13 +194,22 @@ class Predictor:
         if league == "UNK":
             warn.append("league unknown; using global scoring levels")
         lh, la = self.team_league.get(home), self.team_league.get(away)
-        if lh and la and lh != la and league != "INT":
+        if lh and la and lh != la and league not in ("INT",) and league not in self.cups:
             warn.append(f"cross-league fixture ({lh} vs {la}): scoring level of the home "
                         "side's league is used")
+        elif lh and la and lh != la and league in self.cups and not competition:
+            warn.append(f"teams from different leagues ({lh} vs {la}): treated as a "
+                        f"{league} match (choose another competition to override)")
+        trained_on = (res.report or {}).get("data_source")
+        now_on = self.db.get_meta("data_source")
+        if trained_on and now_on and trained_on != now_on:
+            warn.append(f"the model was trained on {trained_on} data but {now_on} data is "
+                        "loaded — run `footy train`")
         last = self.state.last_date
         if last is not None and date < last:
             warn.append(f"date is before the latest result on record ({last.date()}); the "
-                        "model already knows later results, so this is not a fair backtest")
+                        "model already knows later results, so this is not a fair backtest (use "
+                        "`footy backtest` or the Backtest tab for that)")
 
         return Prediction(
             home=home, away=away, date=str(date.date()), league=league,

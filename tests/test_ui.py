@@ -66,6 +66,45 @@ def test_web_api(server):
     assert code == 200 and json.loads(body)["chart_png"]
 
 
+def _post(url, payload=None):
+    req = urllib.request.Request(url, data=json.dumps(payload or {}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_data_and_backtest_endpoints(server):
+    import time
+    comps = json.loads(_get(server + "/api/competitions")[1])
+    assert [c["code"] for c in comps] == ["E0"]
+    d = json.loads(_get(server + "/api/data")[1])
+    assert d["exists"] is False and d["db_matches"] > 1000 and d["path"].endswith("matches.csv")
+    code, body = _post(server + "/api/data/reload")
+    assert code == 400 and "footy data download" in body["error"]
+    rng = json.loads(_get(server + "/api/date-range")[1])
+    assert rng["first"] < rng["min_start"] < rng["last"]
+    assert _post(server + "/api/backtest", {"to": "2026-05-01"})[0] == 400
+    assert _post(server + "/api/backtest", {"from": "not a date"})[0] == 400
+    code, job = _post(server + "/api/backtest", {"from": "2026-05-01", "to": "2026-05-24",
+                                                 "quick": True, "no_tune": True})
+    assert code == 200 and job["status"] == "running"
+    code, busy = _post(server + "/api/backtest", {"from": "2026-05-01"})
+    assert code == 400 and "already running" in busy["error"]
+    deadline = time.time() + 300
+    while job["status"] == "running" and time.time() < deadline:
+        time.sleep(1)
+        job = json.loads(_get(server + "/api/job?id=" + job["id"])[1])
+    assert job["status"] == "done", job
+    r = job["result"]
+    assert r["matches"] > 20 and r["chart_png"] and r["table"] and r["start"] == "2026-05-01"
+    assert set(r["picks"]) == {"safe", "balanced", "bold"}
+    code, csv = _get(server + "/api/backtest.csv?id=" + job["id"])
+    assert code == 200 and csv.count(b"\n") == r["matches"] + 1 and b"pick_balanced" in csv
+
+
 def test_image_upload_and_batch_endpoints(server):
     import importlib.util
     if importlib.util.find_spec("rapidocr_onnxruntime") is None:

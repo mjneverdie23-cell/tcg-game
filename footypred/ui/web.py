@@ -44,6 +44,34 @@ def pick_opts(q: dict) -> dict:
     return o
 
 
+def backtest_params(body: dict) -> dict:
+    """Validate the backtest form (dates, competitions, options)."""
+    import pandas as pd
+    out = {}
+    for key in ("from", "to"):
+        v = (body.get(key) or "").strip()
+        if v:
+            try:
+                out[key] = str(pd.Timestamp(v).date())
+            except ValueError as exc:
+                raise ValueError(f"bad {key} date '{v}'") from exc
+    if "from" not in out:
+        raise ValueError("choose a start date")
+    comps = body.get("competitions") or []
+    if isinstance(comps, str):
+        comps = comps.split(",")
+    out["competitions"] = [c.strip() for c in comps if str(c).strip()]
+    try:
+        n = int(body.get("retrain_every") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    out["retrain_every"] = n if n >= 7 else None
+    out["quick"] = bool(body.get("quick"))
+    out["no_tune"] = bool(body.get("no_tune"))
+    out["pick_opts"] = pick_opts({k: str(v) for k, v in (body.get("pick_opts") or {}).items()})
+    return out
+
+
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "footypred"
@@ -81,11 +109,30 @@ def make_handler(service):
                     self._json(service.predict_payload(
                         q["home"], q["away"], q.get("date") or None,
                         q.get("neutral") in ("1", "true", "on"), pick_opts=pick_opts(q),
-                        chart=q.get("chart", "1") != "0"))
+                        chart=q.get("chart", "1") != "0", competition=q.get("competition")))
                 elif url.path == "/api/team-index":
                     self._json(service.team_index())
                 elif url.path == "/api/evaluation":
                     self._json(service.evaluation_payload())
+                elif url.path == "/api/competitions":
+                    self._json(service.competitions())
+                elif url.path == "/api/data":
+                    self._json(service.data_info())
+                elif url.path == "/api/date-range":
+                    self._json(service.date_range())
+                elif url.path == "/api/job":
+                    self._json(service.jobs.get(q.get("id", "")).to_dict())
+                elif url.path == "/api/backtest.csv":
+                    job = service.jobs.get(q.get("id", ""))
+                    if "csv" not in job.files:
+                        return self._json({"error": "no results yet"}, HTTPStatus.NOT_FOUND)
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "text/csv; charset=utf-8")
+                    self.send_header("Content-Disposition",
+                                     f'attachment; filename="{job.files["name"]}"')
+                    self.send_header("Content-Length", str(len(job.files["csv"])))
+                    self.end_headers()
+                    self.wfile.write(job.files["csv"])
                 else:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             except (TeamNameError, ValueError) as exc:
@@ -98,8 +145,36 @@ def make_handler(service):
         def do_POST(self):
             url = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(url.query).items()}
-            if url.path != "/api/image":
-                return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            if url.path == "/api/image":
+                return self._image(q)
+            try:
+                if url.path == "/api/data/reload":
+                    self._json(service.reload_data())
+                elif url.path == "/api/data/update":
+                    self._json(service.start_update())
+                elif url.path == "/api/backtest":
+                    self._json(service.start_backtest(backtest_params(self._body_json())))
+                elif url.path == "/api/job/cancel":
+                    self._json(service.jobs.cancel(q.get("id", "")))
+                else:
+                    self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            except Exception as exc:
+                log.exception("request failed: %s", self.path)
+                self._json({"error": f"internal error: {exc}"},
+                           HTTPStatus.INTERNAL_SERVER_ERROR)
+
+        def _body_json(self) -> dict:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 100_000:
+                raise ValueError("request too large")
+            try:
+                return json.loads(self.rfile.read(n) or b"{}")
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"bad JSON: {exc}") from exc
+
+        def _image(self, q):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 if n <= 0:

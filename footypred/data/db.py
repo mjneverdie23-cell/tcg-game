@@ -107,6 +107,22 @@ class Database:
         df["date"] = pd.to_datetime(df["date"])
         return df
 
+    def clear_matches(self) -> None:
+        """Remove all matches and dated team info (e.g. the synthetic demo)."""
+        with self.connect() as con:
+            con.execute("DELETE FROM matches")
+            con.execute("DELETE FROM team_info")
+            con.execute("DELETE FROM weather")
+
+    def prune_source(self, source: str, keep_ids: set[str]) -> int:
+        """Delete rows last written by `source` that aren't in keep_ids (e.g.
+        matches removed from, or renamed in, your match file)."""
+        with self.connect() as con:
+            ids = [r[0] for r in con.execute("SELECT match_id FROM matches WHERE source=?", (source,))]
+            gone = [(i,) for i in ids if i not in keep_ids]
+            con.executemany("DELETE FROM matches WHERE match_id=?", gone)
+        return len(gone)
+
     def count_matches(self) -> int:
         with self.connect() as con:
             return con.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
@@ -169,11 +185,16 @@ class Database:
                 "SELECT home FROM matches UNION SELECT away FROM matches").fetchall()
         return sorted(r[0] for r in rows)
 
-    def team_league(self) -> dict[str, str]:
-        """Most recent league per team."""
+    def team_league(self, cups: set[str] | frozenset = frozenset({"CL"})) -> dict[str, str]:
+        """Each team's most recent *domestic* league. Cup games (e.g. the
+        Champions League) never move a team out of its league; teams seen
+        only in a cup are listed under that cup."""
         df = self.load_matches(played_only=False)
         if df.empty:
             return {}
         long = pd.concat([df[["date", "home", "league"]].rename(columns={"home": "team"}),
                           df[["date", "away", "league"]].rename(columns={"away": "team"})])
-        return long.sort_values("date").groupby("team")["league"].last().to_dict()
+        long = long.sort_values("date")
+        dom = long[~long["league"].isin(cups)].groupby("team")["league"].last()
+        cup = long[long["league"].isin(cups)].groupby("team")["league"].last()
+        return {**cup.to_dict(), **dom.to_dict()}

@@ -1,4 +1,4 @@
-# footypred 2.3 — four-market football prediction
+# footypred 2.4 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -153,11 +153,122 @@ A **Model report** tab shows the out-of-sample evaluation. It runs locally
 with no extra dependencies, works on phones, supports light and dark mode,
 and remembers your last fixture.
 
+## Your match file (football-data.org → one CSV on your PC)
+
+The whole system can run from a single CSV on your computer. It holds
+every finished match from 2022/23 to today for the Premier League, Ligue 1,
+Bundesliga, La Liga, Eredivisie, Serie A, Champions League, Süper Lig and
+Eliteserien.
+
+1. Get a free API key at <https://www.football-data.org/client/register>,
+   then set it as an environment variable. It is never written to the file
+   or the config.
+   ```bash
+   export FOOTBALL_DATA_API_KEY=your-key          # Windows: setx FOOTBALL_DATA_API_KEY your-key
+   ```
+2. Build the file once. The free plan allows 10 requests a minute, so a full
+   download takes a few minutes.
+   ```bash
+   footy data download --to 2026-10-20           # → data/matches.csv
+   ```
+3. Keep it current. This adds the matches played since the last run to the
+   end of the same file; it never rebuilds the file.
+   ```bash
+   footy data update
+   ```
+   Each competition is re-checked from 3 days before its last stored match,
+   which catches late results. If the source corrects a stored score, the
+   file is rewritten with the fix, and the old file is kept as `matches.csv.bak`.
+4. Train on it with `footy train`.
+
+Everything reads the file directly from your disk: `footy predict`,
+`footy app`, `footy backtest` and the rest. When the file changes, it is
+imported again automatically, and nothing is uploaded. You can point
+`local_data.csv` in `config/default.yaml` at any path, for example a
+shared folder. The web app's **Data** tab shows the file, its date range
+and per-competition counts, with **Reload from file** and
+**Update from football-data.org** buttons.
+
+| code | competition | football-data.org | fallback |
+|---|---|---|---|
+| E0 · F1 · D1 · SP1 · N1 · I1 | the five big leagues + Eredivisie | PL · FL1 · BL1 · PD · DED · SA | football-data.co.uk |
+| CL | Champions League | CL | – |
+| T1 | Süper Lig | looked up by area + name | football-data.co.uk `T1` |
+| NOR | Eliteserien (calendar-year seasons) | looked up by area + name | football-data.co.uk `new/NOR` |
+
+* **Plan limits:** if a competition or season isn't in your football-data.org
+  plan (the API answers 403), domestic leagues are filled from
+  football-data.co.uk instead. Süper Lig and Eliteserien are likely to need
+  this on the free plan, and so may older seasons. The fallback also adds
+  shots, corners, cards and closing odds. The output shows where every
+  competition-season came from.
+* **Goals are 90-minute scores.** For a cup tie decided in extra time or on
+  penalties, the file keeps the 90-minute result plus `duration`,
+  `home_aet` and `away_aet`. A final is marked `neutral=1`.
+* **Team names** are cleaned to the short names used everywhere else
+  ("FC Bayern München" → "Bayern Munich"), so a club has one name in its
+  league and in the Champions League. `footy data check` lists names that
+  may be the same club. To merge two names, add a `from,to` line to
+  `data/aliases.csv`.
+* **Champions League:** CL games never move a team out of its domestic
+  league in the pickers. A fixture between teams from different leagues is
+  treated as a CL match, and the **Competition** select (or
+  `--competition`) overrides that.
+* Other commands: `footy data info` shows matches per competition and
+  season, and `footy data import [--file other.csv]` imports right away.
+
+Columns: `match_id, source, competition, competition_name, season, date,
+kickoff, kickoff_tz, matchday, stage, status, home, away, home_raw, away_raw,
+fthg, ftag, hthg, htag, duration, home_aet, away_aet, neutral, hs, as_, hst,
+ast, hc, ac, hy, ay, hr, ar, odds_h, odds_d, odds_a, odds_o25, odds_u25,
+fd_id, updated_at`. Your own CSV works too, as long as it has at least
+`competition, season, date, home, away, fthg, ftag`.
+
+## Backtest over a date range
+
+```bash
+footy backtest --from 2025-08-01 --to 2026-05-31
+footy backtest --from 2026-01-01 --competitions E0,CL --retrain-every 30 --quick
+```
+
+The backtest rebuilds the system as it stood on the start date. Ratings
+are tuned and models trained only on matches **before** `--from`. It then
+steps through the range one day at a time. Each day's matches are predicted
+from what was known that morning, scored against the real results, and
+only then fed in, which is exactly what the live system does when new
+results arrive. With `--retrain-every N`, the models are also retrained
+every N days. `--quick` trains only Poisson, Dixon-Coles and LightGBM,
+which is several times faster. With less than four seasons of history, the
+cross-validation uses half-seasons, so a start date about a year after your
+first match works.
+
+Reported results:
+* per market: log loss, skill, accuracy and calibration error, compared
+  with the bookmaker's closing odds when the file has them
+* how often the safe, balanced and bold best picks landed, against what
+  the model claimed
+* flat-stake profit at bookmaker odds for those picks and for value bets
+  (model edge over 5%), where odds exist
+
+`--competitions` limits which matches are scored. Every match still feeds
+the ratings. Output: a per-match CSV (every market, every pick style, hits)
+and a chart in `data/backtests/`.
+
+In the web app, the **Backtest** tab has a date-range slider (drag either
+end), presets for the last 30, 90, 180 and 365 days, competition
+checkboxes and a retrain option. It runs in the background with a progress
+bar and shows stat tiles, market and pick tables, the chart and a
+match-by-match table, with a full CSV download.
+
+A test checks that this is genuinely out of sample: changing every result
+on a day leaves that day's predictions unchanged.
+
 ## Quick start
 
 ```bash
 pip install -r requirements.txt && pip install -e .
 footy bootstrap                 # offline synthetic dataset (no network needed)
+#   or: footy data download     # your match file from football-data.org (see above)
 #   or: footy update            # scrape real data (see Data sources)
 footy train                     # tune, cross-validate, select, save (~6 min)
 footy predict "Arsenal" "Chelsea"
@@ -168,9 +279,12 @@ footy evaluate --chart          # out-of-sample report + reliability diagrams
 footy teams --league E0
 footy image screenshot.png      # read fixtures from an image and predict them all
 footy backtest-picks            # how often best picks landed out of sample
+footy backtest --from 2026-01-01 --to 2026-05-31   # walk-forward over a date range
+footy data update               # add yesterday's matches to your match file
 ```
 
-For automatic refreshes, schedule `footy update && footy train` with cron.
+For automatic refreshes, schedule `footy data update && footy train` with
+cron (or Task Scheduler on Windows).
 `footy predict` uses the saved feature state and replays only results added
 since training, so a prediction takes about 4 s.
 
@@ -301,25 +415,32 @@ rate-limited per host, retried with backoff and cached on disk.
 
 ```
 footypred/
-├── cli.py                  footy bootstrap|update|train|predict|evaluate|teams|app|pick|
-│                           image|backtest-picks
+├── cli.py                  footy bootstrap|update|data|train|predict|evaluate|teams|app|
+│                           pick|image|backtest|backtest-picks
 ├── config.py, logging_utils.py
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
-│              synthetic.py (minute-level game-state simulator) · pipeline.py
-│              sources/ football_data · understat · clubelo · transfermarkt · fifa · weather
+│              localfile.py (your match CSV: download, update, import)
+│              synthetic.py (minute-level game-state simulator, incl. a Champions League)
+│              pipeline.py
+│              sources/ football_data_org · football_data · understat · clubelo ·
+│                       transfermarkt · fifa · weather
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
 │              trainer.py (nested CV, selection) · metrics.py · registry.py · summary.py
 ├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
-│              explain.py · report.py · charts.py · batch.py
+│              walkforward.py (date-range backtest) · explain.py · report.py · charts.py ·
+│              batch.py
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      37 tests: market identities, reconciliation, leakage,
+tests/                      44 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
                             image layouts, OCR on a real browser screenshot,
                             Claude reader (mocked), image upload endpoint,
-                            lopsided-match ladder, pick styles, older bundles
+                            lopsided-match ladder, pick styles, older bundles,
+                            football-data.org download/update (mock API), file
+                            import & aliases, walk-forward backtest (no look-ahead),
+                            data and backtest endpoints
 ```

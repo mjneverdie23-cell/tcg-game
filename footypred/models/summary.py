@@ -8,8 +8,10 @@ GROUP_LABEL = {"1x2": "1X2", "o25": "O/U 2.5", "btts": "BTTS", "team_totals": "T
 def render_training_report(rep: dict) -> str:
     L = []
     sel = rep["selected"]
-    L.append(f"Evaluated out of sample on {rep['eval_matches']} matches "
-             f"(seasons {', '.join(map(str, rep['eval_seasons']))}).")
+    periods = (f"half-seasons {', '.join(rep['eval_periods'])}"
+               if rep.get("fold_mode") == "half"
+               else f"seasons {', '.join(map(str, rep['eval_seasons']))}")
+    L.append(f"Evaluated out of sample on {rep['eval_matches']} matches ({periods}).")
     L.append("Skill = log-loss improvement over the base rate (higher is better).\n")
     L.append(f"{'candidate':<15}{'raw':>9}{'v1-style':>10}{'final':>9}   per-market final skill "
              f"(1X2 / O2.5 / BTTS / team totals)")
