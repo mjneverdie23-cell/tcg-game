@@ -1,0 +1,433 @@
+"""Form check and best-pick engine.
+
+For an upcoming fixture it looks at
+
+    each team's last 5 matches, last 5 home games and last 5 away games
+    the last 5 head-to-head meetings
+
+counts how often each team scored and conceded (1+, 2+, 3+), kept clean
+sheets, failed to score, and how often games had BTTS / over 2.5, then
+scores every selection in the four markets by how often it would have
+landed in those windows (the *form rate*). The best pick is the selection
+that the form supports most strongly, with the calibrated model
+probability as a sanity check:
+
+    score = form_weight * form_rate(shrunk) + (1 - form_weight) * model_prob
+
+A selection is only eligible when both form and model back it
+(form >= min_form, model >= min_model) and its fair odds clear min_odds,
+so trivially safe lines don't win by default.
+
+Windows are read from match history strictly before the fixture date, so
+the same code is used for live picks and for the out-of-sample backtest.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+MARKETS = ("1x2", "ou25", "btts", "team_totals")
+MARKET_NAMES = {"1x2": "Match result", "ou25": "Over/Under 2.5", "btts": "Both teams to score",
+                "team_totals": "Team goals"}
+DEFAULTS = {"window": 5, "form_weight": 0.6, "min_form": 0.6, "min_model": 0.5,
+            "min_odds": 1.12, "min_lift": 0.05, "shrink": 5.0, "markets": list(MARKETS)}
+
+# window weights: the venue that matches the fixture counts most
+W_VENUE, W_LAST, W_OTHER, W_H2H = 1.25, 1.0, 0.5, 0.75
+
+
+# ---------------------------------------------------------------- history
+class FormIndex:
+    """Fast 'last n matches before date' lookups per team / venue / pair."""
+
+    def __init__(self, matches: pd.DataFrame):
+        m = matches.sort_values(["date", "match_id"]).reset_index(drop=True)
+        self.date = m["date"].values.astype("datetime64[D]")
+        self.home = m["home"].to_numpy()
+        self.away = m["away"].to_numpy()
+        self.gh = m["fthg"].to_numpy(int)
+        self.ga = m["ftag"].to_numpy(int)
+        self.neutral = m["neutral"].fillna(0).to_numpy(int) if "neutral" in m else np.zeros(len(m), int)
+        allx, homex, awayx, pair = (defaultdict(list) for _ in range(4))
+        for i, (h, a) in enumerate(zip(self.home, self.away)):
+            allx[h].append(i); allx[a].append(i)
+            homex[h].append(i); awayx[a].append(i)
+            pair[frozenset((h, a))].append(i)
+        conv = lambda d: {k: np.array(v, int) for k, v in d.items()}
+        self.idx = {"all": conv(allx), "home": conv(homex), "away": conv(awayx)}
+        self.pair = conv(pair)
+
+    def _before(self, rows: np.ndarray | None, date, n: int) -> np.ndarray:
+        if rows is None or not len(rows):
+            return np.array([], int)
+        cut = np.searchsorted(self.date[rows], np.datetime64(pd.Timestamp(date), "D"), "left")
+        return rows[max(0, cut - n):cut]
+
+    def window(self, team: str, kind: str, date, n: int = 5) -> list[dict]:
+        """kind: 'all' | 'home' | 'away'. Records from `team`'s perspective."""
+        rows = self._before(self.idx[kind].get(team), date, n)
+        return [self._rec(i, team) for i in rows]
+
+    def h2h(self, home: str, away: str, date, n: int = 5) -> list[dict]:
+        rows = self._before(self.pair.get(frozenset((home, away))), date, n)
+        return [self._rec(i, home) for i in rows]
+
+    def _rec(self, i: int, team: str) -> dict:
+        at_home = self.home[i] == team
+        gf, ga = (self.gh[i], self.ga[i]) if at_home else (self.ga[i], self.gh[i])
+        return {"date": str(self.date[i]), "opponent": self.away[i] if at_home else self.home[i],
+                "venue": "N" if self.neutral[i] else ("H" if at_home else "A"),
+                "gf": int(gf), "ga": int(ga),
+                "result": "W" if gf > ga else ("D" if gf == ga else "L")}
+
+
+def form_counts(recs: list[dict]) -> dict:
+    n = len(recs)
+    gf = np.array([r["gf"] for r in recs]); ga = np.array([r["ga"] for r in recs])
+    c = lambda mask: int(mask.sum()) if n else 0
+    return {
+        "n": n, "w": c(gf > ga), "d": c(gf == ga), "l": c(gf < ga),
+        "scored": c(gf > 0), "scored2": c(gf > 1), "scored3": c(gf > 2),
+        "conceded": c(ga > 0), "conceded2": c(ga > 1), "conceded3": c(ga > 2),
+        "clean_sheets": c(ga == 0), "failed_to_score": c(gf == 0),
+        "btts": c((gf > 0) & (ga > 0)), "o25": c(gf + ga > 2),
+        "gf_avg": float(gf.mean()) if n else None, "ga_avg": float(ga.mean()) if n else None,
+        "results": [f"{r['result']} {r['gf']}-{r['ga']} {'v' if r['venue'] == 'H' else '@'} "
+                    f"{r['opponent']}" for r in reversed(recs)],
+    }
+
+
+def profile(c: dict) -> list[str]:
+    """Plain-language tags for a window (needs at least 3 games)."""
+    n = c["n"]
+    if n < 3:
+        return []
+    tags = []
+    r = lambda k: c[k] / n
+    if r("scored") >= 0.8:
+        tags.append(f"scores often ({c['scored']}/{n})")
+    elif r("scored") <= 0.4:
+        tags.append(f"struggles to score ({c['scored']}/{n})")
+    if r("scored2") >= 0.6:
+        tags.append(f"scores 2+ regularly ({c['scored2']}/{n})")
+    if r("clean_sheets") >= 0.6:
+        tags.append(f"keeps clean sheets ({c['clean_sheets']}/{n})")
+    elif r("conceded") >= 0.8:
+        tags.append(f"concedes often ({c['conceded']}/{n})")
+    if r("conceded2") >= 0.6:
+        tags.append(f"concedes 2+ regularly ({c['conceded2']}/{n})")
+    if r("o25") >= 0.8:
+        tags.append(f"high-scoring games ({c['o25']}/{n} over 2.5)")
+    elif r("o25") <= 0.2:
+        tags.append(f"low-scoring games ({n - c['o25']}/{n} under 2.5)")
+    if r("btts") >= 0.8:
+        tags.append(f"BTTS in {c['btts']}/{n}")
+    return tags
+
+
+# ------------------------------------------------------------- candidates
+@dataclass(frozen=True)
+class Candidate:
+    key: str
+    market: str            # 1x2 | ou25 | btts | team_totals
+    label: str             # with {home}/{away} placeholders
+    model_key: str         # flat market key in the model probabilities
+    negate: bool           # probability is 1 - model_key
+    test_home_side: object  # f(gf, ga) on home-team-perspective records (and H2H)
+    test_away_side: object  # f(gf, ga) on away-team-perspective records
+    desc_home_side: str     # what a hit means in the home team's games
+    desc_away_side: str     # ... in the away team's games
+    desc_h2h: str           # ... in head-to-head meetings
+
+
+def _goals(k: int, verb: str, under: bool) -> str:
+    if not under:
+        return f"{verb} {k + 1}+"
+    if k == 0:
+        return {"scored": "failed to score", "conceded": "kept a clean sheet"}[verb]
+    return f"{verb} {k} or fewer"
+
+
+def _candidates() -> list[Candidate]:
+    both = lambda d: (d, d, d)
+    C = [
+        Candidate("home_win", "1x2", "{home} to win", "1x2:0", False,
+                  lambda f, a: f > a, lambda f, a: f < a, "{home} won", "{away} lost", "{home} won"),
+        Candidate("draw", "1x2", "Draw", "1x2:1", False,
+                  lambda f, a: f == a, lambda f, a: f == a, *both("drawn")),
+        Candidate("away_win", "1x2", "{away} to win", "1x2:2", False,
+                  lambda f, a: f < a, lambda f, a: f > a, "{home} lost", "{away} won", "{away} won"),
+        Candidate("over_2.5", "ou25", "Over 2.5 goals", "o25", False,
+                  lambda f, a: f + a > 2, lambda f, a: f + a > 2, *both("3+ goals in the game")),
+        Candidate("under_2.5", "ou25", "Under 2.5 goals", "o25", True,
+                  lambda f, a: f + a <= 2, lambda f, a: f + a <= 2, *both("2 or fewer goals in the game")),
+        Candidate("btts_yes", "btts", "Both teams to score", "btts", False,
+                  lambda f, a: f > 0 and a > 0, lambda f, a: f > 0 and a > 0,
+                  *both("both teams scored")),
+        Candidate("btts_no", "btts", "BTTS — No", "btts", True,
+                  lambda f, a: not (f > 0 and a > 0), lambda f, a: not (f > 0 and a > 0),
+                  *both("at least one side failed to score")),
+    ]
+    for k, line in ((0, "0.5"), (1, "1.5"), (2, "2.5")):
+        mk = line.replace(".", "")
+        for under in (False, True):
+            word = "under" if under else "over"
+            # home team goals: home-side records count its goals (f); away-side
+            # records count the away team's concessions (a); H2H from home view
+            th = (lambda f, a, k=k: f <= k) if under else (lambda f, a, k=k: f > k)
+            ta = (lambda f, a, k=k: a <= k) if under else (lambda f, a, k=k: a > k)
+            C.append(Candidate(f"home_{word}_{line}", "team_totals",
+                               "{home} " + f"{word} {line} goals", f"h_o{mk}", under, th, ta,
+                               "{home} " + _goals(k, "scored", under),
+                               "{away} " + _goals(k, "conceded", under),
+                               "{home} " + _goals(k, "scored", under)))
+            th2 = (lambda f, a, k=k: a <= k) if under else (lambda f, a, k=k: a > k)
+            ta2 = (lambda f, a, k=k: f <= k) if under else (lambda f, a, k=k: f > k)
+            C.append(Candidate(f"away_{word}_{line}", "team_totals",
+                               "{away} " + f"{word} {line} goals", f"a_o{mk}", under, th2, ta2,
+                               "{home} " + _goals(k, "conceded", under),
+                               "{away} " + _goals(k, "scored", under),
+                               "{away} " + _goals(k, "scored", under)))
+    return C
+
+
+CANDIDATES = _candidates()
+
+
+def _model_prob(probs: dict, c: Candidate) -> float:
+    if c.model_key.startswith("1x2:"):
+        p = float(np.asarray(probs["1x2"]).ravel()[int(c.model_key[-1])])
+    else:
+        p = float(np.asarray(probs[c.model_key]).ravel()[0])
+    return 1 - p if c.negate else p
+
+
+# ----------------------------------------------------------------- engine
+def gather_windows(index: FormIndex, home: str, away: str, date, n: int = 5) -> dict:
+    return {
+        "home_last": index.window(home, "all", date, n),
+        "home_home": index.window(home, "home", date, n),
+        "home_away": index.window(home, "away", date, n),
+        "away_last": index.window(away, "all", date, n),
+        "away_away": index.window(away, "away", date, n),
+        "away_home": index.window(away, "home", date, n),
+        "h2h": index.h2h(home, away, date, n),
+    }
+
+
+# (window key, side, weight, label)
+WINDOW_SPEC = [("home_home", "home", W_VENUE, "{home}'s last {n} home games"),
+               ("home_last", "home", W_LAST, "{home}'s last {n} games"),
+               ("home_away", "home", W_OTHER, "{home}'s last {n} away games"),
+               ("away_away", "away", W_VENUE, "{away}'s last {n} away games"),
+               ("away_last", "away", W_LAST, "{away}'s last {n} games"),
+               ("away_home", "away", W_OTHER, "{away}'s last {n} home games"),
+               ("h2h", "h2h", W_H2H, "last {n} meetings")]
+
+
+def base_rates(matches: pd.DataFrame, min_league_games: int = 200) -> dict:
+    """How often each selection lands in a typical game, per league (and
+    overall): the yardstick for whether a pick is notable for *this* match."""
+    gh, ga = matches["fthg"].to_numpy(int), matches["ftag"].to_numpy(int)
+    lg = matches["league"].to_numpy()
+    out = {}
+    for c in CANDIDATES:
+        hits = np.array([bool(c.test_home_side(h, a)) for h, a in zip(gh, ga)])
+        out.setdefault("_all", {})[c.key] = float(hits.mean()) if len(hits) else 0.5
+        for league in np.unique(lg):
+            m = lg == league
+            if m.sum() >= min_league_games:
+                out.setdefault(league, {})[c.key] = float(hits[m].mean())
+    return out
+
+
+def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dict | None = None,
+                     neutral: bool = False, base: dict | None = None) -> list[dict]:
+    o = {**DEFAULTS, **(opts or {})}
+    out = []
+    for c in CANDIDATES:
+        hits_w = n_w = 0.0
+        evidence = []
+        for key, side, w, label in WINDOW_SPEC:
+            recs = windows[key]
+            if not recs or (key == "h2h" and len(recs) < 2):
+                continue
+            if neutral and key in ("home_home", "home_away", "away_away", "away_home"):
+                w = W_OTHER                     # venue matters less at a neutral ground
+            test = c.test_away_side if side == "away" else c.test_home_side
+            desc = {"home": c.desc_home_side, "away": c.desc_away_side, "h2h": c.desc_h2h}[side]
+            hits = sum(bool(test(r["gf"], r["ga"])) for r in recs)
+            hits_w += w * hits
+            n_w += w * len(recs)
+            evidence.append({"window": label.format(home=home, away=away, n=len(recs)),
+                             "event": desc.format(home=home, away=away),
+                             "hits": hits, "n": len(recs), "weight": w})
+        p = _model_prob(probs, c)
+        form = hits_w / n_w if n_w else None
+        shrunk = (hits_w + o["shrink"] * p) / (n_w + o["shrink"]) if n_w else p
+        score = o["form_weight"] * shrunk + (1 - o["form_weight"]) * p
+        typical = (base or {}).get(c.key)
+        lift = None if typical is None else p - typical
+        eligible = (form is not None and form >= o["min_form"] and p >= o["min_model"]
+                    and 1 / max(p, 1e-9) >= o["min_odds"]
+                    and (lift is None or lift >= o["min_lift"]))
+        if form is None:
+            agree = "no form data"
+        elif abs(form - p) <= 0.15:
+            agree = "form and model agree"
+        elif form > p:
+            agree = "form stronger than model"
+        else:
+            agree = "model stronger than form"
+        out.append({"key": c.key, "market": c.market,
+                    "label": c.label.format(home=home, away=away),
+                    "model_prob": round(p, 4), "form_rate": None if form is None else round(form, 4),
+                    "score": round(score, 4), "fair_odds": round(1 / max(p, 1e-9), 2),
+                    "typical": None if typical is None else round(typical, 4),
+                    "lift": None if lift is None else round(lift, 4),
+                    "eligible": bool(eligible), "agreement": agree, "evidence": evidence})
+    out.sort(key=lambda d: (d["eligible"], d["score"]), reverse=True)
+    return out
+
+
+def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
+               opts: dict | None = None, neutral: bool = False, base: dict | None = None) -> dict:
+    """Everything the UI needs: windows, counts, profiles, ranked picks."""
+    o = {**DEFAULTS, **(opts or {})}
+    win = gather_windows(index, home, away, date, int(o["window"]))
+    counts = {k: form_counts(v) for k, v in win.items()}
+    ranked = score_candidates(win, probs, home, away, o, neutral, base)
+    allowed = set(o.get("markets") or MARKETS)
+    for r in ranked:                      # markets the user switched off can't be picked
+        if r["market"] not in allowed:
+            r["eligible"] = False
+    ranked.sort(key=lambda d: (d["eligible"], d["score"]), reverse=True)
+    best = ranked[0] if ranked and ranked[0]["eligible"] else None
+    best_by_market = {}
+    for mk in MARKETS:
+        group = [r for r in ranked if r["market"] == mk]
+        if group:
+            top = max(group, key=lambda d: (d["eligible"] or mk not in allowed, d["score"]))
+            best_by_market[mk] = {**top, "market_name": MARKET_NAMES[mk]}
+    profiles = {
+        "home": {"at home": profile(counts["home_home"]), "overall": profile(counts["home_last"]),
+                 "away": profile(counts["home_away"])},
+        "away": {"away": profile(counts["away_away"]), "overall": profile(counts["away_last"]),
+                 "at home": profile(counts["away_home"])},
+    }
+    conflicts = [r for r in ranked if r["form_rate"] is not None and r["model_prob"] >= 0.5
+                 and r["form_rate"] < o["min_form"] and r["market"] != "1x2"][:3]
+    return {"window": int(o["window"]), "counts": counts, "profiles": profiles,
+            "best_pick": best, "top_picks": [r for r in ranked if r["eligible"]][:5],
+            "best_by_market": best_by_market,
+            "conflicts": conflicts, "candidates": ranked,
+            "settings": {k: o[k] for k in ("form_weight", "min_form", "min_model", "min_odds",
+                                           "min_lift", "markets")},
+            "reason": _reason(best, counts, profiles, home, away)}
+
+
+def _reason(best, counts, profiles, home, away) -> str:
+    if best is None:
+        return ("No clear pick: no selection is backed by both recent form "
+                "and the model at the current thresholds.")
+    bits = []
+    hp = profiles["home"]["at home"] or profiles["home"]["overall"]
+    ap = profiles["away"]["away"] or profiles["away"]["overall"]
+    if hp:
+        bits.append(f"{home} at home: {', '.join(hp[:3])}")
+    if ap:
+        bits.append(f"{away} away: {', '.join(ap[:3])}")
+    top = sorted(best["evidence"], key=lambda e: -e["weight"])[:3]
+    ev = "; ".join(f"{e['event']} in {e['hits']}/{e['n']} of {e['window']}" for e in top)
+    typ = (f" vs {100 * best['typical']:.0f}% in a typical game"
+           if best.get("typical") is not None else "")
+    return (f"{best['label']}: {ev}. "
+            + (" · ".join(bits) + "." if bits else "")
+            + f" Model {100 * best['model_prob']:.0f}%{typ}, form {100 * best['form_rate']:.0f}%"
+            f" ({best['agreement']}).")
+
+
+# ---------------------------------------------------------------- backtest
+def eval_matches(db_matches: pd.DataFrame, eval_preds: dict, eval_seasons) -> pd.DataFrame:
+    """Rows behind the stored out-of-fold predictions (same order)."""
+    if "match_id" in eval_preds:
+        m = db_matches.set_index("match_id").loc[list(eval_preds["match_id"])].reset_index()
+    else:  # older bundles: rebuild the trainer's ordering
+        m = db_matches.sort_values(["date", "match_id"])
+        m = m[m["season"].isin(list(eval_seasons))].reset_index(drop=True)
+    if len(m) != len(eval_preds["y_h"]) or not (
+            (m["fthg"].to_numpy() == eval_preds["y_h"]).all()
+            and (m["ftag"].to_numpy() == eval_preds["y_a"]).all()):
+        raise ValueError("stored evaluation predictions don't line up with the database; "
+                         "retrain with `footy train`")
+    return m
+
+
+def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | None = None,
+             mask: np.ndarray | None = None, base: dict | None = None) -> dict:
+    """Best pick per match from pre-match form + out-of-fold model
+    probabilities; reports how often picks landed vs what was claimed."""
+    o = {**DEFAULTS, **(opts or {})}
+    cand = {c.key: c for c in CANDIDATES}
+    rows = []
+    rng = range(len(matches)) if mask is None else np.where(mask)[0]
+    for i in rng:
+        r = matches.iloc[i]
+        win = gather_windows(index, r["home"], r["away"], r["date"], int(o["window"]))
+        p_i = {k: (v[i] if np.ndim(v) == 1 else v[i]) for k, v in probs.items()}
+        b = (base or {}).get(r["league"]) or (base or {}).get("_all")
+        ranked = score_candidates(win, p_i, r["home"], r["away"], o, bool(r.get("neutral") or 0), b)
+        ranked = [x for x in ranked if x["market"] in set(o.get("markets") or MARKETS)] or ranked
+        best = ranked[0] if ranked and ranked[0]["eligible"] else None
+        if best is None:
+            rows.append({"pick": None})
+            continue
+        hit = bool(cand[best["key"]].test_home_side(int(r["fthg"]), int(r["ftag"])))
+        rows.append({"pick": best["key"], "market": best["market"], "hit": hit,
+                     "model": best["model_prob"], "form": best["form_rate"],
+                     "score": best["score"], "odds": best["fair_odds"]})
+    df = pd.DataFrame(rows)
+    picked = df[df["pick"].notna()] if "pick" in df else df
+    out = {"matches": len(df), "picks": int(len(picked)),
+           "coverage": float(len(picked) / max(len(df), 1))}
+    if len(picked):
+        out.update({"hit_rate": float(picked["hit"].mean()),
+                    "mean_model": float(picked["model"].mean()),
+                    "mean_form": float(picked["form"].mean()),
+                    "mean_odds": float(picked["odds"].mean()),
+                    "by_market": {k: {"n": int(len(g)), "hit_rate": float(g["hit"].mean()),
+                                      "mean_model": float(g["model"].mean()),
+                                      "mean_form": float(g["form"].mean())}
+                                  for k, g in picked.groupby("market")},
+                    "by_pick": picked["pick"].value_counts().head(6).to_dict()})
+    return out
+
+
+def form_reliability(index: FormIndex, matches: pd.DataFrame, n: int = 5, limit: int | None = None,
+                     bins=(0.0, 0.4, 0.6, 0.8, 1.01)) -> list[dict]:
+    """How often selections actually landed, grouped by their raw last-n
+    form rate (are 5/5 streaks really 100%?)."""
+    recs = []
+    rows = matches if limit is None else matches.tail(limit)
+    for _, r in rows.iterrows():
+        win = gather_windows(index, r["home"], r["away"], r["date"], n)
+        dummy = {"1x2": np.array([1 / 3] * 3), **{k: 0.5 for k in
+                 ("o25", "btts", "h_o05", "h_o15", "h_o25", "a_o05", "a_o15", "a_o25")}}
+        for c in score_candidates(win, dummy, r["home"], r["away"], {"min_odds": 0}):
+            if c["form_rate"] is None:
+                continue
+            hit = bool({x.key: x for x in CANDIDATES}[c["key"]].test_home_side(
+                int(r["fthg"]), int(r["ftag"])))
+            recs.append((c["form_rate"], hit))
+    a = np.array(recs, float)
+    out = []
+    for lo, hi in zip(bins[:-1], bins[1:]):
+        m = (a[:, 0] >= lo) & (a[:, 0] < hi)
+        if m.any():
+            out.append({"form_from": lo, "form_to": min(hi, 1.0), "n": int(m.sum()),
+                        "mean_form": float(a[m, 0].mean()), "hit_rate": float(a[m, 1].mean())})
+    return out

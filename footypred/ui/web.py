@@ -26,6 +26,21 @@ def _page() -> bytes:
     return resources.files("footypred.ui").joinpath("static/index.html").read_bytes()
 
 
+def pick_opts(q: dict) -> dict:
+    """Best-pick settings from query parameters (invalid values are ignored)."""
+    o = {}
+    if q.get("markets"):
+        allowed = {"1x2", "ou25", "btts", "team_totals"}
+        o["markets"] = [m for m in q["markets"].split(",") if m in allowed]
+    for key, lo, hi in (("min_odds", 1.0, 10.0), ("form_weight", 0.0, 1.0), ("min_lift", 0.0, 0.5)):
+        try:
+            if q.get(key) not in (None, ""):
+                o[key] = min(max(float(q[key]), lo), hi)
+        except ValueError:
+            pass
+    return o
+
+
 def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "footypred"
@@ -62,7 +77,10 @@ def make_handler(service):
                         return self._json({"error": "choose both teams"}, HTTPStatus.BAD_REQUEST)
                     self._json(service.predict_payload(
                         q["home"], q["away"], q.get("date") or None,
-                        q.get("neutral") in ("1", "true", "on")))
+                        q.get("neutral") in ("1", "true", "on"), pick_opts=pick_opts(q),
+                        chart=q.get("chart", "1") != "0"))
+                elif url.path == "/api/team-index":
+                    self._json(service.team_index())
                 elif url.path == "/api/evaluation":
                     self._json(service.evaluation_payload())
                 else:
@@ -74,7 +92,30 @@ def make_handler(service):
                 self._json({"error": f"internal error: {exc}"},
                            HTTPStatus.INTERNAL_SERVER_ERROR)
 
+        def do_POST(self):
+            url = urlparse(self.path)
+            q = {k: v[0] for k, v in parse_qs(url.query).items()}
+            if url.path != "/api/image":
+                return self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0:
+                    return self._json({"error": "no image received"}, HTTPStatus.BAD_REQUEST)
+                if n > MAX_UPLOAD:
+                    return self._json({"error": "image too large (max 15 MB)"},
+                                      HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                data = self.rfile.read(n)
+                self._json(service.read_image(data, q.get("engine") or ""))
+            except Exception as exc:
+                log.exception("image read failed")
+                msg = str(exc) if "pip install" in str(exc) or "anthropic" in str(exc).lower() \
+                    else f"could not read the image: {exc}"
+                self._json({"error": msg}, HTTPStatus.BAD_REQUEST)
+
     return Handler
+
+
+MAX_UPLOAD = 15 * 1024 * 1024
 
 
 def make_server(service, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:

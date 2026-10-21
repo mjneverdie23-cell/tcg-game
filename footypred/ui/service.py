@@ -53,10 +53,11 @@ class PredictionService:
 
     # ----------------------------------------------------------- prediction
     def predict(self, home: str, away: str, date: str | None = None,
-                neutral: bool = False, chart: bool = True):
+                neutral: bool = False, chart: bool = True, pick_opts: dict | None = None):
         from footypred.predict.charts import plot_prediction
         with self._lock:
-            pred = self.predictor.predict(home, away, date=date or None, neutral=neutral)
+            pred = self.predictor.predict(home, away, date=date or None, neutral=neutral,
+                                          pick_opts=pick_opts)
             png = None
             if chart:
                 buf = io.BytesIO()
@@ -64,11 +65,23 @@ class PredictionService:
                 png = buf.getvalue()
         return pred, png
 
-    def predict_payload(self, home, away, date=None, neutral=False) -> dict:
-        pred, png = self.predict(home, away, date, neutral)
+    def predict_payload(self, home, away, date=None, neutral=False, pick_opts=None,
+                        chart: bool = True) -> dict:
+        pred, png = self.predict(home, away, date, neutral, chart=chart, pick_opts=pick_opts)
         d = pred.to_dict()
         d["chart_png"] = base64.b64encode(png).decode() if png else None
         return d
+
+    def team_index(self) -> dict[str, str]:
+        return {t: lg for lg, ts in self._teams.items() for t in ts}
+
+    def read_image(self, data: bytes, engine: str = "auto") -> dict:
+        from footypred.vision.reader import read_image
+        img_cfg = self.cfg.raw.get("image") or {}
+        with self._lock:
+            return read_image(data, self.db.teams(), self.db.load_aliases(),
+                              engine=engine or img_cfg.get("engine", "auto"),
+                              claude_model=img_cfg.get("claude_model"))
 
     # --------------------------------------------------------------- report
     def evaluation_payload(self) -> dict:

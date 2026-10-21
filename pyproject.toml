@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "footypred"
-version = "2.1.0"
+version = "2.2.0"
 description = "Offline football prediction focused on 1X2, O/U 2.5, team goals O/U 0.5-2.5 and BTTS"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+image = ["rapidocr_onnxruntime>=1.3", "Pillow>=9"]     # read fixtures from screenshots (offline)
+claude = ["anthropic>=0.70"]                           # optional Claude vision reader
 dev = ["pytest>=7"]
 
 [project.scripts]

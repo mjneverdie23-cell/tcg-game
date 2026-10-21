@@ -249,26 +249,41 @@ def _p_divergence(ax, pred):
 
 
 def _p_evidence(ax, pred):
-    eh, ea = pred.evidence["home"]["last"], pred.evidence["away"]["last"]
-    cats = [("Scored 1+", "scored"), ("Scored 2+", "scored2"), ("Scored 3+", "scored3"),
-            ("Conceded 1+", "conceded"), ("BTTS", "btts"), ("Over 2.5", "o25")]
+    """Last-5 form: each team overall and at the fixture's venue."""
+    f = pred.form
+    if not f:
+        ax.axis("off")
+        return
+    c = f["counts"]
+    cats = [("Scored 1+", "scored"), ("Scored 2+", "scored2"), ("Conceded 1+", "conceded"),
+            ("Clean sheet", "clean_sheets"), ("BTTS", "btts"), ("Over 2.5", "o25")]
+    series = [("home_home", f"{pred.home} at home", HOME, 1.0),
+              ("home_last", f"{pred.home} last {f['window']}", HOME, 0.45),
+              ("away_away", f"{pred.away} away", AWAY, 1.0),
+              ("away_last", f"{pred.away} last {f['window']}", AWAY, 0.45)]
     ys = np.arange(len(cats))[::-1]
-    h = 0.36
-    for off, ev, team, color in ((h / 2, eh, pred.home, HOME), (-h / 2, ea, pred.away, AWAY)):
-        n = ev.get("n", 0)
-        if not n:
+    h = 0.2
+    offs = [1.5 * h, 0.5 * h, -0.5 * h, -1.5 * h]
+    for off, (key, lbl, color, alpha) in zip(offs, series):
+        x = c[key]
+        if not x["n"]:
             continue
-        vals = [ev[k] / n for _, k in cats]
-        ax.barh(ys + off, vals, height=h - 0.04, color=color, zorder=3,
-                label=f"{team} (last {n})")
+        vals = [x[k] / x["n"] for _, k in cats]
+        ax.barh(ys + off, vals, height=h - 0.02, color=color, alpha=alpha, zorder=3,
+                label=f"{lbl} ({x['n']})")
         for y, (_, k), v in zip(ys + off, cats, vals):
-            ax.text(v + 0.015, y, f"{ev[k]}/{n}", va="center", fontsize=7, color=INK_2)
+            ax.text(v + 0.012, y, f"{x[k]}/{x['n']}", va="center", fontsize=6.5, color=INK_2)
     ax.set_yticks(ys)
-    ax.set_yticklabels([c[0] for c in cats], fontsize=8, color=INK_2)
-    ax.set_xlim(0, 1.15)
+    ax.set_yticklabels([c_[0] for c_ in cats], fontsize=8, color=INK_2)
+    ax.set_xlim(0, 1.18)
     _pct_fmt(ax, "x")
-    ax.legend(fontsize=7, frameon=False, labelcolor=INK_2, loc="lower right")
-    _style(ax, "Past-match evidence (last 10)", grid_axis="x")
+    ax.legend(fontsize=6.8, frameon=False, labelcolor=INK_2, loc="upper center",
+              bbox_to_anchor=(0.5, -0.06), ncol=2)
+    b = f.get("best_pick")
+    title = f"Last-{f['window']} form"
+    if b:
+        title += f"  ·  best pick: {b['label']} ({100 * b['model_prob']:.0f}%)"
+    _style(ax, title, grid_axis="x")
 
 
 def _reliability(ax, items, title, bins=8):

@@ -66,6 +66,33 @@ def test_web_api(server):
     assert code == 200 and json.loads(body)["chart_png"]
 
 
+def test_image_upload_and_batch_endpoints(server):
+    import importlib.util
+    if importlib.util.find_spec("rapidocr_onnxruntime") is None:
+        pytest.skip("rapidocr_onnxruntime not installed")
+    img = (ROOT / "tests" / "data" / "coupon_mobile.png").read_bytes()
+    req = urllib.request.Request(server + "/api/image?engine=ocr", data=img, method="POST",
+                                 headers={"Content-Type": "image/png"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        res = json.loads(r.read())
+    pairs = [(f["home"], f["away"]) for f in res["fixtures"]]
+    assert ("Arsenal", "Chelsea") in pairs        # E0-only test database
+    idx = json.loads(_get(server + "/api/team-index")[1])
+    assert idx["Arsenal"] == "E0"
+    code, body = _get(server + "/api/predict?home=Arsenal&away=Chelsea&chart=0&markets=team_totals"
+                               "&min_odds=1.2&min_lift=0")
+    d = json.loads(body)
+    assert code == 200 and d["chart_png"] is None
+    assert d["form"]["settings"]["markets"] == ["team_totals"]
+    assert d["form"]["best_pick"] is None or d["form"]["best_pick"]["market"] == "team_totals"
+    req = urllib.request.Request(server + "/api/image", data=b"not an image", method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=60)
+        raise AssertionError("expected an error")
+    except urllib.error.HTTPError as e:
+        assert e.code == 400
+
+
 def test_terminal_menu(service):
     from footypred.ui.menu import Menu
     answers = iter(["1",            # league: Premier League

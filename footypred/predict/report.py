@@ -42,6 +42,63 @@ def _team_lines(name: str, ev: dict) -> list[str]:
     return out
 
 
+def _best_pick_lines(pred: Prediction) -> list[str]:
+    f = pred.form
+    if not f:
+        return []
+    L = ["", f" ★ BEST PICK (last-{f['window']} form + model)"]
+    b = f.get("best_pick")
+    if b:
+        L.append(f"    {b['label']}  —  {100 * b['model_prob']:.0f}% (fair odds {b['fair_odds']:.2f})"
+                 f"  ·  form {100 * b['form_rate']:.0f}%  ·  {b['agreement']}")
+        for e in sorted(b["evidence"], key=lambda e: -e["weight"])[:4]:
+            L.append(f"      ✓ {e['event']}: {e['hits']}/{e['n']} ({e['window']})")
+    else:
+        L.append("    No clear pick — no selection is backed by both recent form and the model.")
+    for side, team, venue in (("home", pred.home, "at home"), ("away", pred.away, "away")):
+        tags = f["profiles"][side].get(venue) or f["profiles"][side].get("overall")
+        if tags:
+            L.append(f"    {team} {venue}: {', '.join(tags)}")
+    L.append("    Best in each market:")
+    for mk, r in f["best_by_market"].items():
+        flag = "" if r["eligible"] else "  (no clear pick)"
+        form = "-" if r["form_rate"] is None else f"{100 * r['form_rate']:.0f}%"
+        L.append(f"      {r['market_name']:<20}{r['label']:<34}model {100 * r['model_prob']:3.0f}%"
+                 f"  form {form:>4}{flag}")
+    for c in f.get("conflicts", []):
+        L.append(f"    ⚠ form disagrees: {c['label']} — model {100 * c['model_prob']:.0f}% but form "
+                 f"only {100 * c['form_rate']:.0f}%")
+    return L
+
+
+def _form_table(pred: Prediction) -> list[str]:
+    f = pred.form
+    if not f:
+        return []
+    c = f["counts"]
+    cols = [("home_last", f"{pred.home[:12]} L{f['window']}"), ("home_home", "home"),
+            ("home_away", "away"), ("away_last", f"{pred.away[:12]} L{f['window']}"),
+            ("away_home", "home"), ("away_away", "away"), ("h2h", "H2H")]
+    L = ["", f" FORM CHECK — LAST {f['window']} (hits/games; H2H from {pred.home}'s side)"]
+    L.append("    " + f"{'':<16}" + "".join(f"{lbl:>14}" for _, lbl in cols))
+    rows = [("Results W-D-L", None), ("Scored 1+", "scored"), ("Scored 2+", "scored2"),
+            ("Conceded 1+", "conceded"), ("Conceded 2+", "conceded2"),
+            ("Clean sheet", "clean_sheets"), ("Failed to score", "failed_to_score"),
+            ("BTTS", "btts"), ("Over 2.5", "o25")]
+    for lbl, key in rows:
+        cells = []
+        for k, _ in cols:
+            x = c[k]
+            if not x["n"]:
+                cells.append("-")
+            elif key is None:
+                cells.append(f"{x['w']}-{x['d']}-{x['l']}")
+            else:
+                cells.append(f"{x[key]}/{x['n']}")
+        L.append("    " + f"{lbl:<16}" + "".join(f"{v:>14}" for v in cells))
+    return L
+
+
 def render(pred: Prediction) -> str:
     m, pk, cf = pred.markets, pred.picks, pred.confidence
     eg = pred.expected_goals
@@ -56,6 +113,7 @@ def render(pred: Prediction) -> str:
         L.append("")
         L.append(f" {title:<48}confidence {cf[key]:>3}/100")
 
+    L += _best_pick_lines(pred)
     head("1) MATCH RESULT (1X2)", "1x2")
     for lbl, p in ((f"{pred.home} win", m["1x2"]["home"]), ("Draw", m["1x2"]["draw"]),
                    (f"{pred.away} win", m["1x2"]["away"])):
@@ -86,6 +144,7 @@ def render(pred: Prediction) -> str:
     p4 = pk["btts"]
     L.append(f"    → {p4['pick']} ({p4['strength']}, {100 * p4['prob']:.1f}%)")
 
+    L += _form_table(pred)
     L += ["", " PAST-MATCH EVIDENCE"]
     L += _team_lines(pred.home, pred.evidence["home"])
     L += _team_lines(pred.away, pred.evidence["away"])

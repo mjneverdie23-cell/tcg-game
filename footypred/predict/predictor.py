@@ -20,6 +20,7 @@ from footypred.models.market_head import probs_from_grids, reconcile
 from footypred.models.registry import ModelRegistry
 from footypred.models.scorematrix import ScoreMatrix
 from footypred.predict.explain import drivers, evidence
+from footypred.predict.picks import FormIndex, base_rates, form_check
 
 log = get_logger("predict")
 
@@ -51,6 +52,7 @@ class Prediction:
     model_markets: dict = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
     drivers: dict = field(default_factory=dict)
+    form: dict = field(default_factory=dict)          # last-5 form check + best pick
     warnings: list = field(default_factory=list)
     # raw objects for charts (not serialised)
     score_matrix: ScoreMatrix | None = None
@@ -83,6 +85,10 @@ class Predictor:
         self.state = self._sync_state()
         self.resolver = NameResolver(self.db.teams(), self.db.load_aliases())
         self.team_league = self.db.team_league()
+        matches = self.db.load_matches()
+        self.form_index = FormIndex(matches)
+        self.base_rates = base_rates(matches)
+        self.pick_opts = dict((cfg.raw.get("picks") or {}))
 
     def _sync_state(self):
         """Use the cached state; replay only results newer than it. Fall back
@@ -112,7 +118,8 @@ class Predictor:
             return "INT"
         return lh or la or "UNK"
 
-    def predict(self, home: str, away: str, date=None, neutral: bool = False) -> Prediction:
+    def predict(self, home: str, away: str, date=None, neutral: bool = False,
+                pick_opts: dict | None = None) -> Prediction:
         home, away = self.resolver.resolve(home), self.resolver.resolve(away)
         if home == away:
             raise ValueError("home and away must be different teams")
@@ -174,7 +181,11 @@ class Predictor:
                             "total": round(sm.lam_home + sm.lam_away, 2)},
             top_scores=[(s, round(q, 4)) for s, q in sm.top_scores(6)],
             model_markets=model_markets, evidence=evidence(self.state, home, away, neutral),
-            drivers=drivers(res.direct, row, fcols, home, away), warnings=warn,
+            drivers=drivers(res.direct, row, fcols, home, away),
+            form=form_check(self.form_index, home, away, date, p,
+                            {**self.pick_opts, **(pick_opts or {})}, neutral,
+                            self.base_rates.get(league) or self.base_rates.get("_all")),
+            warnings=warn,
             score_matrix=sm, model_matrices={n: ScoreMatrix.from_grid(g[0]) for n, g in mats.items()},
             eval_preds=res.eval_preds,
         )

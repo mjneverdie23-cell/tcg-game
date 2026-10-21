@@ -275,7 +275,8 @@ class Trainer:
         report["n_features"] = len(fcols)
         report["ensemble_weights"] = weights
         eval_preds = {"final": final_probs[selected], "raw": raw_probs[selected],
-                      "y_h": yh_ev, "y_a": ya_ev}
+                      "y_h": yh_ev, "y_a": ya_ev,
+                      "match_id": frame.loc[idx[ev_mask], "match_id"].to_numpy()}
         return TrainResult(models=models, direct=dm, weights=weights, head=head,
                            selected=selected, feature_cols=fcols, report=report,
                            importances=importances, config=dict(self.cfg.training),

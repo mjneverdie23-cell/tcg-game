@@ -58,3 +58,17 @@ training:
 
 prediction:
   min_confidence_warn: 35
+
+picks:                          # last-5 form check + best pick
+  window: 5                     # last N matches / home games / away games / H2H
+  form_weight: 0.6              # 1.0 = form decides alone, 0.0 = model alone
+  min_form: 0.6                 # pick must have landed in >= 60% of form games
+  min_model: 0.5                # ... and the model must give it >= 50%
+  min_odds: 1.12                # skip ultra-safe lines (fair odds below this)
+  min_lift: 0.05                # must beat the league's typical rate for that selection
+                                # by 5 points (0 = allow "safe but ordinary" picks)
+
+image:                          # reading fixtures from screenshots
+  engine: auto                  # auto | ocr (offline) | claude (needs `pip install
+                                #   anthropic` + API key; sends the image to Anthropic)
+  claude_model: claude-opus-5-5

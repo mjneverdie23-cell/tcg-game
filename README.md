@@ -1,4 +1,4 @@
-# footypred 2.1 — four-market football prediction
+# footypred 2.2 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -13,6 +13,91 @@ team's past match details:
 All of these come from one joint score distribution. The probabilities are
 therefore always consistent with each other: BTTS can never exceed either
 team's chance of scoring, Over 2.5 agrees with both team totals, and so on.
+
+## Best pick from last-5 form
+
+For every fixture the system looks at:
+* each team's **last 5 matches**
+* each team's **last 5 home games** and **last 5 away games**
+* the **last 5 head-to-head meetings**
+
+In each window it counts scored 1+/2+/3+, conceded 1+/2+/3+, clean sheets,
+failed to score, BTTS, over 2.5 and W-D-L. It also writes plain-language
+profiles for each team, e.g. "Arsenal at home: scores often (4/5), keeps
+clean sheets (3/5)".
+
+Every selection in the four markets (19 in total) is then scored by how
+often it landed in those games. The venue that matches the fixture counts
+most: the home team's home games and the away team's away games. The
+**best pick** is the selection that recent form supports most, using the
+model probability as a sanity check:
+
+```
+score = 0.6 × form rate + 0.4 × model probability        (form_weight, configurable)
+eligible only if  form ≥ 60%,  model ≥ 50%,  fair odds ≥ 1.12,
+                  and ≥ 5 points above a typical game in that league
+```
+
+For example: team A scores and keeps clean sheets at home, and team B
+scores and concedes both home and away. The best pick is **A over 0.5
+goals**. BTTS is flagged as a conflict, because A's clean sheets cut
+against B's scoring. The report also shows the best selection in each
+market, and warns when form and model disagree.
+
+**Is it accurate?** `footy backtest-picks` replays the out-of-sample
+seasons. For each match it uses only games played before it plus the
+model's out-of-fold probabilities, and checks whether the best pick landed.
+On the synthetic data (2,982 test matches):
+
+| | best picks landed | model said | form said |
+|---|---|---|---|
+| default settings | 79.9% | 80.4% | 79.4% |
+| raw last-5 rates of 80–100% | 82% | — | 88% |
+
+Two things follow. **The model's probability is the honest number** (picks
+land as often as it says), while **raw last-5 streaks overstate**: a 5/5
+streak is not 100%. That is why the headline figure is the model's and form
+is shown as evidence. The 5-point "above typical" rule stops trivially safe
+lines winning every time. Without it, "<team> under 2.5 goals" won most
+fixtures. Re-run the backtest on real data after `footy update`, because
+form may carry more signal there than in the synthetic world.
+
+Options: `--markets 1x2,ou25,btts,team_totals`, `--min-odds`,
+`--form-weight` (1.0 lets form decide alone), `--min-lift`; the web app has
+market checkboxes and a minimum-odds box.
+
+## Predict from a screenshot (one image, many matches)
+
+```bash
+footy image coupon.png                 # read every fixture, predict all, summary table
+footy image a.png b.jpg --full         # + full report per fixture
+footy image coupon.png --chart-dir out # + dashboard PNG per fixture
+```
+
+In the web app, open **From image**. Drop, paste (Ctrl/⌘+V) or choose a
+screenshot. The detected fixtures appear in an editable list: fix a team,
+untick a row or add one. **Predict** gives a summary table with each
+fixture's best pick, and **Open** shows the full analysis.
+
+* **Default reader: offline OCR** (RapidOCR, models bundled with the pip
+  package: no network, no API key). It handles one-line fixtures
+  ("Arsenal vs Chelsea", "Real Madrid - Barcelona 20:00"), two-column
+  layouts with odds in between, and stacked betting-app cards (including
+  team names wrapped onto two lines). It also reads date headers ("Sat 25
+  Oct", "26/10", "Tomorrow") and kick-off times, and avoids reading odds
+  such as "2.05" as dates or times. Team names are matched against the
+  database with aliases (Man City, Barca, Inter, Wolves, Nott'm Forest …)
+  and tolerate OCR slips. Tested on browser-rendered and drawn screenshots:
+  16/16 fixtures, with correct dates and times.
+* **Optional Claude vision reader** for screenshots OCR can't handle
+  (crests instead of names, unusual layouts). Install it with
+  `pip install anthropic`, sign in with an API key, then use
+  `--engine claude` or the Reader dropdown. **This sends the image to
+  Anthropic.** It uses `claude-opus-5-5` (set `image.claude_model` in the
+  config) with structured JSON output. "Auto" only falls back to it when OCR
+  finds nothing and the package is installed.
+* Teams that aren't in the database are listed as "not in database"; they
+  are never guessed.
 
 ## Pick league and teams (interactive)
 
@@ -49,6 +134,8 @@ footy predict "Brazil" "Argentina" --neutral --date 2026-11-15
 footy predict "Barca" "Real Madrid" --json
 footy evaluate --chart          # out-of-sample report + reliability diagrams
 footy teams --league E0
+footy image screenshot.png      # read fixtures from an image and predict them all
+footy backtest-picks            # how often best picks landed out of sample
 ```
 
 For automatic refreshes, schedule `footy update && footy train` with cron.
@@ -159,7 +246,7 @@ are normal and nothing here guarantees profit.
 * total goals vs a Normal approximation, with the 2.5 line marked
 * correct-score heatmap
 * model divergence per market (spread plus Jensen-Shannon divergence)
-* past-match evidence
+* last-5 form (each team at the venue and overall), titled with the best pick
 * out-of-sample reliability
 
 `footy evaluate --chart` shows skill per candidate (raw / v1-style / final),
@@ -182,7 +269,8 @@ rate-limited per host, retried with backoff and cached on disk.
 
 ```
 footypred/
-├── cli.py                  footy bootstrap|update|train|predict|evaluate|teams|app|pick
+├── cli.py                  footy bootstrap|update|train|predict|evaluate|teams|app|pick|
+│                           image|backtest-picks
 ├── config.py, logging_utils.py
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
 │              synthetic.py (minute-level game-state simulator) · pipeline.py
@@ -190,10 +278,15 @@ footypred/
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
 │              trainer.py (nested CV, selection) · metrics.py · registry.py · summary.py
-├── predict/   predictor.py · explain.py · report.py · charts.py
+├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
+│              explain.py · report.py · charts.py · batch.py
+├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      21 tests: market identities, reconciliation, leakage,
+tests/                      35 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
-                            web API, terminal menu, past dates, packaging
+                            web API, terminal menu, past dates, packaging, form
+                            windows & best pick (incl. the A/B example), backtest,
+                            image layouts, OCR on a real browser screenshot,
+                            Claude reader (mocked), image upload endpoint
 ```

@@ -12,3 +12,6 @@ beautifulsoup4>=4.12
 lxml>=4.9
 pyyaml>=6.0
 pytest>=7
+rapidocr_onnxruntime>=1.3   # offline OCR for `footy image` / From image tab
+Pillow>=9
+# optional: anthropic>=0.70  (Claude vision reader for hard screenshots)
