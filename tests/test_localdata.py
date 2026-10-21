@@ -190,3 +190,90 @@ def test_merge_fill_names_formats_and_errors(tmp_path):
     assert (row["date"], row["competition"], row["season"]) == ("2025-09-13", "T1", 2025)
     with pytest.raises(ValueError, match="not found"):
         lf.merge(path, [tmp_path / "nope.csv"], MERGE_SPECS)
+
+
+def test_build_league_file_combines_seasons_and_drops_awarded(tmp_path):
+    """Season files -> one file; awarded 3-0s (no HT score, no shots) out;
+    per-row odds fallback; xG kept; BOM and ISO dates handled."""
+    head = "Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,HTHG,HTAG,HS,AS,PSCH,PSCD,PSCA,AvgCH,AvgCD,AvgCA,HxG,AxG\n"
+    (tmp_path / "2024.csv").write_text(
+        "﻿" + head +
+        "T1,09/08/2024,19:00,Galatasaray,Buyuksehyr,2,1,1,0,14,8,1.5,4.0,6.0,1.45,4.1,6.2,,\n"
+        "T1,09/02/2025,17:00,Galatasaray,Ad. Demirspor,3,0,,,,,1.07,9.0,21.0,1.07,9.5,20.0,,\n",
+        encoding="utf-8")
+    (tmp_path / "2025.csv").write_text(
+        head + "T1,08/08/2025,19:00,Goztep,Fenerbahce,0,3,0,1,7,15,,,,4.8,3.9,1.70,0.6,2.1\n",
+        encoding="utf-8")
+    rows, rep = lf.build_league_file([tmp_path], MERGE_SPECS, competition="T1", first_season=2022)
+    assert len(rows) == 2 and set(rows["season"]) == {2024, 2025}
+    assert "awarded" in rep["files"][0]["notes"][0] and "Adana Demirspor" in rep["files"][0]["notes"][0]
+    g = rows.set_index("home")
+    assert g.loc["Galatasaray", "away"] == "Basaksehir"
+    assert g.loc["Galatasaray", "odds_h"] == 1.5 and g.loc["Goztepe", "odds_h"] == 4.8  # Pinnacle, else avg
+    assert g.loc["Goztepe", "home_xg"] == 0.6 and pd.isna(g.loc["Galatasaray", "home_xg"])
+    assert [b["label"] for b in rep["by_season"]] == ["2024/25", "2025/26"]
+    # a 0-3 with shots and a half-time score is a real result: kept
+    assert g.loc["Goztepe", "ftag"] == 3
+
+
+def test_excel_country_file_and_iso_dates(tmp_path):
+    pytest.importorskip("openpyxl")
+    nor = pd.DataFrame({
+        "Country": "Norway", "League": "Eliteserien", "Season": [2021, 2024, 2024],
+        "Date": pd.to_datetime(["2021-05-15", "2024-04-06", "2024-11-03"]),
+        "Time": [pd.Timestamp("2021-05-15 18:00").time(), pd.Timestamp("2024-04-06 18:00").time(),
+                 pd.Timestamp("2024-11-03 16:00").time()],
+        "Home": ["Bodo/Glimt", "Bodo/Glimt", "Ham-Kam"], "Away": ["Molde", "Molde", "Lillestrom"],
+        "HG": [2, 3, 1], "AG": [1, 1, 0], "Res": ["H", "H", "H"],
+        "PSCH": [2.1, None, 2.4], "PSCD": [3.6, None, 3.4], "PSCA": [3.2, None, 2.9],
+        "AvgCH": [2.0, 1.85, 2.3], "AvgCD": [3.5, 3.7, 3.3], "AvgCA": [3.1, 3.5, 2.8]})
+    nor.to_excel(tmp_path / "NOR.xlsx", index=False)
+    rows, rep = lf.build_league_file([tmp_path / "NOR.xlsx"], MERGE_SPECS, competition="NOR",
+                                     first_season=2022)
+    assert list(rows["date"]) == ["2024-04-06", "2024-11-03"]     # not read as 4 June / 11 March
+    assert list(rows["kickoff"]) == ["18:00", "16:00"] and list(rows["home"]) == ["Bodo/Glimt", "HamKam"]
+    assert list(rows["odds_h"]) == [1.85, 2.4] and rep["by_season"][0]["label"] == "2024"
+    assert rep["files"][0]["outside_range"] == 1
+
+
+def test_old_file_layout_is_upgraded_once_on_append(tmp_path):
+    path = tmp_path / "matches.csv"
+    old_cols = [c for c in lf.COLUMNS if c not in ("home_xg", "away_xg")]
+    pd.DataFrame([{"match_id": "fd-1", "competition": "E0", "season": 2025, "date": "2025-08-16",
+                   "home": "Arsenal", "away": "Chelsea", "fthg": 2, "ftag": 0}],
+                 columns=old_cols).to_csv(path, index=False)
+    new = pd.DataFrame([{"match_id": "fd-2", "competition": "E0", "season": 2025, "date": "2025-08-23",
+                         "home": "Chelsea", "away": "Arsenal", "fthg": 1, "ftag": 1, "home_xg": 1.2}])
+    assert lf.append_csv(new, path) == 1
+    assert path.read_text().splitlines()[0] == ",".join(lf.COLUMNS)
+    df = lf.read_csv(path)
+    assert list(df["match_id"]) == ["fd-1", "fd-2"] and df["home_xg"].iloc[1] == 1.2
+    assert (tmp_path / "matches.csv.bak").exists()
+    before = path.read_text()
+    lf.append_csv(new.assign(match_id="fd-3", date="2025-08-30"), path)   # already current: plain append
+    assert path.read_text().startswith(before)
+
+
+def test_extra_leagues_script(tmp_path):
+    """scripts/extra_leagues.py: raw downloads -> two files -> your match file."""
+    import importlib.util
+    import yaml
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location("extra_leagues", root / "scripts" / "extra_leagues.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    c = yaml.safe_load((root / "config" / "default.yaml").read_text(encoding="utf-8"))
+    c["paths"] = {k: str(tmp_path / v) for k, v in c["paths"].items()}
+    c["local_data"]["csv"] = str(tmp_path / "matches.csv")
+    (tmp_path / "cfg.yaml").write_text(yaml.safe_dump(c, allow_unicode=True), encoding="utf-8")
+    (tmp_path / "sl").mkdir()
+    (tmp_path / "sl" / "2025.csv").write_bytes(T1_FILE.encode("cp1252"))
+    (tmp_path / "NOR.csv").write_text(NOR_FILE, encoding="utf-8")
+    out = tmp_path / "extra"
+    args = ["--config", str(tmp_path / "cfg.yaml"), "--super-lig", str(tmp_path / "sl"),
+            "--eliteserien", str(tmp_path / "NOR.csv"), "--out", str(out), "--merge"]
+    assert mod.main(args) == 0
+    assert len(lf.read_csv(out / "super_lig.csv")) == 3 and len(lf.read_csv(out / "eliteserien.csv")) == 2
+    assert len(lf.read_csv(tmp_path / "matches.csv")) == 5
+    assert mod.main(args) == 0 and len(lf.read_csv(tmp_path / "matches.csv")) == 5   # nothing twice

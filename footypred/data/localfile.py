@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from footypred.data.names import canonical
+from footypred.data.sources.football_data import parse_dates
 from footypred.data.sources.football_data_org import (CompetitionSpec, FDOrgClient, FDOrgError,
                                                       NotAvailable, PlanRestricted, parse_matches,
                                                       resolve_competition, season_of)
@@ -31,7 +32,8 @@ COLUMNS = ["match_id", "source", "competition", "competition_name", "season", "d
            "kickoff", "kickoff_tz", "matchday", "stage", "status", "home", "away", "home_raw",
            "away_raw", "fthg", "ftag", "hthg", "htag", "duration", "home_aet", "away_aet",
            "neutral", "hs", "as_", "hst", "ast", "hc", "ac", "hy", "ay", "hr", "ar",
-           "odds_h", "odds_d", "odds_a", "odds_o25", "odds_u25", "fd_id", "updated_at"]
+           "odds_h", "odds_d", "odds_a", "odds_o25", "odds_u25", "fd_id", "updated_at",
+           "home_xg", "away_xg"]
 COUK_MAIN = "https://www.football-data.co.uk/mmz4281/{code}/{league}.csv"
 COUK_EXTRA = "https://www.football-data.co.uk/new/{league}.csv"
 # football-data.co.uk "extra leagues": one file per country, all seasons
@@ -91,6 +93,8 @@ def _normalise(df: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     for c in INT_COLUMNS:                     # whole numbers stay "3", not "3.0"
         df[c] = pd.to_numeric(df[c], errors="coerce").round().astype("Int64")
+    k = df["kickoff"].astype("string")        # "18:00:00" (Excel) -> "18:00"
+    df["kickoff"] = k.where(~k.str.match(r"^\d{1,2}:\d{2}:\d{2}$", na=False), k.str[:-3])
     return df[COLUMNS]
 
 
@@ -114,11 +118,21 @@ def write_csv(df: pd.DataFrame, path) -> Path:
 
 
 def append_csv(df: pd.DataFrame, path) -> int:
-    """Append rows to the end of an existing file (no rewrite)."""
+    """Append rows to the end of an existing file (no rewrite). A file
+    written by an older version (fewer columns) is upgraded once to the
+    current columns first, keeping a .bak copy."""
     if df.empty:
         return 0
     path = Path(path)
     header = not path.exists() or path.stat().st_size == 0
+    if not header:
+        with open(path, encoding="utf-8") as fh:
+            first = fh.readline().strip().lstrip("\ufeff")
+        if first != ",".join(COLUMNS):
+            shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
+            log.info("upgrading %s to the current columns (backup: %s.bak)", path, path.name)
+            old = read_csv(path)
+            old.to_csv(path, index=False)    # same rows and order, new columns
     _sorted(_normalise(df)).to_csv(path, mode="a", header=header, index=False)
     return len(df)
 
@@ -134,6 +148,16 @@ EXTRA_ODDS = (("odds_h", ["PSCH", "AvgCH", "B365CH", "PH", "AvgH"]),
               ("odds_a", ["PSCA", "AvgCA", "B365CA", "PA", "AvgA"]))
 
 
+def awarded(df: pd.DataFrame) -> pd.Series:
+    """Results given 3-0 without a game (a withdrawn team, a walk-off): no
+    half-time score and no shots recorded. They'd teach the model fake
+    scorelines, so they are left out (the API's AWARDED status likewise)."""
+    if not {"hthg", "hs"} <= set(df.columns):
+        return pd.Series(False, index=df.index)
+    score = ((df["fthg"] == 3) & (df["ftag"] == 0)) | ((df["fthg"] == 0) & (df["ftag"] == 3))
+    return score & df["hthg"].isna() & df["hs"].isna()
+
+
 def couk_team(name) -> str:
     """co.uk spelling -> the same short name the API rows get."""
     from footypred.data.names import clean_team_name
@@ -143,29 +167,38 @@ def couk_team(name) -> str:
 def _couk_main(raw: bytes) -> pd.DataFrame:
     """A main-league file (one season, columns Div/HomeTeam/FTHG...)."""
     from footypred.data.sources.football_data import parse_csv
+    raw = _plain_csv(raw)
     df = parse_csv(raw, "", 0)
     src = pd.read_csv(io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip")
     df["div"] = src.loc[df.index, "Div"].astype(str).str.strip().values if "Div" in src else None
+    df["home_raw"] = src.loc[df.index, "HomeTeam"].astype(str).str.strip().values
+    df["away_raw"] = src.loc[df.index, "AwayTeam"].astype(str).str.strip().values
     df["home"], df["away"] = df["home"].map(couk_team), df["away"].map(couk_team)
-    return df.drop(columns=["league", "season"])
+    gone = awarded(df)
+    dropped = [f"{d.date()} {h} {gh}-{ga} {a}" for d, h, a, gh, ga in
+               df.loc[gone, ["date", "home", "away", "fthg", "ftag"]].itertuples(index=False)]
+    df = df[~gone].drop(columns=["league", "season"])
+    df.attrs["awarded"] = dropped
+    return df
 
 
 def _couk_extra(raw: bytes) -> pd.DataFrame:
     """An "extra leagues" file (one country, all seasons: Country/Home/HG...)."""
-    src = pd.read_csv(io.BytesIO(raw), encoding="latin-1", on_bad_lines="skip")
+    src = pd.read_csv(io.BytesIO(_plain_csv(raw)), encoding="latin-1", on_bad_lines="skip")
     src = src.dropna(subset=["Date", "Home", "Away"])
     df = pd.DataFrame({
-        "date": pd.to_datetime(src["Date"], dayfirst=True, errors="coerce"),
+        "date": parse_dates(src["Date"]).values,
         "home": src["Home"].map(couk_team), "away": src["Away"].map(couk_team),
+        "home_raw": src["Home"].astype(str).str.strip(), "away_raw": src["Away"].astype(str).str.strip(),
         "fthg": pd.to_numeric(src["HG"], errors="coerce"),
         "ftag": pd.to_numeric(src["AG"], errors="coerce"),
         "season": pd.to_numeric(src["Season"].astype(str).str[:4], errors="coerce"),
         "country": src["Country"].astype(str).str.strip() if "Country" in src else None,
         "kickoff": src["Time"].astype(str).where(src["Time"].notna(), None) if "Time" in src else None,
         "neutral": 0}, index=src.index)
+    from footypred.data.sources.football_data import first_available
     for target, cands in EXTRA_ODDS:
-        col = next((c for c in cands if c in src.columns), None)
-        df[target] = pd.to_numeric(src[col], errors="coerce") if col else np.nan
+        df[target] = first_available(src, cands)
     return df.dropna(subset=["date"])
 
 
@@ -447,6 +480,25 @@ def _plain_csv(raw: bytes) -> bytes:
     return _ascii(text).encode("ascii", "ignore")
 
 
+EXCEL = (".xlsx", ".xlsm", ".xls")
+
+
+def _excel_as_csv(path: Path) -> bytes:
+    """First sheet of a workbook as CSV (dates yyyy-mm-dd, times HH:MM).
+    Needs `pip install openpyxl`."""
+    try:
+        df = pd.read_excel(path, sheet_name=0)
+    except ImportError as exc:
+        raise ValueError(f"{path.name}: reading Excel files needs openpyxl — "
+                         "run `pip install openpyxl`, or save the sheet as CSV") from exc
+    for c in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[c]):
+            df[c] = df[c].dt.strftime("%Y-%m-%d")
+        elif df[c].map(lambda v: hasattr(v, "hour") and hasattr(v, "minute")).any():
+            df[c] = df[c].map(lambda v: f"{v.hour:02d}:{v.minute:02d}" if hasattr(v, "hour") else v)
+    return _plain_csv(df.to_csv(index=False).encode("utf-8"))
+
+
 def _spec_for(code, specs: list[CompetitionSpec]) -> CompetitionSpec | None:
     code = str(code or "").strip()
     return next((s for s in specs if code and code.upper() in (s.key.upper(), (s.couk or "").upper())),
@@ -461,7 +513,7 @@ def read_other(path, specs: list[CompetitionSpec], competition: str | None = Non
     (e.g. new/NOR.csv, all seasons of one country); or any CSV with date,
     home, away and goal columns (give --competition if it has none)."""
     path = Path(path)
-    raw = _plain_csv(path.read_bytes())
+    raw = _excel_as_csv(path) if path.suffix.lower() in EXCEL else _plain_csv(path.read_bytes())
     cols = {c.strip() for c in pd.read_csv(io.BytesIO(raw), nrows=0, encoding="latin-1").columns}
     notes: list[str] = []
     forced = _spec_for(competition, specs) if competition else None
@@ -497,6 +549,10 @@ def read_other(path, specs: list[CompetitionSpec], competition: str | None = Non
         return df[df["fthg"].notna() & df["ftag"].notna()], "footypred match file", notes
     if {"HomeTeam", "AwayTeam", "FTHG", "FTAG", "Date"} <= cols:
         df = _couk_main(raw)
+        gone = df.attrs.get("awarded") or []
+        if gone:
+            notes.append(f"{len(gone)} awarded result(s) left out (3-0 without a game being "
+                         f"played): {', '.join(gone[:3])}" + (" …" if len(gone) > 3 else ""))
         if forced is None and df["div"].isna().all():
             raise ValueError(f"{path.name}: no Div column — say which competition with --competition")
         df = assign(df, None if forced else df["div"].tolist()).drop(columns="div")
@@ -518,8 +574,7 @@ def read_other(path, specs: list[CompetitionSpec], competition: str | None = Non
     if forced is None and pick["competition"] is None:
         raise ValueError(f"{path.name}: no competition column — say which one with --competition")
     df = pd.DataFrame({k: src[c] for k, c in pick.items() if c is not None and k != "competition"})
-    df["date"] = pd.to_datetime(df["date"], dayfirst=not df["date"].astype(str).str.match(
-        r"^\d{4}-").all(), errors="coerce")
+    df["date"] = parse_dates(df["date"]).values
     df = df.dropna(subset=["date"])
     for k in ("fthg", "ftag", "hthg", "htag"):
         if k in df:
@@ -531,6 +586,68 @@ def read_other(path, specs: list[CompetitionSpec], competition: str | None = Non
         seasons = pd.to_numeric(seasons.astype(str).str[:4], errors="coerce")
     df = assign(df, codes, seasons)
     return _file_rows(df, f"file:{path.name}", "csv-"), "generic CSV", notes
+
+
+def build_league_file(sources, specs: list[CompetitionSpec], competition: str | None = None,
+                      first_season: int | None = None, end_date=None,
+                      aliases: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """Raw downloads (season files, a country file, CSV or Excel) -> one
+    clean file in the match-file schema: every season combined, seasons
+    before `first_season`, unplayed fixtures and awarded results dropped,
+    the same game in two files kept once. Returns (rows, report)."""
+    end_date = pd.Timestamp(end_date or pd.Timestamp.today()).normalize()
+    known, frames, files = KnownMatches(), [], []
+    for src in csv_sources(sources):
+        df, fmt, notes = read_other(src, specs, competition)
+        df = apply_aliases(df, aliases or {})
+        played = len(df)
+        keep = pd.to_datetime(df["date"]) <= end_date
+        if first_season is not None:
+            keep &= pd.to_numeric(df["season"], errors="coerce") >= first_season
+        old = int((~keep).sum())
+        rows, dup = [], 0
+        for r in df[keep].to_dict("records"):
+            key = (r["competition"], r["home"], r["away"], r["date"])
+            if known.find(*key) is not None:
+                dup += 1
+                continue
+            known.add(*key)
+            rows.append(r)
+        got = pd.DataFrame(rows, columns=COLUMNS)
+        seasons = sorted(int(x) for x in got["season"].dropna().unique())
+        if src.stem.isdigit() and len(src.stem) == 4 and seasons and seasons != [int(src.stem)]:
+            notes.append(f"named {src.stem} but holds season(s) {', '.join(map(str, seasons))}")
+        files.append({"file": str(src), "format": fmt, "played": played, "kept": len(got),
+                      "outside_range": old, "duplicates": dup, "seasons": seasons, "notes": notes})
+        frames.append(got)
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
+    out = _sorted(_normalise(out)).reset_index(drop=True)
+    by_season = []
+    for (comp, season), g in out.groupby(["competition", "season"]):
+        sp = _spec_for(comp, specs)
+        label = (str(int(season)) if sp and sp.calendar_year
+                 else f"{int(season)}/{str(int(season) + 1)[2:]}")
+        by_season.append({"competition": comp, "season": int(season), "label": label,
+                          "matches": len(g),
+                          "first": g["date"].min(), "last": g["date"].max(),
+                          "teams": len(set(g["home"]) | set(g["away"])),
+                          "with_odds": int(g["odds_h"].notna().sum()),
+                          "with_xg": int(g["home_xg"].notna().sum())})
+    return out, {"files": files, "by_season": by_season, "rows": len(out)}
+
+
+def render_build(rep: dict, title: str) -> str:
+    L = [title]
+    for f in rep["files"]:
+        L.append(f"  {Path(f['file']).name:<14} {f['format']}: {f['played']} played → kept {f['kept']}"
+                 + (f", {f['outside_range']} outside the season/date range" if f["outside_range"] else "")
+                 + (f", {f['duplicates']} duplicates" if f["duplicates"] else ""))
+        L += [f"      ⚠ {n}" for n in f["notes"]]
+    for b in rep["by_season"]:
+        L.append(f"    {b['competition']:<4} {b['label']:<8} {b['matches']:>4} matches  {b['first']} → "
+                 f"{b['last']}  {b['teams']} teams  odds {b['with_odds']}"
+                 + (f"  xG {b['with_xg']}" if b["with_xg"] else ""))
+    return "\n".join(L)
 
 
 def match_names(incoming: set[str], existing: set[str]) -> tuple[dict, dict]:
@@ -567,10 +684,11 @@ def csv_sources(paths, exclude=()) -> list[Path]:
         p = p.expanduser()
         if not p.exists():
             raise ValueError(f"{p} not found")
-        files = sorted(p.glob("*.csv")) if p.is_dir() else [p]
-        out += [f for f in files if f.resolve() not in skip and f.suffix.lower() == ".csv"]
+        files = sorted(f for f in p.iterdir() if f.is_file()) if p.is_dir() else [p]
+        out += [f for f in files if f.resolve() not in skip
+                and f.suffix.lower() in (".csv", *EXCEL) and not f.name.startswith("~$")]
     if not out:
-        raise ValueError("no CSV files to merge")
+        raise ValueError("no CSV or Excel files to merge")
     return out
 
 

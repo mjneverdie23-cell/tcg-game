@@ -3,6 +3,7 @@
 /data/
 /models/
 /logs/
+/footballdata/                 # raw football-data.co.uk downloads (scripts/extra_leagues.py)
 catboost_info/
 
 # python

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "footypred"
-version = "2.4.1"
+version = "2.4.2"
 description = "Offline football prediction focused on 1X2, O/U 2.5, team goals O/U 0.5-2.5 and BTTS"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=4.9",
     "pyyaml>=6.0",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

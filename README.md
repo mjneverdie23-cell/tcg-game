@@ -1,4 +1,4 @@
-# footypred 2.4.1 — four-market football prediction
+# footypred 2.4.2 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -260,6 +260,49 @@ footy data merge Downloads/footy-extra/                              # every CSV
 * After merging, `footy data update` keeps those competitions current as
   well.
 
+### Süper Lig and Eliteserien: `scripts/extra_leagues.py`
+
+For these two leagues, a script turns the raw football-data.co.uk downloads
+into two clean files and can add them to your match file:
+
+```bash
+python scripts/extra_leagues.py                     # reads footballdata/super lig + footballdata/eliteserien
+python scripts/extra_leagues.py --merge             # ... and adds the new matches to your match file
+python scripts/extra_leagues.py --download --merge  # fetch the latest files first, then merge
+python scripts/extra_leagues.py --super-lig "D:/footballdata/super lig" \
+    --eliteserien D:/footballdata/eliteserien/NOR.xlsx --merge
+footy train                                         # afterwards
+```
+
+* **Inputs:** Süper Lig is one file per season (`2022.csv` … `2026.csv`,
+  any names). Eliteserien is football-data.co.uk's all-seasons country file
+  (`NOR.csv` or `NOR.xlsx`).
+* **Output:**
+  - `data/extra/super_lig.csv`: every Süper Lig season combined
+  - `data/extra/eliteserien.csv`: Eliteserien from 2022 on (your
+    `first_season`)
+  - both in the same columns as your match file
+* **Cleaning:**
+  - unplayed fixtures are dropped
+  - awarded results are dropped: a 3-0 with no half-time score and no
+    shots means no game was played (Hatayspor and Gaziantep after the 2023
+    earthquake, and the walk-offs in Istanbulspor–Trabzonspor 2023 and
+    Galatasaray–Adana Demirspor 2025)
+  - team names get the same spelling as the API rows
+  - odds fall back from Pinnacle to the market average to Bet365, row by
+    row
+  - football-data.co.uk's new xG columns are kept
+  - Eliteserien files include the two-legged promotion/relegation play-off
+    each year, which is why one second-tier club appears in each season
+* **`--download`** fetches `mmz4281/{season}/T1.csv` and `new/NOR.csv`
+  into the input folders. Run it with `--merge` whenever you want to catch
+  up; matches already in your file are never added twice.
+
+Excel files (`.xlsx`) work anywhere a CSV does, including `footy data merge`
+(needs `openpyxl`, now in the requirements). Match files from older
+versions get the two new xG columns automatically the first time something
+is added to them, and the previous file is kept as `.bak`.
+
 In the web app, the **Data** tab has the same tool under **Add matches from
 other CSV files**. Paste file or folder paths from your PC (quotes are
 fine), click **Preview**, then **Merge into my file**. The files are read
@@ -482,7 +525,8 @@ footypred/
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      47 tests: market identities, reconciliation, leakage,
+scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
+tests/                      51 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -490,7 +534,9 @@ tests/                      47 tests: market identities, reconciliation, leakage
                             Claude reader (mocked), image upload endpoint,
                             lopsided-match ladder, pick styles, older bundles,
                             football-data.org download/update (mock API), CSV
-                            merge (co.uk / Excel formats, names, ±1 day), file
+                            merge (co.uk / Excel formats, names, ±1 day), extra
+                            leagues build + script (awarded results, odds fallback,
+                            ISO dates, schema upgrade), file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```
