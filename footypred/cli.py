@@ -143,26 +143,14 @@ def cmd_update(cfg, args):
 
 
 def cmd_train(cfg, args):
-    from footypred.features.engineering import FeatureBuilder, feature_columns
-    from footypred.features.tuning import tune_ratings
-    from footypred.models.registry import ModelRegistry
-    from footypred.models.summary import render_training_report
-    from footypred.models.trainer import Trainer
+    from footypred.models.pipeline import QUICK_MODELS, train_and_save
     db = _db(cfg)
-    matches = db.load_matches()
-    if matches.empty:
-        sys.exit("no matches in the database - run `footy bootstrap` or `footy update` first")
-    params = {}
-    if cfg.features.get("auto_tune_ratings", True):
-        params = tune_ratings(matches)
-    fb = FeatureBuilder(cfg, db, params)
-    frame = fb.build_training_frame(matches)
-    res = Trainer(cfg).train(frame, feature_columns(frame))
-    res.feature_params = fb.params
-    res.report["data_source"] = db.get_meta("data_source")
-    version = ModelRegistry(cfg.paths.models_dir).save(res, fb.state)
-    print(render_training_report(res.report))
-    print(f"\nSaved model {version}")
+    try:
+        r = train_and_save(cfg, db, models=QUICK_MODELS if args.quick else None)
+    except ValueError as exc:
+        sys.exit(f"{exc} (`footy bootstrap` loads the demo data)")
+    print(r["report"])
+    print(f"\nSaved model {r['version']}")
 
 
 def _pick_opts(args) -> dict:
@@ -368,7 +356,11 @@ def cmd_pick(cfg, args):
     from footypred.ui.menu import Menu
     from footypred.ui.service import PredictionService
     print("Loading model and match history ...")
-    Menu(PredictionService(cfg)).run()
+    svc = PredictionService(cfg)
+    if svc.predictor is None:
+        sys.exit(f"Setup needed ({svc.model_error}). Open the web app (`footy app`, or "
+                 "double-click start_footypred) and follow the Data tab.")
+    Menu(svc).run()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -415,7 +407,9 @@ def build_parser() -> argparse.ArgumentParser:
                       ("check", "spot team names that may be the same club")):
         x = dsub.add_parser(name, help=hlp)
         x.add_argument("--file")
-    sub.add_parser("train", help="tune, cross-validate, select and save models")
+    tr = sub.add_parser("train", help="tune, cross-validate, select and save models")
+    tr.add_argument("--quick", action="store_true",
+                    help="train only Poisson, Dixon-Coles and LightGBM (much faster)")
 
     pr = sub.add_parser("predict", help="predict a fixture")
     pr.add_argument("home"); pr.add_argument("away")

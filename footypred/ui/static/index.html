@@ -48,7 +48,8 @@ main { padding: 20px 0 48px; }
 .card { background: var(--card); border: 1px solid var(--ring); border-radius: 12px; padding: 18px; }
 .card h2 { margin: 0 0 12px; font-size: 15px; display: flex; justify-content: space-between;
   align-items: baseline; gap: 8px; }
-.card h2 .conf { font-weight: 400; color: var(--muted); font-size: 13px; }
+.card h2 .conf { font-weight: 400; color: var(--muted); font-size: 13px; min-width: 0; overflow-wrap: anywhere; text-align: right; }
+.pick, .kv dd, pre { overflow-wrap: anywhere; }
 form.picker { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: end; }
 .side { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; }
 .side .tag { grid-column: 1 / -1; font-size: 12px; font-weight: 600; text-transform: uppercase;
@@ -177,6 +178,22 @@ button.small { padding: 5px 10px; font-size: 13px; }
 code { font: 12.5px ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--page);
   padding: 1px 5px; border-radius: 4px; }
 td.hit { color: var(--good); font-weight: 600; } td.miss { color: var(--err-ink); }
+.setup { border-left: 4px solid var(--accent); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.steps > li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.steps .num { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-weight: 700; font-size: 13px; background: var(--page); color: var(--ink-2); }
+.steps .done .num { background: var(--good); color: #fff; }
+.steps b { display: block; margin-bottom: 2px; }
+.steps p { margin: 2px 0 8px; color: var(--ink-2); font-size: 14px; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+input[type="text"], input[type="password"] { font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--baseline); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
+.progress.busy div { width: 35% !important; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .progress.busy div { animation: none; width: 100% !important; opacity: .5; } }
+.grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+#data-log { max-height: 260px; overflow-y: auto; }
 .muted { color: var(--muted); }
 @media (max-width: 820px) {
   form.picker { grid-template-columns: 1fr; }
@@ -320,10 +337,18 @@ nav .sm { display: none; }
   </section>
 
   <section id="tab-data" class="hidden">
-    <div class="card" id="data-card"><div class="muted">Loading…</div></div>
+    <div id="setup-card" class="card setup hidden"></div>
     <div id="data-msg" class="msg hidden"></div>
-    <div id="data-job" class="card section hidden"><h2>Updating from football-data.org</h2>
-      <div class="progress"><div id="data-bar"></div></div><pre id="data-log"></pre></div>
+    <div id="data-job" class="card section hidden" aria-live="polite">
+      <h2><span id="data-job-title">Working…</span><span class="conf" id="data-job-time"></span></h2>
+      <div class="progress"><div id="data-bar"></div></div><pre id="data-log"></pre>
+    </div>
+    <div class="card section" id="data-card"><div class="muted">Loading…</div></div>
+    <div class="card section" id="train-card"><div class="muted">Loading…</div></div>
+    <div class="card section" id="extra-card"><div class="muted">Loading…</div></div>
+    <div class="card section" id="merge-card"><div class="muted">Loading…</div></div>
+    <div class="card section" id="names-card"><div class="muted">Loading…</div></div>
+    <div class="card section" id="settings-card"><div class="muted">Loading…</div></div>
   </section>
 
   <section id="tab-report" class="hidden">
@@ -335,6 +360,8 @@ nav .sm { display: none; }
 "use strict";
 const $ = (id) => document.getElementById(id);
 const pct = (p, d = 0) => (100 * p).toFixed(d) + "%";
+// replaceChildren() would print a skipped (null) part as the text "null"
+function put(node, ...kids) { node.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false)); }
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -353,7 +380,7 @@ async function api(path, payload) {
   const r = await fetch(path, payload === undefined ? {} : { method: "POST", body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" } });
   const body = await r.json().catch(() => ({ error: "bad response" }));
-  if (!r.ok) throw new Error(body.error || r.statusText);
+  if (!r.ok) { const e = new Error(body.error || r.statusText); e.setup = !!body.setup; throw e; }
   return body;
 }
 
@@ -365,14 +392,14 @@ async function teamsFor(code) {
   return teamCache[code];
 }
 function fillLeagues(sel) {
-  sel.replaceChildren(...LEAGUES.map((l) =>
+  put(sel, ...LEAGUES.map((l) =>
     el("option", { value: l.code }, l.name + (l.country ? ` (${l.country})` : "") + ` · ${l.teams}`)),
     el("option", { value: "" }, "All leagues"));
 }
 async function fillTeams(leagueSel, teamSel, prefer) {
   const list = await teamsFor(leagueSel.value);
   const keep = prefer || teamSel.value;
-  teamSel.replaceChildren(...list.map((t) => el("option", { value: t }, t)));
+  put(teamSel, ...list.map((t) => el("option", { value: t }, t)));
   if (list.includes(keep)) teamSel.value = keep;
 }
 let awayFollows = true;
@@ -562,7 +589,7 @@ function render(p) {
         el("a", { href: src, download: fname }, "Download PNG")),
       el("img", { src, alt: `Analysis dashboard for ${p.home} vs ${p.away}: 1X2, over/under, team goals, BTTS, Poisson and Normal distributions, score heatmap, model divergence, evidence and reliability` })));
   }
-  $("result").replaceChildren(...out);
+  put($("result"), ...out);
   $("result").classList.remove("hidden");
 }
 
@@ -583,10 +610,19 @@ $("picker").addEventListener("submit", async (e) => {
     if ($("competition").value) q.set("competition", $("competition").value);
     render(await api("/api/predict?" + q));
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (err) { showError(err.message); }
-  finally { go.disabled = false; go.textContent = "Predict"; }
+  } catch (err) { showError(err.message, err.setup); }
+  finally { go.disabled = !(STATUS && STATUS.ready); go.textContent = "Predict"; }
 });
-function showError(t) { $("error").textContent = t; $("error").classList.remove("hidden"); }
+function showError(t, setup) {
+  put($("error"), t, setup ? el("span", {}, " ", setupButton()) : null);
+  $("error").classList.remove("hidden");
+}
+function setupButton(label = "Open setup") {
+  const b = el("button", { type: "button", class: "ghost small" }, label);
+  b.addEventListener("click", () => openTab("data"));
+  return b;
+}
+function openTab(name) { document.querySelector(`nav button[data-tab="${name}"]`).click(); }
 
 // ------------------------------------------------------------ tabs
 let reportLoaded = false;
@@ -598,12 +634,12 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
   if (b.dataset.tab === "report" && !reportLoaded) {
     try {
       const r = await api("/api/evaluation");
-      $("report-body").replaceChildren(el("h2", {}, `Model ${r.version}`, el("span", { class: "conf" }, `trained ${r.created}`)),
+      put($("report-body"), el("h2", {}, `Model ${r.version}`, el("span", { class: "conf" }, `trained ${r.created}`)),
         el("div", { class: "dash" }, el("img", { src: "data:image/png;base64," + r.chart_png, alt: "Out-of-sample evaluation: skill per candidate and market, calibration error, reliability diagrams" })),
         el("pre", { style: "margin-top:16px" }, r.report_text));
       $("report-body").classList.remove("muted");
       reportLoaded = true;
-    } catch (err) { $("report-body").textContent = "Could not load report: " + err.message; }
+    } catch (err) { put($("report-body"), "Could not load the report: " + err.message, " ", err.setup ? setupButton() : null); }
   }
 }));
 
@@ -648,7 +684,7 @@ function renderFixtures(res) {
   add.addEventListener("click", () => tbody.append(fixtureRow({ home: "", away: "" })));
   const go = el("button", { type: "button", class: "primary" }, `Predict ${res.fixtures.length || ""} fixture${res.fixtures.length === 1 ? "" : "s"}`);
   go.addEventListener("click", () => predictAll(tbody, go));
-  box.replaceChildren(
+  put(box, 
     el("h2", {}, `${res.fixtures.length} fixture${res.fixtures.length === 1 ? "" : "s"} found`,
       el("span", { class: "conf" }, `read with ${res.engine === "ocr" ? "offline OCR" : "Claude vision"} — check and edit before predicting`)),
     ...(res.warnings || []).map((w) => el("div", { class: "msg warn", style: "margin:0 0 8px" }, w)),
@@ -707,7 +743,7 @@ function renderBatch(out) {
       el("td", { "data-label": "Over 2.5" }, pct(m["over_under_2.5"].over)), el("td", { "data-label": "BTTS" }, pct(m.btts.yes)), el("td", {}, open));
   });
   const box = $("img-results");
-  box.replaceChildren(el("h2", {}, "Predictions", el("span", { class: "conf" }, "best pick = last-5 form + model · Open for the full analysis")),
+  put(box, el("h2", {}, "Predictions", el("span", { class: "conf" }, "best pick = last-5 form + model · Open for the full analysis")),
     el("div", { class: "scroll" }, el("table", { class: "batch" },
       el("thead", {}, el("tr", {}, ["Fixture", "Date", "Best pick", "Model", "Odds", "Form", "1X2 H·D·A", "Over 2.5", "BTTS", ""].map((t) => el("th", {}, t)))),
       el("tbody", {}, rows))));
@@ -734,14 +770,19 @@ document.addEventListener("paste", (e) => {
   if (f) { e.preventDefault(); readImage(f); }
 });
 
+let STATUS = null;
 async function refreshStatus() {
-  const s = await api("/api/status");
-  $("status").textContent = `model ${s.version} (${s.model}) · ${s.matches.toLocaleString()} matches · data: ${s.data_source}`;
+  const s = STATUS = await api("/api/status");
+  $("status").textContent = s.ready
+    ? `model ${s.version} (${s.model}) · ${s.matches.toLocaleString()} matches · data: ${s.data_source}`
+    : `setup needed: ${s.has_data ? "train a model" : "add your matches"} (Data tab)`;
+  $("go").disabled = !s.ready;
+  $("go").title = s.ready ? "" : "Train a model first (Data tab)";
   return s;
 }
 async function fillCompetitions() {
   const comps = await api("/api/competitions");
-  $("competition").replaceChildren($("competition").options[0],
+  put($("competition"), $("competition").options[0],
     ...comps.map((c) => el("option", { value: c.code }, `${c.name} (${c.code})`)));
   return comps;
 }
@@ -750,8 +791,14 @@ async function fillCompetitions() {
     const s = await refreshStatus();
     $("date").value = s.today;
     $("img-date").value = s.today;
-    await initPickers();
-    await fillCompetitions();
+    if (s.has_data) { await initPickers(); await fillCompetitions(); }
+    const cur = (await api("/api/job/current")).job;
+    if (cur) resumeJob(cur);
+    else if (!s.ready) {
+      showError(s.has_data ? "Your matches are loaded — train a model to start predicting."
+                           : "Welcome! First add your matches and train a model.", true);
+      openTab("data");
+    }
   } catch (err) { showError("Could not start: " + err.message); $("status").textContent = "not ready"; }
 })();
 
@@ -771,72 +818,197 @@ function msg(id, text, kind) {
 async function afterDataChange() {
   for (const k of Object.keys(teamCache)) delete teamCache[k];
   TEAM_INDEX = null; reportLoaded = false; BT_READY = false;
-  await refreshStatus(); await initPickers(); await fillCompetitions();
+  const s = await refreshStatus();
+  if (s.has_data) { await initPickers(); await fillCompetitions(); }
+  if (s.ready) $("error").classList.add("hidden");
 }
 
-// ------------------------------------------------------------ data tab
-async function loadData() {
-  try { renderData(await api("/api/data")); } catch (err) { msg("data-msg", err.message, "err"); }
+// ------------------------------------------------------------ data tab: jobs
+let JOB_BUSY = false;
+function jobButtons(on) { document.querySelectorAll(".jobbtn").forEach((b) => { b.disabled = on || b.dataset.off === "1"; }); }
+async function runJob(path, payload, title, onDone) {
+  if (JOB_BUSY) return msg("data-msg", "Something is already running — wait for it to finish.", "warn");
+  msg("data-msg", "");
+  try { followDataJob(await api(path, payload || {}), title, onDone); }
+  catch (err) { msg("data-msg", err.message, "err"); }
 }
+async function followDataJob(j0, title, onDone) {
+  JOB_BUSY = true; jobButtons(true);
+  $("data-job").classList.remove("hidden"); $("data-job-title").textContent = title || j0.kind;
+  $("data-job").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  try {
+    const j = await followJob(j0.id, (j) => {
+      $("data-log").textContent = j.log.join("\n"); $("data-log").scrollTop = 1e9;
+      const bar = $("data-bar").parentElement;
+      bar.classList.toggle("busy", j.status === "running" && !j.progress);
+      $("data-bar").style.width = (j.status === "running" ? Math.max(j.progress, 0.02) : 1) * 100 + "%";
+      const m = Math.floor(j.seconds / 60), sec = Math.round(j.seconds % 60);
+      $("data-job-time").textContent = j.status === "running" ? `running · ${m ? m + " min " : ""}${sec} s` : j.status;
+    });
+    if (j.status === "done") { await afterDataChange(); await loadData(); if (onDone) onDone(j.result); }
+    else msg("data-msg", j.status === "cancelled" ? "Cancelled." : (j.error || j.status), "err");
+  } catch (err) { msg("data-msg", err.message, "err"); }
+  finally { JOB_BUSY = false; jobButtons(false); }
+}
+const DATA_JOB_TITLES = { download: "Downloading from football-data.org", update: "Updating from football-data.org",
+  training: "Training the model", "demo data": "Loading the demo data", "Süper Lig + Eliteserien build": "Building Süper Lig + Eliteserien" };
+function resumeJob(j) {
+  if (j.kind === "backtest") { openTab("backtest"); followBacktest(j); return; }
+  openTab("data"); followDataJob(j, DATA_JOB_TITLES[j.kind] || j.kind);
+}
+function jobBtn(label, cls, onClick, off) {
+  const b = el("button", { type: "button", class: (cls || "ghost") + " jobbtn" }, label);
+  if (off) { b.dataset.off = "1"; b.disabled = true; }
+  if (JOB_BUSY) b.disabled = true;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// ------------------------------------------------------------ data tab: cards
+let DATA = null, SETTINGS = null;
+async function loadData() {
+  try {
+    [DATA, SETTINGS] = await Promise.all([api("/api/data"), api("/api/settings")]);
+    await refreshStatus();
+    renderSetup(); renderData(DATA); renderTrain(DATA); renderExtra(); renderMergeCard(DATA); renderNames(); renderSettings();
+  } catch (err) { msg("data-msg", err.message, "err"); }
+}
+const kv = (k, v) => [el("dt", {}, k), el("dd", {}, v)];
+
+function keyField(onSaved) {
+  const key = el("input", { type: "password", placeholder: "paste your football-data.org API key", autocomplete: "off", "aria-label": "API key" });
+  const save = el("button", { type: "button", class: "ghost" }, "Save key");
+  save.addEventListener("click", async () => {
+    try { SETTINGS = await api("/api/settings", { api_key: key.value }); msg("data-msg", "API key saved.", ""); if (onSaved) onSaved(); else loadData(); }
+    catch (err) { msg("data-msg", err.message, "err"); }
+  });
+  return el("div", { class: "btnrow" }, el("div", { style: "flex:1;min-width:220px" }, key), save,
+    el("a", { href: "https://www.football-data.org/client/register", target: "_blank", rel: "noopener" }, "Get a free key"));
+}
+
+function renderSetup() {
+  const s = STATUS, d = DATA, box = $("setup-card");
+  if (s.ready) { box.classList.add("hidden"); return; }
+  const step = (done, n, title, ...body) => el("li", { class: done ? "done" : "" }, el("span", { class: "num" }, done ? "✓" : n),
+    el("div", {}, el("b", {}, title), ...body));
+  const hasData = s.has_data;
+  const dl = jobBtn("Download my leagues", "primary", () => runJob("/api/data/download", { force: false }, DATA_JOB_TITLES.download), !SETTINGS.api_key_set || d.exists);
+  const demo = jobBtn("Load demo data", "ghost", () => runJob("/api/data/demo", {}, DATA_JOB_TITLES["demo data"]), d.exists);
+  const quick = jobBtn("Train model (quick, a few minutes)", "primary", () => runJob("/api/train", { quick: true }, DATA_JOB_TITLES.training, trainDone), !hasData);
+  put(box, el("h2", {}, "Get started", el("span", { class: "conf" }, "three steps, all in this page")),
+    el("ol", { class: "steps" },
+      step(hasData, 1, hasData ? `Matches loaded: ${s.matches.toLocaleString()} (${s.data_source})` : "Add your matches",
+        hasData ? null : [
+          el("p", {}, "Download every match since 2022/23 for your leagues from football-data.org (free API key), or add CSV files you already have (see ", el("i", {}, "Add matches from other CSV files"), " below), or try the app with demo data."),
+          SETTINGS.api_key_set ? null : keyField(), el("div", { class: "btnrow", style: "margin-top:8px" }, dl, demo)]),
+      step(!!s.ready, 2, "Train the model", el("p", {}, "Learns from every match in your file. Quick trains 3 models; the full version (in ", el("i", {}, "Model"), " below) trains all 8 and takes longer."),
+        hasData ? quick : null),
+      step(false, 3, "Predict", el("p", {}, "Pick two teams in the Predict tab, or read fixtures from a screenshot."))));
+  box.classList.remove("hidden");
+}
+
 function renderData(d) {
-  const kv = (k, v) => [el("dt", {}, k), el("dd", {}, v)];
-  const reload = el("button", { type: "button", class: "ghost" }, "Reload from file");
-  const update = el("button", { type: "button", class: "primary" }, "Update from football-data.org");
-  reload.disabled = update.disabled = !d.exists;
-  reload.addEventListener("click", async () => {
-    reload.disabled = true; msg("data-msg", "Importing your match file…", "warn");
-    try { const r = await api("/api/data/reload", {}); renderData(r); await afterDataChange();
-      msg("data-msg", `Imported ${r.imported.toLocaleString()} matches from the file.`, "");
-    } catch (err) { msg("data-msg", err.message, "err"); } finally { reload.disabled = false; }
-  });
-  update.addEventListener("click", async () => {
-    update.disabled = true; msg("data-msg", "");
-    try {
-      const j0 = await api("/api/data/update", {});
-      $("data-job").classList.remove("hidden");
-      const j = await followJob(j0.id, (j) => { $("data-log").textContent = j.log.join("\n");
-        $("data-bar").style.width = (j.status === "running" ? 50 : 100) + "%"; });
-      if (j.status === "done") { renderData(j.result.info); await afterDataChange();
-        msg("data-msg", `Added ${j.result.added} new matches` + (j.result.corrected ? `, corrected ${j.result.corrected}` : "") + ".", ""); }
-      else msg("data-msg", j.error || j.status, "err");
-    } catch (err) { msg("data-msg", err.message, "err"); } finally { update.disabled = !d.exists; }
-  });
-  const warn = [];
-  if (!d.exists) warn.push(el("div", { class: "msg warn" }, "No match file yet. In a terminal run ", el("code", {}, "footy data download"),
-    " (with your API key in FOOTBALL_DATA_API_KEY) to build it, or put your own CSV at the path above."));
+  const update = jobBtn("Update from football-data.org", "primary", () => runJob("/api/data/update", {}, DATA_JOB_TITLES.update, (r) =>
+    msg("data-msg", `Added ${r.added} new matches` + (r.corrected ? `, corrected ${r.corrected}` : "") + ".", "")), !d.exists);
+  const reload = jobBtn("Reload from file", "ghost", async () => {
+    msg("data-msg", "Importing your match file…", "warn");
+    try { const r = await api("/api/data/reload", {}); await afterDataChange(); await loadData();
+      msg("data-msg", `Imported ${r.imported.toLocaleString()} matches from the file.`, ""); }
+    catch (err) { msg("data-msg", err.message, "err"); }
+  }, !d.exists);
+  const confirm = el("input", { type: "checkbox" });
+  const rebuild = jobBtn(d.exists ? "Download everything again" : "Download from football-data.org", d.exists ? "ghost" : "primary", () => {
+    if (d.exists && !confirm.checked) return msg("data-msg", "Tick “replace my file” first — your current file is kept as matches.csv.bak.", "warn");
+    runJob("/api/data/download", { force: d.exists }, DATA_JOB_TITLES.download);
+  }, !d.api_key);
+  const warn = [], setupShown = STATUS && !STATUS.has_data;
+  if (!d.api_key) warn.push(el("div", { class: "msg warn" }, "No football-data.org API key yet — needed to download and update. ",
+    setupShown ? "Add it under Get started above." : keyField()));
   if (d.model_data_source && d.data_source && d.model_data_source !== d.data_source)
-    warn.push(el("div", { class: "msg warn" }, `The model was trained on ${d.model_data_source} data but ${d.data_source} data is loaded — run `, el("code", {}, "footy train"), " to retrain on your file."));
-  if (d.exists && !d.api_key) warn.push(el("div", { class: "msg warn" }, "No football-data.org API key found: updates will use football-data.co.uk only. Set the environment variable FOOTBALL_DATA_API_KEY before starting the app."));
+    warn.push(el("div", { class: "msg warn" }, `The model was trained on ${d.model_data_source} data but ${d.data_source} data is loaded — train it again (Model, below).`));
   const comps = d.competitions || [];
-  $("data-card").replaceChildren(
+  put($("data-card"), 
     el("h2", {}, "Your match file", el("span", { class: "conf" }, d.auto_import ? "re-imported automatically whenever it changes" : "auto-import is off")),
     el("dl", { class: "kv" },
-      kv("File", d.path), kv("Status", d.exists ? `${(d.rows || 0).toLocaleString()} matches · ${d.size_kb} KB · modified ${d.modified}` : "not found"),
+      kv("File", d.path), kv("Status", d.exists ? `${(d.rows || 0).toLocaleString()} matches · ${d.size_kb} KB · modified ${d.modified}` : "not created yet"),
       d.first ? kv("Dates", `${d.first} → ${d.last}`) : null,
-      kv("In use", `${d.data_source} · ${d.db_matches.toLocaleString()} matches` + (d.db_first ? ` (${d.db_first} → ${d.db_last})` : "")),
-      kv("Model", `${d.model} · trained on ${d.model_data_source || "?"} data` + (d.model_trained_until ? ` · state up to ${d.model_trained_until}` : "")),
-      kv("Team-name merges", d.aliases_path)),
+      kv("In use", d.db_matches ? `${d.data_source} · ${d.db_matches.toLocaleString()} matches` + (d.db_first ? ` (${d.db_first} → ${d.db_last})` : "") : "nothing loaded yet")),
     ...warn,
     el("div", { class: "actions" }, reload, update),
     comps.length ? el("div", { class: "scroll section" }, el("table", {},
       el("thead", {}, el("tr", {}, ["Competition", "Code", "Matches", "First", "Last", "Source"].map((t) => el("th", {}, t)))),
       el("tbody", {}, comps.map((c) => el("tr", {}, el("td", { class: "team" }, c.name), el("td", {}, c.code),
         el("td", {}, c.matches.toLocaleString()), el("td", {}, c.first), el("td", {}, c.last), el("td", { class: "src" }, c.sources)))))) : null,
-    mergeBox(d),
-    el("p", { class: "pick" }, "Terminal: ", el("code", {}, "footy data update"), " adds matches since the last run · ",
-      el("code", {}, "footy data check"), " lists team names that may be the same club · ", el("code", {}, "footy train"), " retrains on the file."));
+    d.exists ? el("details", {}, el("summary", {}, "Rebuild the whole file from football-data.org"),
+      el("p", { class: "pick" }, "Downloads every season again (a few minutes on the free plan). Your current file is kept as a .bak copy. Matches you merged from other files are not re-added — merge them again afterwards."),
+      el("div", { class: "btnrow" }, el("label", { class: "inline" }, confirm, " replace my file"), rebuild))
+      : setupShown ? null : el("div", { class: "actions" }, rebuild));
+}
+
+function trainDone(r) {
+  reportLoaded = false;
+  msg("data-msg", `Model ${r.version} trained on ${r.matches.toLocaleString()} matches in ${Math.round(r.seconds / 60) || "<1"} min — you can predict now.`, "");
+  const pre = $("train-report"); if (pre) { pre.textContent = r.report; pre.parentElement.open = true; }
+}
+function renderTrain(d) {
+  const quick = el("input", { type: "radio", name: "train-kind", value: "quick", checked: "" });
+  const full = el("input", { type: "radio", name: "train-kind", value: "full" });
+  const go = jobBtn("Train model", "primary", () => runJob("/api/train", { quick: quick.checked }, DATA_JOB_TITLES.training, trainDone), !d.db_matches);
+  put($("train-card"), 
+    el("h2", {}, "Model", el("span", { class: "conf" }, "train after adding matches or leagues")),
+    d.model ? el("dl", { class: "kv" }, kv("Current", `${d.model} (${d.model_selected}) · trained ${d.model_created}`),
+      kv("Learned from", `${(d.model_matches || 0).toLocaleString()} matches · ${d.model_data_source || "?"} data · up to ${d.model_trained_until || "?"}`))
+      : el("p", { class: "pick" }, d.model_error ? `No model: ${d.model_error}.` : "No model yet."),
+    d.retrain ? el("div", { class: "msg warn" }, `Worth retraining: ${d.retrain}. Results added since training are already used for predictions; retraining also refits the models.`) : null,
+    el("div", { class: "row2", style: "margin-top:12px" },
+      el("label", { class: "inline" }, quick, " Quick — Poisson, Dixon-Coles, LightGBM (a few minutes)"),
+      el("label", { class: "inline" }, full, " Full — all 8 models, best accuracy (about 3× longer)"),
+      el("div", { class: "btns" }, go)),
+    el("details", {}, el("summary", {}, "Last training report"), el("pre", { id: "train-report", style: "margin-top:8px" }, "Train a model to see its report here, or open the Model report tab.")));
+}
+
+function renderExtra() {
+  const saved = store.get("extra") || {};
+  const sl = el("input", { type: "text", placeholder: "footballdata/super lig (folder of season files)", "aria-label": "Süper Lig files or folder" });
+  const nor = el("input", { type: "text", placeholder: "footballdata/eliteserien (NOR.csv or NOR.xlsx)", "aria-label": "Eliteserien file or folder" });
+  sl.value = saved.sl || ""; nor.value = saved.nor || "";
+  const keepTyped = () => store.set("extra", { ...(store.get("extra") || {}), sl: sl.value, nor: nor.value });
+  sl.addEventListener("input", keepTyped); nor.addEventListener("input", keepTyped);
+  const fetchBox = el("input", { type: "checkbox" }); if (saved.download) fetchBox.checked = true;
+  const mergeBox = el("input", { type: "checkbox", checked: "" });
+  const out = el("pre", { class: "hidden", style: "margin-top:10px" });
+  const go = jobBtn("Build & add", "primary", () => {
+    store.set("extra", { sl: sl.value, nor: nor.value, download: fetchBox.checked });
+    runJob("/api/data/extra", { super_lig: sl.value, eliteserien: nor.value, download: fetchBox.checked, merge: mergeBox.checked },
+      DATA_JOB_TITLES["Süper Lig + Eliteserien build"], (r) => {
+        const m = r.merge;
+        msg("data-msg", m ? `Süper Lig + Eliteserien: ${m.added} new matches added (${m.already} were already in your file).` + (m.added ? " Train the model again to learn them." : "")
+                          : `Built ${r.written.length} file(s) in data/extra (not added to your match file).`, "");
+      });
+  });
+  put($("extra-card"), 
+    el("h2", {}, "Süper Lig + Eliteserien", el("span", { class: "conf" }, "from football-data.co.uk (not in football-data.org's free plan)")),
+    el("p", { class: "pick" }, "Combines every Süper Lig season file into one, keeps Eliteserien from ", String(STATUS && DATA ? DATA.first_season : 2022),
+      " on, drops unplayed and awarded (3-0 without a game) results, and fixes team-name spellings. Leave the boxes empty to use the ",
+      el("code", {}, "footballdata"), " folder inside your footypred folder."),
+    el("div", { class: "grid-form" }, el("label", {}, "Süper Lig season files (folder or file path)", sl),
+      el("label", {}, "Eliteserien file (or its folder)", nor)),
+    el("div", { class: "row2", style: "margin-top:10px" },
+      el("label", { class: "inline" }, fetchBox, " Download the latest files from football-data.co.uk first"),
+      el("label", { class: "inline" }, mergeBox, " Add the new matches to my match file"),
+      el("div", { class: "btns" }, go)),
+    out);
 }
 
 let MERGE_REPORT = "";
-function mergeBox(d) {
-  const paths = el("textarea", { rows: "2", placeholder: "C:\\Users\\you\\Downloads\\T1.csv\nC:\\Users\\you\\Downloads\\NOR.csv   (one file or folder per line)", "aria-label": "CSV files or folders" });
+function renderMergeCard(d) {
+  const paths = el("textarea", { rows: "2", placeholder: "C:\\Users\\you\\Downloads\\T1.csv\nC:\\Users\\you\\Downloads\\NOR.xlsx   (one file or folder per line)", "aria-label": "CSV files or folders" });
   paths.value = store.get("merge-paths") || "";
+  paths.addEventListener("input", () => store.set("merge-paths", paths.value));
   const comp = el("select", {}, el("option", { value: "" }, "Auto (from the file)"),
     (d.config_competitions || []).map((c) => el("option", { value: c.code }, `${c.name} (${c.code})`)));
   const fill = el("input", { type: "checkbox" }), all = el("input", { type: "checkbox" });
   const out = el("pre", { class: MERGE_REPORT ? "" : "hidden", style: "margin-top:10px" }, MERGE_REPORT);
-  const preview = el("button", { type: "button", class: "ghost" }, "Preview");
-  const go = el("button", { type: "button", class: "primary" }, "Merge into my file");
   const run = async (dry) => {
     store.set("merge-paths", paths.value);
     preview.disabled = go.disabled = true; msg("data-msg", dry ? "Checking…" : "Merging…", "warn");
@@ -845,25 +1017,83 @@ function mergeBox(d) {
         all_seasons: all.checked, dry_run: dry });
       MERGE_REPORT = r.text; out.textContent = r.text; out.classList.remove("hidden");
       if (!dry && (r.added || r.filled)) {
-        renderData(r.info); await afterDataChange();
-        msg("data-msg", `Merged: ${r.added} new matches` + (r.filled ? `, filled ${r.filled}` : "") + ".", "");
+        await afterDataChange(); DATA = r.info; renderData(DATA); renderTrain(DATA); renderSetup();
+        msg("data-msg", `Merged: ${r.added} new matches` + (r.filled ? `, filled ${r.filled}` : "") + ". Train the model again to learn them.", "");
       } else msg("data-msg", dry ? `Preview: would add ${r.added} matches (${r.already} already in the file).` : "Nothing new to add.", "");
     } catch (err) { msg("data-msg", err.message, "err"); }
-    finally { preview.disabled = go.disabled = false; }
+    finally { preview.disabled = go.disabled = JOB_BUSY; }
   };
-  preview.addEventListener("click", () => run(true));
-  go.addEventListener("click", () => run(false));
-  return el("div", { class: "section" },
+  const preview = jobBtn("Preview", "ghost", () => run(true));
+  const go = jobBtn("Merge into my file", "primary", () => run(false));
+  put($("merge-card"), 
     el("h2", {}, "Add matches from other CSV files", el("span", { class: "conf" }, "only matches not in your file yet are added")),
-    el("label", {}, "Files or folders on this PC", paths),
+    el("label", {}, "Files or folders on this PC (CSV or Excel)", paths),
     el("div", { class: "row2", style: "margin-top:10px" },
       el("label", {}, "Competition (for files without one)", comp),
       el("label", { class: "inline" }, fill, "Also fill empty odds/stats on matches already there"),
       el("label", { class: "inline" }, all, `Keep seasons before ${d.first_season}/${String(d.first_season + 1).slice(2)}`),
       el("div", { class: "btns" }, preview, go)),
     el("p", { class: "pick" }, "Works with football-data.co.uk files (league files like ", el("code", {}, "T1.csv"),
-      ", country files like ", el("code", {}, "NOR.csv"), "), another footypred file, or any CSV with date, home, away and goal columns."),
+      ", country files like ", el("code", {}, "NOR.csv"), "), another footypred file, or any CSV with date, home, away and goal columns. Files are read from your disk — nothing is uploaded."),
     out);
+}
+
+function renderNames(pairs) {
+  const check = jobBtn(pairs ? "Check again" : "Check team names", "ghost", async () => {
+    try { renderNames(await api("/api/data/names")); } catch (err) { msg("data-msg", err.message, "err"); }
+  });
+  const merge = async (from, to) => {
+    try { const r = await api("/api/data/alias", { from, to }); await afterDataChange();
+      msg("data-msg", `“${from}” is now “${to}” everywhere (saved in ${r.aliases_path}).`, ""); renderNames(r.pairs); }
+    catch (err) { msg("data-msg", err.message, "err"); }
+  };
+  const fromIn = el("input", { type: "text", placeholder: "name to replace, e.g. Man Utd", "aria-label": "Name to replace" });
+  const toIn = el("input", { type: "text", placeholder: "keep this name, e.g. Manchester United", "aria-label": "Name to keep" });
+  const add = el("button", { type: "button", class: "ghost" }, "Merge names");
+  add.addEventListener("click", () => merge(fromIn.value, toIn.value));
+  const keep = (a, b, n) => { const x = el("button", { type: "button", class: "ghost small" }, `Keep “${a}”`); x.title = `Rename ${b} to ${a} (${n} matches)`;
+    x.addEventListener("click", () => merge(b, a)); return x; };
+  put($("names-card"), 
+    el("h2", {}, "Team names", el("span", { class: "conf" }, "one club, one name")),
+    el("p", { class: "pick" }, "Finds names that look like the same club (a different spelling between sources). Only merge real duplicates — two clubs can have similar names."),
+    el("div", { class: "btnrow" }, check),
+    pairs ? (pairs.length ? el("div", { class: "scroll section" }, el("table", {},
+      el("thead", {}, el("tr", {}, ["Comp", "Name", "Matches", "Looks like", "Matches", "Similar", "Same club?"].map((t) => el("th", {}, t)))),
+      el("tbody", {}, pairs.map((p) => el("tr", {}, el("td", {}, p.competition), el("td", { class: "team" }, p.a), el("td", {}, p.a_matches),
+        el("td", { class: "team" }, p.b), el("td", {}, p.b_matches), el("td", {}, p.score + "%"),
+        el("td", {}, el("div", { class: "btnrow", style: "justify-content:flex-end" }, keep(p.a, p.b, p.a_matches), keep(p.b, p.a, p.b_matches))))))))
+      : el("p", { class: "pick" }, "✓ No look-alike names found.")) : null,
+    el("details", {}, el("summary", {}, "Merge two names by hand"),
+      el("div", { class: "grid-form", style: "margin-top:8px" }, fromIn, toIn), el("div", { class: "actions" }, add)));
+}
+
+function renderSettings() {
+  const st = SETTINGS;
+  const key = el("input", { type: "password", autocomplete: "off", placeholder: st.api_key_set ? `saved (${st.api_key_hint || "set"}) — type a new one to replace` : "not set", "aria-label": "football-data.org API key" });
+  const csv = el("input", { type: "text", value: st.csv, "aria-label": "Match file path" });
+  const first = el("input", { type: "number", min: "1990", max: "2100", step: "1", value: st.first_season, "aria-label": "First season" });
+  const save = el("button", { type: "button", class: "primary" }, "Save settings");
+  const clear = el("button", { type: "button", class: "ghost" }, "Remove saved key");
+  save.addEventListener("click", async () => {
+    const body = { csv: csv.value, first_season: first.value };
+    if (key.value.trim()) body.api_key = key.value.trim();
+    try { SETTINGS = await api("/api/settings", body); await afterDataChange(); await loadData(); msg("data-msg", "Settings saved.", ""); }
+    catch (err) { msg("data-msg", err.message, "err"); }
+  });
+  clear.addEventListener("click", async () => {
+    try { SETTINGS = await api("/api/settings", { api_key: "" }); await loadData(); msg("data-msg", "Saved API key removed.", ""); }
+    catch (err) { msg("data-msg", err.message, "err"); }
+  });
+  put($("settings-card"), 
+    el("h2", {}, "Settings", el("span", { class: "conf" }, "kept on this PC only")),
+    el("div", { class: "grid-form" },
+      el("label", {}, "football-data.org API key", key),
+      el("label", {}, "Match file on this PC", csv),
+      el("label", {}, "First season (2022 = 2022/23)", first)),
+    st.api_key_source === "environment variable" ? el("p", { class: "pick" }, "The key in the FOOTBALL_DATA_API_KEY environment variable is used (it wins over a saved key).") : null,
+    el("p", { class: "pick" }, "No key yet? ", el("a", { href: "https://www.football-data.org/client/register", target: "_blank", rel: "noopener" }, "Register for free"),
+      " — the key arrives by email. Settings are saved in ", el("code", {}, st.settings_path), " on this PC (never committed or uploaded)."),
+    el("div", { class: "actions" }, st.api_key_source === "settings" ? clear : null, save));
 }
 
 // ------------------------------------------------------------ backtest tab
@@ -884,10 +1114,10 @@ async function initBacktest() {
     setRange(saved.from && toDay(saved.from) >= lo ? toDay(saved.from) : Math.max(lo, hi - 90),
              saved.to && toDay(saved.to) <= hi ? toDay(saved.to) : hi);
     const presets = [["Last 30 days", 30], ["Last 90 days", 90], ["Last 180 days", 180], ["Last 365 days", 365]];
-    $("bt-presets").replaceChildren(...presets.map(([t, n]) => { const b = el("button", { type: "button", class: "ghost small" }, t);
+    put($("bt-presets"), ...presets.map(([t, n]) => { const b = el("button", { type: "button", class: "ghost small" }, t);
       b.addEventListener("click", () => setRange(Math.max(lo, hi - n), hi)); return b; }));
     const comps = await api("/api/competitions");
-    $("bt-comps").replaceChildren($("bt-comps").querySelector("legend"),
+    put($("bt-comps"), $("bt-comps").querySelector("legend"),
       ...comps.map((c) => el("label", { class: "inline" }, el("input", { type: "checkbox", value: c.code, checked: "" }), `${c.name}`)));
     if (saved.retrain != null) $("bt-retrain").value = saved.retrain;
     if (saved.quick != null) $("bt-quick").checked = saved.quick;
@@ -915,18 +1145,22 @@ $("bt-form").addEventListener("submit", async (e) => {
   const body = { from: $("bt-from").value, to: $("bt-to").value, retrain_every: +$("bt-retrain").value,
     quick: $("bt-quick").checked, competitions: ticked.length === all.length ? [] : ticked };
   store.set("bt", { from: body.from, to: body.to, retrain: $("bt-retrain").value, quick: body.quick });
-  msg("bt-msg", ""); $("bt-go").disabled = true; $("bt-cancel").classList.remove("hidden");
+  msg("bt-msg", "");
+  try { followBacktest(await api("/api/backtest", body)); }
+  catch (err) { msg("bt-msg", err.message, "err"); }
+});
+async function followBacktest(j0) {
+  $("bt-go").disabled = true; $("bt-cancel").classList.remove("hidden");
   $("bt-job").classList.remove("hidden"); $("bt-bar").style.width = "0";
+  BT_JOB = j0.id;
   try {
-    const j0 = await api("/api/backtest", body);
-    BT_JOB = j0.id;
     const j = await followJob(j0.id, (j) => { $("bt-bar").style.width = pct(j.progress);
       $("bt-log").textContent = (j.log[j.log.length - 1] || "starting…") + `  ·  ${Math.round(j.seconds)}s`; });
     if (j.status === "done") renderBacktest(j.result, j.id);
     else msg("bt-msg", j.status === "cancelled" ? "Backtest cancelled." : (j.error || j.status), j.status === "cancelled" ? "warn" : "err");
   } catch (err) { msg("bt-msg", err.message, "err"); }
   finally { $("bt-go").disabled = false; $("bt-cancel").classList.add("hidden"); BT_JOB = null; }
-});
+}
 function tile(k, v, sub) { return el("div", { class: "tile" }, el("div", { class: "k" }, k), el("div", { class: "v" }, v), sub ? el("div", { class: "s" }, sub) : null); }
 function renderBacktest(r, jobId) {
   const m = r.metrics, b = r.bookmaker || {}, bt = r.betting;
@@ -961,7 +1195,7 @@ function renderBacktest(r, jobId) {
       el("a", { href: "data:image/png;base64," + r.chart_png, download: `backtest_${r.start}_${r.end}.png` }, "Download PNG")),
     el("img", { src: "data:image/png;base64," + r.chart_png, alt: "Backtest: best-pick hit rate over time by style, profit at bookmaker odds, results by competition, reliability of 1X2, over 2.5, BTTS and team goals" }));
   const t0 = r.trainings[0];
-  $("bt-result").replaceChildren(
+  put($("bt-result"), 
     el("div", { class: "headline" }, el("h1", {}, `Backtest ${r.start} → ${r.end}`),
       el("div", { class: "meta" }, `trained on ${t0.matches.toLocaleString()} matches ${t0.first} → ${t0.cutoff} (model ${t0.model}, ${t0.models.join(", ")})` +
         (r.trainings.length > 1 ? ` · retrained ${r.trainings.length - 1}×` : " · results fed in day by day") + ` · ${Math.round(r.seconds)}s`)),

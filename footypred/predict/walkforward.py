@@ -31,7 +31,7 @@ from footypred.predict.picks import FormIndex, backtest, base_rates
 
 log = get_logger("predict.walkforward")
 
-QUICK_MODELS = ["poisson", "dixon_coles", "lightgbm"]
+from footypred.models.pipeline import QUICK_MODELS  # noqa: E402,F401  (re-exported)
 STYLES = ("safe", "balanced", "bold")
 # bookmaker odds column for a pick, where the match file has them
 PICK_ODDS = {"home_win": "odds_h", "draw": "odds_d", "away_win": "odds_a",

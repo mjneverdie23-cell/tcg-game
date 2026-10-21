@@ -1,8 +1,8 @@
 """Build the Süper Lig and Eliteserien files for footypred from
 football-data.co.uk downloads, and optionally add them to your match file.
 
-football-data.org's free plan doesn't cover these two leagues, so they come
-from football-data.co.uk instead:
+The web app does the same from the Data tab (Süper Lig + Eliteserien card);
+this script is for doing it from a terminal or a scheduled task.
 
     Süper Lig     one file per season   mmz4281/2526/T1.csv  (saved as 2025.csv ...)
     Eliteserien   one file, all seasons new/NOR.csv  (CSV or saved as NOR.xlsx)
@@ -25,8 +25,8 @@ Usage (from the project folder):
         --eliteserien D:/footballdata/eliteserien/NOR.xlsx --merge
 
 --merge adds only the matches your match file doesn't have yet (the same as
-`footy data merge`). Run `footy train` afterwards so the model learns the
-new matches.
+`footy data merge`). Train the model afterwards (Data tab > Train, or
+`footy train`).
 """
 
 from __future__ import annotations
@@ -38,52 +38,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))           # works without `pip install -e .` too
 
-from footypred.config import load_config                      # noqa: E402
-from footypred.data import localfile as lf                    # noqa: E402
-from footypred.data.sources.football_data import season_code  # noqa: E402
-from footypred.data.sources.football_data_org import season_of  # noqa: E402
-
-COUK = "https://www.football-data.co.uk/"
-LEAGUES = {
-    #  key     output file          default input       code  calendar-year seasons
-    "T1": ("super_lig.csv", "footballdata/super lig", "T1", False),
-    "NOR": ("eliteserien.csv", "footballdata/eliteserien", "NOR", True),
-}
-
-
-def download(key: str, folder: Path, first_season: int) -> list[Path]:
-    """Fetch the latest football-data.co.uk files into `folder`."""
-    import requests
-    folder.mkdir(parents=True, exist_ok=True)
-    _, _, code, calendar = LEAGUES[key]
-    headers = {"User-Agent": "footypred (personal use)"}
-    if calendar:                                       # one file, every season
-        jobs = [(f"{COUK}new/{code}.csv", folder / f"{code}.csv")]
-    else:                                              # one file per season
-        import pandas as pd
-        last = season_of(str(pd.Timestamp.today().date()), False)
-        jobs = [(f"{COUK}mmz4281/{season_code(s)}/{code}.csv", folder / f"{s}.csv")
-                for s in range(first_season, last + 1)]
-    got = []
-    for url, dest in jobs:
-        r = requests.get(url, headers=headers, timeout=60)
-        if r.status_code == 404:
-            print(f"  – {url}: not published yet")
-            continue
-        r.raise_for_status()
-        dest.write_bytes(r.content)
-        got.append(dest)
-        print(f"  ↓ {url} → {dest}")
-    return got
+from footypred.config import load_config            # noqa: E402
+from footypred.data.extra_leagues import LEAGUES, build  # noqa: E402
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--super-lig", help="folder of Süper Lig season files, or file(s) "
-                                        "(default: footballdata/super lig)", nargs="+")
-    ap.add_argument("--eliteserien", help="NOR.csv / NOR.xlsx, or its folder "
-                                          "(default: footballdata/eliteserien)", nargs="+")
+    ap.add_argument("--super-lig", nargs="+", help="folder of Süper Lig season files, or "
+                                                  "file(s) (default: footballdata/super lig)")
+    ap.add_argument("--eliteserien", nargs="+", help="NOR.csv / NOR.xlsx, or its folder "
+                                                    "(default: footballdata/eliteserien)")
     ap.add_argument("--out", help="output folder (default: data/extra)")
     ap.add_argument("--first-season", type=int, help="skip seasons before this (default: "
                                                      "first_season in the config, 2022)")
@@ -97,50 +62,15 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
-    first = args.first_season or lf.first_season(cfg)
-    specs = lf.specs_from_config(cfg)
-    aliases = lf.load_aliases(cfg)
-    out_dir = Path(args.out) if args.out else cfg.paths.data_dir / "extra"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    given = {"T1": args.super_lig, "NOR": args.eliteserien}
-    written = []
-    for key, (out_name, default_in, _, _) in LEAGUES.items():
-        if args.only and key != args.only:
-            continue
-        sources = [Path(p) for p in (given[key] or [default_in])]
-        if args.download:
-            folder = sources[0] if sources[0].is_dir() or not sources[0].suffix else sources[0].parent
-            print(f"Downloading {key} into {folder}")
-            download(key, folder, first)
-            sources = [folder]          # read what's there now (fresh files first by name)
-        missing = [p for p in sources if not p.exists()]
-        if missing:
-            flag = "--super-lig" if key == "T1" else "--eliteserien"
-            print(f"✗ {key}: {', '.join(map(str, missing))} not found — pass {flag} PATH, "
-                  "or use --download")
-            continue
-        rows, rep = lf.build_league_file(sources, specs, competition=key, first_season=first,
-                                         aliases=aliases)
-        name = next((s.name for s in specs if s.key == key), key)
-        print(lf.render_build(rep, f"\n{name} ({key})"))
-        if rows.empty:
-            print(f"  ✗ no matches from {first} on")
-            continue
-        path = lf.write_csv(rows, out_dir / out_name)
-        print(f"  → {path}  ({len(rows)} matches)")
-        written.append(path)
-
-    if args.merge and written:
-        target = lf.csv_path(cfg)
-        print(f"\nAdding new matches to {target}")
-        r = lf.merge(target, written, specs, first, aliases=aliases)
-        print(lf.render_merge(r, target))
-        if r["added"]:
-            print("\nNext: run `footy train` so the model learns the new matches.")
-    elif written:
-        print("\nTo add them to your match file: "
-              f"footy data merge {' '.join(str(p) for p in written)}   (or rerun with --merge)")
-    return 0 if written else 1
+    res = build(cfg, {"T1": args.super_lig, "NOR": args.eliteserien}, out_dir=args.out,
+                first_season=args.first_season, fetch=args.download, merge=args.merge,
+                only=args.only, base=Path.cwd())
+    if res["merge"] and res["merge"]["added"]:
+        print("\nNext: train the model (web app Data tab, or `footy train`).")
+    elif res["written"] and not args.merge:
+        print("\nTo add them to your match file: rerun with --merge, or "
+              f"footy data merge {' '.join(res['written'])}")
+    return 0 if res["written"] else 1
 
 
 if __name__ == "__main__":

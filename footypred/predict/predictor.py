@@ -204,12 +204,12 @@ class Predictor:
         now_on = self.db.get_meta("data_source")
         if trained_on and now_on and trained_on != now_on:
             warn.append(f"the model was trained on {trained_on} data but {now_on} data is "
-                        "loaded — run `footy train`")
+                        "loaded — train it again (Data tab > Model, or `footy train`)")
         last = self.state.last_date
         if last is not None and date < last:
             warn.append(f"date is before the latest result on record ({last.date()}); the "
-                        "model already knows later results, so this is not a fair backtest (use "
-                        "`footy backtest` or the Backtest tab for that)")
+                        "model already knows later results, so this is not a fair backtest (use the "
+                        "Backtest tab, or `footy backtest`, for that)")
 
         return Prediction(
             home=home, away=away, date=str(date.date()), league=league,

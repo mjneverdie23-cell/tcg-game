@@ -83,7 +83,7 @@ def test_data_and_backtest_endpoints(server):
     d = json.loads(_get(server + "/api/data")[1])
     assert d["exists"] is False and d["db_matches"] > 1000 and d["path"].endswith("matches.csv")
     code, body = _post(server + "/api/data/reload")
-    assert code == 400 and "footy data download" in body["error"]
+    assert code == 400 and "download it first" in body["error"]
     rng = json.loads(_get(server + "/api/date-range")[1])
     assert rng["first"] < rng["min_start"] < rng["last"]
     assert _post(server + "/api/backtest", {"to": "2026-05-01"})[0] == 400

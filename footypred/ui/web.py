@@ -1,5 +1,6 @@
 """Local web app: choose league and teams from dropdowns, get the
-four-market prediction, past-match evidence and analysis charts.
+four-market prediction, past-match evidence and analysis charts; build and
+update your match file, train, and backtest, all from the browser.
 
 Standard library only (http.server); binds to localhost.
 
@@ -18,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 from footypred.data.names import TeamNameError
 from footypred.logging_utils import get_logger
+from footypred.ui.service import NotReady
 
 log = get_logger("ui.web")
 
@@ -120,6 +122,12 @@ def make_handler(service):
                     self._json(service.data_info())
                 elif url.path == "/api/date-range":
                     self._json(service.date_range())
+                elif url.path == "/api/data/names":
+                    self._json(service.name_pairs())
+                elif url.path == "/api/settings":
+                    self._json(service.settings())
+                elif url.path == "/api/job/current":
+                    self._json({"job": service.jobs.current()})
                 elif url.path == "/api/job":
                     self._json(service.jobs.get(q.get("id", "")).to_dict())
                 elif url.path == "/api/backtest.csv":
@@ -135,6 +143,8 @@ def make_handler(service):
                     self.wfile.write(job.files["csv"])
                 else:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            except NotReady as exc:
+                self._json({"error": str(exc), "setup": True}, HTTPStatus.CONFLICT)
             except (TeamNameError, ValueError) as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             except Exception as exc:                      # keep the app alive
@@ -154,12 +164,27 @@ def make_handler(service):
                     self._json(service.merge_files(self._body_json()))
                 elif url.path == "/api/data/update":
                     self._json(service.start_update())
+                elif url.path == "/api/data/download":
+                    self._json(service.start_download(bool(self._body_json().get("force"))))
+                elif url.path == "/api/data/extra":
+                    self._json(service.start_extra(self._body_json()))
+                elif url.path == "/api/data/demo":
+                    self._json(service.start_demo())
+                elif url.path == "/api/data/alias":
+                    b = self._body_json()
+                    self._json(service.add_alias(b.get("from"), b.get("to")))
+                elif url.path == "/api/train":
+                    self._json(service.start_train(bool(self._body_json().get("quick"))))
+                elif url.path == "/api/settings":
+                    self._json(service.save_settings(self._body_json()))
                 elif url.path == "/api/backtest":
                     self._json(service.start_backtest(backtest_params(self._body_json())))
                 elif url.path == "/api/job/cancel":
                     self._json(service.jobs.cancel(q.get("id", "")))
                 else:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            except NotReady as exc:
+                self._json({"error": str(exc), "setup": True}, HTTPStatus.CONFLICT)
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             except Exception as exc:
@@ -206,9 +231,18 @@ def serve(cfg, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = T
     from footypred.ui.service import PredictionService
     print("Loading model and match history ...")
     service = PredictionService(cfg)
-    httpd = make_server(service, host, port)
+    try:
+        httpd = make_server(service, host, port)
+    except OSError:                       # port taken: probably already running
+        url = f"http://{host}:{port}/"
+        print(f"Port {port} is in use — footypred is probably already running: opening {url}")
+        if open_browser:
+            webbrowser.open(url)
+        return
     url = f"http://{host}:{httpd.server_address[1]}/"
-    print(f"footypred is running at {url}  (Ctrl+C to stop)")
+    if service.predictor is None:
+        print(f"Setup needed ({service.model_error}): the Data tab walks you through it.")
+    print(f"footypred is running at {url}  (keep this window open; Ctrl+C or close it to stop)")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

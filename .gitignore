@@ -3,7 +3,10 @@
 /data/
 /models/
 /logs/
-/footballdata/                 # raw football-data.co.uk downloads (scripts/extra_leagues.py)
+# raw football-data.co.uk downloads (scripts/extra_leagues.py) and your own
+# settings (may hold your API key)
+/footballdata/
+/config/local.yaml
 catboost_info/
 
 # python

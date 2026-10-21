@@ -51,6 +51,56 @@ class Config:
     raw: dict = field(default_factory=dict)
 
 
+LOCAL_SETTINGS = Path("config") / "local.yaml"   # your own settings (saved by the web app)
+
+
+def settings_path(root: str | Path | None = None) -> Path:
+    return Path(root or PROJECT_ROOT) / LOCAL_SETTINGS
+
+
+def deep_update(base: dict, extra: dict) -> dict:
+    """Merge `extra` into `base` in place, section by section."""
+    for k, v in (extra or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            deep_update(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+def load_local_settings(root: str | Path | None = None) -> dict:
+    p = settings_path(root)
+    if not p.exists():
+        return {}
+    with open(p, encoding="utf-8") as fh:
+        return yaml.safe_load(fh) or {}
+
+
+def save_local_settings(updates: dict, root: str | Path | None = None) -> Path:
+    """Write settings (API key, match-file path, first season ...) to
+    config/local.yaml, which is never committed; None removes a value."""
+    cur = load_local_settings(root)
+    deep_update(cur, updates)
+
+    def prune(d):
+        for k in list(d):
+            if isinstance(d[k], dict):
+                prune(d[k])
+                if not d[k]:
+                    del d[k]
+            elif d[k] is None or d[k] == "":
+                del d[k]
+    prune(cur)
+    p = settings_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("# Your own settings, saved by the web app (Data tab > Settings).\n"
+                 "# They override config/default.yaml. Keep this file private: it can\n"
+                 "# hold your football-data.org API key. It is never committed (.gitignore).\n")
+        yaml.safe_dump(cur, fh, sort_keys=False, allow_unicode=True)
+    return p
+
+
 def _resolve(root: Path, value: str) -> Path:
     p = Path(value)
     return p if p.is_absolute() else root / p
@@ -63,6 +113,7 @@ def load_config(path: str | Path | None = None, root: str | Path | None = None,
     path = Path(path or os.environ.get("FOOTY_CONFIG") or DEFAULT_CONFIG)
     with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
+    deep_update(raw, load_local_settings(root))     # config/local.yaml, if you saved settings
     if overrides:
         for section, values in overrides.items():
             if isinstance(values, dict):

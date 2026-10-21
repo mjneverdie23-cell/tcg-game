@@ -74,7 +74,8 @@ class ModelRegistry:
     def load(self, version: str | None = None) -> Bundle:
         version = version or self.latest_version()
         if not version:
-            raise FileNotFoundError("no trained model found - run `footy train` first")
+            raise FileNotFoundError("no trained model found - train one (web app: Data tab > "
+                                    "Model; terminal: `footy train`)")
         with open(self.dir / version / "bundle.pkl", "rb") as fh:
             return pickle.load(fh)
 

@@ -1,4 +1,4 @@
-# footypred 2.4.2 — four-market football prediction
+# footypred 2.5 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -13,6 +13,59 @@ team's past match details:
 All of these come from one joint score distribution. The probabilities are
 therefore always consistent with each other: BTTS can never exceed either
 team's chance of scoring, Over 2.5 agrees with both team totals, and so on.
+
+## Use it from your browser (no terminal needed)
+
+1. Install Python 3 from <https://www.python.org/downloads/>. On Windows,
+   tick **"Add python.exe to PATH"** during setup.
+2. Unzip footypred, then double-click the launcher:
+   * Windows: **`start_footypred.bat`**
+   * macOS: **`start_footypred.command`** (if macOS blocks it the first
+     time, right-click → Open)
+   * Linux: `./start_footypred.command`
+
+   The first start installs the packages, which takes a few minutes. After
+   that, the app opens at <http://127.0.0.1:8765/>. Keep the small window
+   open while you use it; closing it stops the app. Double-clicking again
+   while it's running just opens the page.
+3. The **Data** tab walks you through the first start:
+   - **Add your matches:**
+     - paste your free football-data.org API key and click **Download my
+       leagues**
+     - or add CSV/Excel files you already have
+     - or try the **demo data**
+   - **Train the model**, then predict.
+
+Everything you need afterwards is in the page:
+
+| Tab | What you do there |
+|---|---|
+| **Predict** | Pick league, teams, date and competition. You get the four markets, the best pick, past-match evidence and the analysis dashboard. |
+| **From image** | Drop a screenshot of fixtures, then predict them all. |
+| **Backtest** | Pick a date range with the slider. The system trains on matches before the start and predicts each day after it. You get hit rates, profit, charts and a CSV. |
+| **Model report** | Out-of-sample evaluation of the current model. |
+| **Data** | Your match file, plus everything below. |
+
+The **Data** tab has these sections:
+- **Your match file:** the file and its leagues, **Update from
+  football-data.org** (adds the latest matches), **Reload from file**, and
+  rebuild from scratch.
+- **Model:** **Train model** (quick: 3 models, a few minutes; full: all 8),
+  with a live log. A note tells you when retraining is worth it, e.g.
+  after adding leagues.
+- **Süper Lig + Eliteserien:** builds both leagues from football-data.co.uk
+  files (or downloads them) and adds them to your file.
+- **Add matches from other CSV files:** merge any CSV or Excel file on
+  your PC; only matches not in your file yet are added.
+- **Team names:** finds names that look like the same club; one click
+  merges them.
+- **Settings:** API key, where your match file lives, first season. Saved
+  on your PC in `config/local.yaml`, which is never committed.
+
+Long jobs (download, update, training, backtests) run in the background
+with a progress bar. If you reload the page, it picks the running job up
+again. `python -m footypred` also opens the app. The terminal commands
+below still exist, for scripting and scheduled tasks.
 
 ## Best pick from last-5 form
 
@@ -354,14 +407,18 @@ match-by-match table, with a full CSV download.
 A test checks that this is genuinely out of sample: changing every result
 on a day leaves that day's predictions unchanged.
 
-## Quick start
+## Quick start (terminal)
+
+The browser covers all of this (see the top); these commands are for
+scripts and scheduled tasks.
 
 ```bash
 pip install -r requirements.txt && pip install -e .
+footy app                       # the web app (same as double-clicking start_footypred)
 footy bootstrap                 # offline synthetic dataset (no network needed)
 #   or: footy data download     # your match file from football-data.org (see above)
 #   or: footy update            # scrape real data (see Data sources)
-footy train                     # tune, cross-validate, select, save (~6 min)
+footy train                     # tune, cross-validate, select, save (~6 min; --quick: ~2)
 footy predict "Arsenal" "Chelsea"
 footy predict "Man City" "Liverpool" --chart          # + 9-panel dashboard PNG
 footy predict "Brazil" "Argentina" --neutral --date 2026-11-15
@@ -507,26 +564,32 @@ rate-limited per host, retried with backoff and cached on disk.
 
 ```
 footypred/
+├── __main__.py             `python -m footypred` = the web app
 ├── cli.py                  footy bootstrap|update|data|train|predict|evaluate|teams|app|
 │                           pick|image|backtest|backtest-picks
 ├── config.py, logging_utils.py
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
 │              localfile.py (your match CSV: download, update, merge, import)
+│              extra_leagues.py (Süper Lig + Eliteserien from football-data.co.uk)
 │              synthetic.py (minute-level game-state simulator, incl. a Champions League)
 │              pipeline.py
 │              sources/ football_data_org · football_data · understat · clubelo ·
 │                       transfermarkt · fifa · weather
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
-│              trainer.py (nested CV, selection) · metrics.py · registry.py · summary.py
+│              trainer.py (nested CV, selection) · pipeline.py (train + save) ·
+│              metrics.py · registry.py · summary.py
 ├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
 │              walkforward.py (date-range backtest) · explain.py · report.py · charts.py ·
 │              batch.py
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
-└── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
-config/default.yaml         every tunable setting
+└── ui/        web.py (local web app) · static/index.html · menu.py (terminal) ·
+               service.py (predictions, data & training jobs, settings)
+config/default.yaml         every tunable setting (your own: config/local.yaml, from Settings)
+start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
+start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      51 tests: market identities, reconciliation, leakage,
+tests/                      55 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -536,7 +599,8 @@ tests/                      51 tests: market identities, reconciliation, leakage
                             football-data.org download/update (mock API), CSV
                             merge (co.uk / Excel formats, names, ±1 day), extra
                             leagues build + script (awarded results, odds fallback,
-                            ISO dates, schema upgrade), file
+                            ISO dates, schema upgrade), setup from the browser
+                            (no model/data, settings, download, train, demo, names), file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```

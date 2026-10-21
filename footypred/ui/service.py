@@ -19,6 +19,10 @@ log = get_logger("ui.service")
 INTERNATIONAL = "INT"
 
 
+class NotReady(Exception):
+    """The app needs data or a trained model first (shown as a setup step)."""
+
+
 class PredictionService:
     def __init__(self, cfg, db: Database | None = None):
         from footypred.data.localfile import sync_db
@@ -32,10 +36,21 @@ class PredictionService:
         self._load()
 
     def _load(self) -> None:
-        """(Re)build the predictor and the league/team lists from the DB."""
+        """(Re)build the predictor and the league/team lists from the DB.
+        Without a trained model (or data) the app still runs, in setup mode."""
         from footypred.data.localfile import cup_codes
         from footypred.predict.predictor import Predictor
-        self.predictor = Predictor(self.cfg, self.db)
+        self.predictor, self.model_error = None, None
+        try:
+            if self.db.count_matches():
+                self.predictor = Predictor(self.cfg, self.db)
+            else:
+                self.model_error = "no matches loaded yet"
+        except FileNotFoundError:
+            self.model_error = "no trained model yet"
+        except Exception as exc:                  # e.g. a model from an incompatible version
+            log.exception("could not load the model")
+            self.model_error = f"could not load the model: {exc}"
         tl = self.db.team_league(cup_codes(self.cfg))
         teams: dict[str, list[str]] = {}
         for team, lg in tl.items():
@@ -64,13 +79,20 @@ class PredictionService:
             return list(self._teams.get(league, []))
         return sorted(t for ts in self._teams.values() for t in ts)
 
+    def _model(self):
+        if self.predictor is None:
+            raise NotReady((self.model_error or "no trained model yet") +
+                           " — open the Data tab: add your matches, then click Train model")
+        return self.predictor
+
     # ----------------------------------------------------------- prediction
     def predict(self, home: str, away: str, date: str | None = None,
                 neutral: bool = False, chart: bool = True, pick_opts: dict | None = None,
                 competition: str | None = None):
         from footypred.predict.charts import plot_prediction
+        predictor = self._model()
         with self._lock:
-            pred = self.predictor.predict(home, away, date=date or None, neutral=neutral,
+            pred = predictor.predict(home, away, date=date or None, neutral=neutral,
                                           pick_opts=pick_opts, competition=competition or None)
             png = None
             if chart:
@@ -102,7 +124,7 @@ class PredictionService:
     def evaluation_payload(self) -> dict:
         from footypred.models.summary import render_training_report
         from footypred.predict.charts import plot_evaluation
-        b = self.predictor.bundle
+        b = self._model().bundle
         with self._lock:
             buf = io.BytesIO()
             plot_evaluation(b.result, buf)
@@ -112,9 +134,12 @@ class PredictionService:
 
     def competitions(self) -> list[dict]:
         """Competitions a fixture can be played in (for the override select)."""
+        from footypred.data.localfile import cup_codes
+        cups = cup_codes(self.cfg)
+        comps = (self.predictor.competitions if self.predictor else
+                 set(self.db.load_matches()["league"].dropna().unique()))
         return [{"code": c, "name": self.league_name(c)}
-                for c in sorted(self.predictor.competitions,
-                                key=lambda c: (c == INTERNATIONAL, c in self.predictor.cups, c))]
+                for c in sorted(comps, key=lambda c: (c == INTERNATIONAL, c in cups, c))]
 
     # ------------------------------------------------------------ your data
     def data_info(self) -> dict:
@@ -128,10 +153,7 @@ class PredictionService:
                 "data_source": self.db.get_meta("data_source", "unknown"),
                 "last_update": self.db.get_meta("last_update", ""),
                 "db_matches": self.db.count_matches(),
-                "model": self.predictor.bundle.version,
-                "model_data_source": (self.predictor.res.report or {}).get("data_source"),
-                "model_trained_until": str(self.predictor.state.last_date.date())
-                if self.predictor.state.last_date is not None else None,
+                **self._model_info(),
                 "competitions": [],
                 "config_competitions": [{"code": sp.key, "name": sp.name}
                                         for sp in lf.specs_from_config(self.cfg)],
@@ -154,11 +176,31 @@ class PredictionService:
             info["db_last"] = str(m["date"].max().date())
         return info
 
+    def _model_info(self) -> dict:
+        p = self.predictor
+        if p is None:
+            return {"model": None, "model_data_source": None, "model_trained_until": None,
+                    "model_matches": None, "model_error": self.model_error, "retrain": None}
+        rep = p.res.report or {}
+        hint, now = None, self.db.get_meta("data_source")
+        trained_n = rep.get("n_matches")
+        n = self.db.count_matches()
+        if rep.get("data_source") and now and rep["data_source"] != now:
+            hint = f"the model was trained on {rep['data_source']} data but {now} data is loaded"
+        elif trained_n and n > trained_n * 1.05 + 20:
+            hint = f"{n - trained_n:,} matches were added since the model was trained"
+        return {"model": p.bundle.version, "model_created": p.bundle.created,
+                "model_selected": p.res.selected,
+                "model_data_source": rep.get("data_source"), "model_matches": trained_n,
+                "model_trained_until": rep.get("trained_until") or (
+                    str(p.state.last_date.date()) if p.state.last_date is not None else None),
+                "model_error": None, "retrain": hint}
+
     def reload_data(self) -> dict:
         """Re-import the match file now and refresh teams and feature state."""
         from footypred.data.localfile import csv_path, sync_db
         if not csv_path(self.cfg).exists():
-            raise ValueError(f"{csv_path(self.cfg)} not found — run `footy data download` first")
+            raise ValueError(f"{csv_path(self.cfg)} not found — download it first (Data tab)")
         with self._lock:
             n = sync_db(self.cfg, self.db, force=True)
             self._load()
@@ -192,7 +234,7 @@ class PredictionService:
         from footypred.data import localfile as lf
         path = lf.csv_path(self.cfg)
         if not path.exists():
-            raise ValueError(f"{path} not found — run `footy data download` first")
+            raise ValueError(f"{path} not found — download it first (Data tab)")
 
         def work(job):
             fetcher = lf.make_fetcher(self.cfg, progress=job.say)
@@ -247,12 +289,191 @@ class PredictionService:
                 # earliest sensible start: about a year of history first
                 "min_start": str((d.min() + pd.Timedelta(days=365)).date())}
 
+    # --------------------------------------------------------- setup jobs
+    def start_download(self, force: bool = False) -> dict:
+        """Background job: build the match file from football-data.org (+ the
+        co.uk fallback), like `footy data download`."""
+        import shutil
+        from footypred.data import localfile as lf
+        path = lf.csv_path(self.cfg)
+        if path.exists() and not force:
+            raise ValueError("you already have a match file — use Update to add new matches, "
+                             "or tick 'replace my file' to rebuild it from scratch")
+
+        def work(job):
+            specs, first = lf.specs_from_config(self.cfg), lf.first_season(self.cfg)
+            end = pd.Timestamp.today().normalize()
+            total = sum(len(lf.seasons_between(first, end, sp.calendar_year)) for sp in specs)
+            done = [0]
+
+            def say(msg):
+                if msg.startswith("  "):          # one line per competition-season
+                    done[0] += 1
+                job.say(msg, done[0] / max(total, 1) * 0.95)
+            job.say(f"Downloading {len(specs)} competitions, seasons {first}/{str(first + 1)[2:]} "
+                    f"to {end.date()} (about {total * 7 // 60 + 1} min on the free plan)")
+            df = lf.download(lf.make_fetcher(self.cfg, progress=say), specs, first, end)
+            if df.empty:
+                raise ValueError("nothing was downloaded — check your API key (Settings) and "
+                                 "internet connection")
+            if path.exists():
+                shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
+            lf.write_csv(df, path)
+            job.say(f"Saved {len(df):,} matches to {path}")
+            with self._lock:
+                lf.sync_db(self.cfg, self.db)
+                self._load()
+            return {"rows": len(df), "info": self.data_info()}
+        return self.jobs.start("download", work)
+
+    def start_train(self, quick: bool = False) -> dict:
+        """Background job: train on everything loaded and switch to the new
+        model (same as `footy train`)."""
+        from footypred.models.pipeline import QUICK_MODELS, train_and_save
+        if not self.db.count_matches():
+            raise ValueError("no matches loaded yet — add your match file (or the demo data) first")
+
+        def work(job):
+            r = train_and_save(self.cfg, self.db, models=QUICK_MODELS if quick else None,
+                               say=job.say)
+            with self._lock:
+                self._load()
+            return {**r, "status": self.status()}
+        return self.jobs.start("training", work)
+
+    def start_extra(self, params: dict) -> dict:
+        """Background job: build Süper Lig + Eliteserien from football-data.co.uk
+        files (optionally downloading them) and add them to the match file."""
+        from footypred.data import localfile as lf
+        from footypred.data.extra_leagues import build
+
+        def lines(v):
+            return [x for x in (v.splitlines() if isinstance(v, str) else (v or [])) if x.strip()]
+
+        def work(job):
+            res = build(self.cfg, {"T1": lines(params.get("super_lig")),
+                                   "NOR": lines(params.get("eliteserien"))},
+                        fetch=bool(params.get("download")), merge=bool(params.get("merge", True)),
+                        say=job.say)
+            if not res["written"]:
+                raise ValueError("; ".join(res["errors"]) or "nothing was built")
+            if res["merge"] and res["merge"]["added"]:
+                with self._lock:
+                    lf.sync_db(self.cfg, self.db)
+                    self._load()
+            return {**res, "info": self.data_info()}
+        return self.jobs.start("Süper Lig + Eliteserien build", work)
+
+    def start_demo(self) -> dict:
+        """Background job: load the synthetic demo data (no internet needed)."""
+        from footypred.data import localfile as lf
+        from footypred.data.pipeline import bootstrap
+        if lf.csv_path(self.cfg).exists():
+            raise ValueError("you have your own match file — the demo data would be replaced "
+                             "by it on the next start, so it isn't loaded")
+        if self.db.count_matches() and self.db.get_meta("data_source") != "synthetic":
+            raise ValueError("real matches are already loaded")
+
+        def work(job):
+            job.say("Generating the synthetic demo seasons …", 0.1)
+            with self._lock:
+                n = bootstrap(self.cfg, self.db)
+                self.db.set_meta("csv_signature", "")
+                self._load()
+            job.say(f"Loaded {n:,} demo matches — now train a model", 1.0)
+            return {"matches": n, "info": self.data_info()}
+        return self.jobs.start("demo data", work)
+
+    # ------------------------------------------------------- names & aliases
+    def name_pairs(self) -> list[dict]:
+        """Team names that look like the same club (merge them with an alias)."""
+        from footypred.data import localfile as lf
+        path = lf.csv_path(self.cfg)
+        df = lf.read_csv(path) if path.exists() else \
+            self.db.load_matches().rename(columns={"league": "competition"})
+        df = lf.apply_aliases(df, lf.load_aliases(self.cfg))     # merges already made
+        counts = pd.concat([df["home"], df["away"]]).value_counts()
+        return [{"competition": c, "a": a, "b": b, "score": round(r),
+                 "a_matches": int(counts.get(a, 0)), "b_matches": int(counts.get(b, 0))}
+                for c, a, b, r in lf.name_check(df)]
+
+    def add_alias(self, frm: str, to: str) -> dict:
+        """Merge team name `frm` into `to` (written to your aliases file)."""
+        from footypred.data import localfile as lf
+        frm, to = (frm or "").strip(), (to or "").strip()
+        if not frm or not to or frm == to:
+            raise ValueError("give two different team names")
+        if "," in frm or "," in to:
+            raise ValueError("team names can't contain commas")
+        p = lf.aliases_path(self.cfg)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        new = not p.exists() or p.stat().st_size == 0
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(("from,to\n" if new else "") + f"{frm},{to}\n")
+        with self._lock:
+            lf.sync_db(self.cfg, self.db, force=True)
+            self._load()
+        return {"aliases_path": str(p), "pairs": self.name_pairs()}
+
+    # ------------------------------------------------------------ settings
+    def settings(self) -> dict:
+        import os
+        from footypred.config import settings_path
+        from footypred.data import localfile as lf
+        fd = self.cfg.raw.get("football_data_org") or {}
+        env = os.environ.get("FOOTBALL_DATA_API_KEY")
+        key = env or fd.get("api_key")
+        return {"api_key_set": bool(key),
+                "api_key_source": "environment variable" if env else ("settings" if key else None),
+                "api_key_hint": ("…" + key[-4:]) if key and len(key) > 8 else None,
+                "csv": str(lf.csv_path(self.cfg)), "first_season": lf.first_season(self.cfg),
+                "settings_path": str(settings_path(self.cfg.paths.root))}
+
+    def save_settings(self, params: dict) -> dict:
+        from footypred.config import deep_update, save_local_settings
+        from footypred.data import localfile as lf
+        upd: dict = {}
+        if "api_key" in params:
+            key = (params.get("api_key") or "").strip()
+            if key and (len(key) < 16 or not key.isalnum()):
+                raise ValueError("that doesn't look like a football-data.org API key "
+                                 "(32 letters and digits, from the email they sent you)")
+            upd.setdefault("football_data_org", {})["api_key"] = key or None
+        if params.get("first_season") not in (None, ""):
+            try:
+                fs = int(params["first_season"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("first season must be a year, e.g. 2022") from exc
+            if not 1990 <= fs <= pd.Timestamp.today().year:
+                raise ValueError("first season must be a year between 1990 and this year")
+            upd.setdefault("football_data_org", {})["first_season"] = fs
+        old_csv = lf.csv_path(self.cfg)
+        if params.get("csv") not in (None, ""):
+            csv = str(params["csv"]).strip().strip('"').strip("'")
+            if not csv.lower().endswith(".csv"):
+                raise ValueError("the match file must be a .csv file")
+            upd.setdefault("local_data", {})["csv"] = csv
+        if not upd:
+            return self.settings()
+        save_local_settings(upd, self.cfg.paths.root)
+        deep_update(self.cfg.raw, upd)
+        fd = self.cfg.raw.get("football_data_org") or {}
+        if fd.get("api_key") is None:
+            fd.pop("api_key", None)
+        if lf.csv_path(self.cfg) != old_csv:
+            with self._lock:
+                lf.sync_db(self.cfg, self.db, force=True)
+                self._load()
+        return self.settings()
+
     def status(self) -> dict:
-        b = self.predictor.bundle
-        return {"version": b.version, "model": b.result.selected,
-                "data_source": self.db.get_meta("data_source", "unknown"),
+        p = self.predictor
+        n = self.db.count_matches()
+        return {"ready": p is not None, "has_data": n > 0, "matches": n,
+                "version": p.bundle.version if p else None,
+                "model": p.res.selected if p else None, "model_error": self.model_error,
+                "data_source": self.db.get_meta("data_source", "none" if not n else "unknown"),
                 "last_update": self.db.get_meta("last_update", ""),
-                "matches": self.db.count_matches(),
                 "today": str(pd.Timestamp.today().date())}
 
 
@@ -309,6 +530,11 @@ class JobRunner:
                 job.status, job.error = "error", str(exc)
         threading.Thread(target=run, daemon=True).start()
         return job.to_dict()
+
+    def current(self) -> dict | None:
+        """The running job, if any (so a reloaded page can follow it again)."""
+        job = next((j for j in self.jobs.values() if j.status == "running"), None)
+        return job.to_dict() if job else None
 
     def get(self, job_id: str) -> Job:
         if job_id not in self.jobs:
