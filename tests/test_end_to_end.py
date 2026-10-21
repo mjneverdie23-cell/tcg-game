@@ -39,7 +39,7 @@ def test_full_pipeline(cfg, populated_db, tmp_path):
     assert pred.evidence["home"]["last"]["n"] == 10
     json.dumps(pred.to_dict(), default=float)
     text = render(pred)
-    for section in ("MATCH RESULT", "OVER/UNDER 2.5", "TEAM GOALS", "BOTH TEAMS TO SCORE",
+    for section in ("MATCH RESULT", "TOTAL GOALS OVER/UNDER", "TEAM GOALS", "BOTH TEAMS TO SCORE",
                     "PAST-MATCH EVIDENCE"):
         assert section in text
 

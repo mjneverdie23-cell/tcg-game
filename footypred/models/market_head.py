@@ -30,7 +30,7 @@ from sklearn.preprocessing import StandardScaler
 
 from footypred.logging_utils import get_logger
 from footypred.models.metrics import outcomes
-from footypred.models.scorematrix import BINARY_MARKETS, market_probs, masks
+from footypred.models.scorematrix import BINARY_MARKETS, EXTRA_MARKETS, market_probs, masks
 
 log = get_logger("models.market_head")
 
@@ -45,7 +45,7 @@ def _logit(p):
 def probs_from_grids(grids) -> dict[str, np.ndarray]:
     p = market_probs(grids)
     out = {"1x2": np.column_stack([p["home"], p["draw"], p["away"]])}
-    out.update({k: p[k] for k in BINARY_MARKETS})
+    out.update({k: p[k] for k in BINARY_MARKETS + EXTRA_MARKETS})
     return out
 
 

@@ -63,14 +63,22 @@ def _pick_opts(args) -> dict:
         o["form_weight"] = args.form_weight
     if getattr(args, "min_lift", None) is not None:
         o["min_lift"] = args.min_lift
+    if getattr(args, "max_odds", None) is not None:
+        o["max_odds"] = args.max_odds
+    if getattr(args, "style", None):
+        o["style"] = args.style
     return o
 
 
 def _add_pick_args(p):
+    p.add_argument("--style", choices=["safe", "balanced", "bold"],
+                   help="pick style = fair-odds range: safe 1.15-1.60, balanced 1.25-2.20 "
+                        "(default), bold 1.60-3.50")
     p.add_argument("--markets", help="markets the best pick may come from, comma separated: "
-                   "1x2,ou25,btts,team_totals (default: all)")
+                   "1x2,totals,btts,team_totals (default: all)")
+    p.add_argument("--max-odds", type=float, help="skip selections with fair odds above this")
     p.add_argument("--min-odds", type=float, help="skip selections with fair odds below this "
-                   "(default 1.12)")
+                   "(default: set by --style)")
     p.add_argument("--form-weight", type=float, help="0..1, how much last-5 form decides the "
                    "best pick vs the model (default 0.6)")
     p.add_argument("--min-lift", type=float, help="how far above a typical game a pick must be "

@@ -1,4 +1,4 @@
-# footypred 2.2 — four-market football prediction
+# footypred 2.3 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -6,7 +6,7 @@ team's past match details:
 | Market | Output |
 |---|---|
 | **1X2** | home / draw / away probabilities, fair odds, pick + strength |
-| **Over/Under 2.5 goals** | over / under probabilities |
+| **Total goals Over/Under** | 2.5 (main line), plus 1.5 and 3.5 |
 | **Team goals Over/Under 0.5 · 1.5 · 2.5** | per team, all three lines |
 | **Both teams to score** | yes / no |
 
@@ -19,6 +19,8 @@ team's chance of scoring, Over 2.5 agrees with both team totals, and so on.
 For every fixture the system looks at:
 * each team's **last 5 matches**
 * each team's **last 5 home games** and **last 5 away games**
+* each team's **last 5 games against opponents rated like this opponent**
+  (Elo at the time of each game, within ±80, widened to ±160)
 * the **last 5 head-to-head meetings**
 
 In each window it counts scored 1+/2+/3+, conceded 1+/2+/3+, clean sheets,
@@ -26,17 +28,37 @@ failed to score, BTTS, over 2.5 and W-D-L. It also writes plain-language
 profiles for each team, e.g. "Arsenal at home: scores often (4/5), keeps
 clean sheets (3/5)".
 
-Every selection in the four markets (19 in total) is then scored by how
-often it landed in those games. The venue that matches the fixture counts
-most: the home team's home games and the away team's away games. The
-**best pick** is the selection that recent form supports most, using the
-model probability as a sanity check:
+Every selection in the four markets (23 in total, including total goals
+over/under 1.5, 2.5 and 3.5) is then scored by how often it landed in
+those games. Games against similar opponents count most, then the venue
+that matches the fixture (the home team's home games and the away team's
+away games). The **best pick** is the selection that recent form supports
+most, using the model probability as a sanity check:
 
 ```
 score = 0.6 × form rate + 0.4 × model probability        (form_weight, configurable)
-eligible only if  form ≥ 60%,  model ≥ 50%,  fair odds ≥ 1.12,
-                  and ≥ 5 points above a typical game in that league
+eligible only if  fair odds are inside the pick style's range,
+                  form and model clear the style's minimums,
+                  and it is ≥ 5 points above a typical game in that league
 ```
+
+| Pick style | Fair odds | Min model | Min form |
+|---|---|---|---|
+| safe | 1.15 – 1.60 | 60% | 60% |
+| **balanced** (default) | 1.25 – 2.20 | 45% | 55% |
+| bold | 1.60 – 3.50 | 30% | 45% |
+
+**Lopsided matches.** When one side is a big favourite, its "safe" lines
+(favourite over 0.5, underdog under 2.5) are about 1.03–1.10: not worth a
+bet. These are flagged as *too short*, and the pick moves up the ladder to
+over 1.5 goals, the favourite to win, the favourite over 1.5, BTTS No, or
+total over 2.5. The "vs similar opponents" window makes those bigger lines
+judgeable. "Bayern's last 5 home games" were mostly against average sides;
+"Bayern's last 5 vs teams rated like Heidenheim" shows what happens in a
+mismatch. Example (synthetic data): **PSG vs Metz**. Metz under 2.5 is 96%
+at 1.04 (too short), so the best pick is **Over 1.5 goals at 1.27**, with
+2+ goals in 5/5 of PSG's games vs teams like Metz and 5/5 of Metz's games
+vs teams like PSG.
 
 For example: team A scores and keeps clean sheets at home, and team B
 scores and concedes both home and away. The best pick is **A over 0.5
@@ -47,12 +69,21 @@ market, and warns when form and model disagree.
 **Is it accurate?** `footy backtest-picks` replays the out-of-sample
 seasons. For each match it uses only games played before it plus the
 model's out-of-fold probabilities, and checks whether the best pick landed.
-On the synthetic data (2,982 test matches):
+On the synthetic data (2,982 test matches; 484 of them lopsided, with a
+favourite at 62%+):
 
-| | best picks landed | model said | form said |
+| | avg fair odds | best picks landed | model said |
 |---|---|---|---|
-| default settings | 79.9% | 80.4% | 79.4% |
-| raw last-5 rates of 80–100% | 82% | — | 88% |
+| safe | 1.25 | 80.3% | 80.4% |
+| **balanced** | 1.36 | 72.4% | 73.9% |
+| bold | 1.82 | 54.4% | 55.6% |
+| lopsided, old v2.2 rule | **1.18** (mostly favourite over 0.5) | 85.5% | 84.9% |
+| lopsided, balanced | **1.38** (over 1.5, favourite win, underdog under 1.5, BTTS No) | 75.6% | 73.5% |
+| raw last-5 rates of 80–100% | — | 82% | form said 88% |
+
+Total over/under 1.5 and 3.5 are read off the reconciled score matrix and
+are well calibrated out of sample: calibration error 1.2% and 0.5%
+(O/U 2.5: 1.5%).
 
 Two things follow. **The model's probability is the honest number** (picks
 land as often as it says), while **raw last-5 streaks overstate**: a 5/5
@@ -62,9 +93,10 @@ lines winning every time. Without it, "<team> under 2.5 goals" won most
 fixtures. Re-run the backtest on real data after `footy update`, because
 form may carry more signal there than in the synthetic world.
 
-Options: `--markets 1x2,ou25,btts,team_totals`, `--min-odds`,
-`--form-weight` (1.0 lets form decide alone), `--min-lift`; the web app has
-market checkboxes and a minimum-odds box.
+Options: `--style safe|balanced|bold`, `--markets 1x2,totals,btts,team_totals`,
+`--min-odds`, `--max-odds`, `--form-weight` (1.0 lets form decide alone),
+`--min-lift`. The web app has a pick-style menu, market checkboxes and a
+min-odds box (blank means the style decides).
 
 ## Predict from a screenshot (one image, many matches)
 
@@ -283,10 +315,11 @@ footypred/
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      35 tests: market identities, reconciliation, leakage,
+tests/                      37 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
                             image layouts, OCR on a real browser screenshot,
-                            Claude reader (mocked), image upload endpoint
+                            Claude reader (mocked), image upload endpoint,
+                            lopsided-match ladder, pick styles, older bundles
 ```

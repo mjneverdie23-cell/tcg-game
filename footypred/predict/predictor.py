@@ -71,6 +71,8 @@ def _market_view(p: dict) -> dict:
     return {
         "1x2": {"home": r(p["1x2"][0]), "draw": r(p["1x2"][1]), "away": r(p["1x2"][2])},
         "over_under_2.5": {"over": r(p["o25"]), "under": r(1 - p["o25"])},
+        "totals": {f"over_{l}": r(p[k]) for l, k in (("1.5", "o15"), ("2.5", "o25"),
+                                                    ("3.5", "o35")) if k in p},
         "btts": {"yes": r(p["btts"]), "no": r(1 - p["btts"])},
         "team_totals": {"home": tt("h"), "away": tt("a")},
     }

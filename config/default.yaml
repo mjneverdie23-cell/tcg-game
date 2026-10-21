@@ -60,13 +60,15 @@ prediction:
   min_confidence_warn: 35
 
 picks:                          # last-5 form check + best pick
-  window: 5                     # last N matches / home games / away games / H2H
+  window: 5                     # last N matches / home / away / vs similar opponents / H2H
+  style: balanced               # safe: fair odds 1.15-1.60 · balanced: 1.25-2.20 · bold: 1.60-3.50
+                                # (each style also sets min_model / min_form; override below)
   form_weight: 0.6              # 1.0 = form decides alone, 0.0 = model alone
-  min_form: 0.6                 # pick must have landed in >= 60% of form games
-  min_model: 0.5                # ... and the model must give it >= 50%
-  min_odds: 1.12                # skip ultra-safe lines (fair odds below this)
   min_lift: 0.05                # must beat the league's typical rate for that selection
                                 # by 5 points (0 = allow "safe but ordinary" picks)
+  # min_odds: 1.25              # explicit overrides of the style, if you want them
+  # max_odds: 2.20
+  # markets: [1x2, totals, btts, team_totals]
 
 image:                          # reading fixtures from screenshots
   engine: auto                  # auto | ocr (offline) | claude (needs `pip install

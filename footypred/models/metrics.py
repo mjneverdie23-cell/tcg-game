@@ -22,7 +22,8 @@ def outcomes(y_h, y_a) -> dict[str, np.ndarray]:
     res = np.where(y_h > y_a, 0, np.where(y_h == y_a, 1, 2))
     return {
         "1x2": res,
-        "o25": (y_h + y_a > 2).astype(int), "btts": ((y_h > 0) & (y_a > 0)).astype(int),
+        "o15": (y_h + y_a > 1).astype(int), "o25": (y_h + y_a > 2).astype(int),
+        "o35": (y_h + y_a > 3).astype(int), "btts": ((y_h > 0) & (y_a > 0)).astype(int),
         "h_o05": (y_h > 0).astype(int), "h_o15": (y_h > 1).astype(int),
         "h_o25": (y_h > 2).astype(int), "a_o05": (y_a > 0).astype(int),
         "a_o15": (y_a > 1).astype(int), "a_o25": (y_a > 2).astype(int),
@@ -87,6 +88,14 @@ def evaluate(probs: dict[str, np.ndarray], y_h, y_a) -> dict:
         res[k] = {"logloss": ll, "skill": 1 - ll / ll0 if ll0 > 0 else 0.0,
                   "brier": brier_binary(p, yk), "accuracy": float(((p > 0.5) == yk).mean()),
                   "ece": ece(p, yk)}
+    for k in ("o15", "o35"):              # extra lines: reported, not part of selection
+        if k in probs:
+            p, yk = probs[k], out[k]
+            ll = binary_logloss(p, yk)
+            ll0 = binary_logloss(np.full(len(yk), yk.mean()), yk)
+            res[k] = {"logloss": ll, "skill": 1 - ll / ll0 if ll0 > 0 else 0.0,
+                      "brier": brier_binary(p, yk), "accuracy": float(((p > 0.5) == yk).mean()),
+                      "ece": ece(p, yk)}
     groups = {g: float(np.mean([res[m]["skill"] for m in ms])) for g, ms in MARKET_GROUPS.items()}
     res["groups"] = groups
     res["combined_skill"] = float(np.mean(list(groups.values())))

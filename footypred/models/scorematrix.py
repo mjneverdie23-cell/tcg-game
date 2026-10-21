@@ -21,6 +21,8 @@ G_DEFAULT = 11  # 0..10 goals
 
 # binary markets, in canonical order (1X2 handled separately as 3-way)
 BINARY_MARKETS = ["o25", "btts", "h_o05", "h_o15", "h_o25", "a_o05", "a_o15", "a_o25"]
+# extra total-goals lines: read off the reconciled matrix (not separately calibrated)
+EXTRA_MARKETS = ["o15", "o35"]
 MARKET_LABELS = {
     "1x2": "Match result (1X2)", "o25": "Over 2.5 goals", "btts": "Both teams to score",
     "h_o05": "Home over 0.5", "h_o15": "Home over 1.5", "h_o25": "Home over 2.5",
@@ -32,7 +34,8 @@ def _masks(G: int) -> dict[str, np.ndarray]:
     i, j = np.indices((G, G))
     return {
         "home": i > j, "draw": i == j, "away": i < j,
-        "o25": (i + j) > 2, "btts": (i > 0) & (j > 0),
+        "o15": (i + j) > 1, "o25": (i + j) > 2, "o35": (i + j) > 3,
+        "btts": (i > 0) & (j > 0),
         "h_o05": i > 0, "h_o15": i > 1, "h_o25": i > 2,
         "a_o05": j > 0, "a_o15": j > 1, "a_o25": j > 2,
     }

@@ -2,7 +2,8 @@ import numpy as np
 
 from footypred.models.market_head import probs_from_grids, reconcile
 from footypred.models.metrics import evaluate, outcomes
-from footypred.models.scorematrix import ScoreMatrix, market_probs, poisson_grids
+from footypred.models.scorematrix import (BINARY_MARKETS, ScoreMatrix, market_probs,
+                                          poisson_grids)
 
 
 def test_market_identities():
@@ -13,6 +14,7 @@ def test_market_identities():
     assert np.all(p["h_o05"] >= p["h_o15"]) and np.all(p["h_o15"] >= p["h_o25"])
     # O2.5 must be at least P(home scores 3+)
     assert np.all(p["o25"] >= p["h_o25"])
+    assert np.all(p["o15"] >= p["o25"]) and np.all(p["o25"] >= p["o35"])
 
 
 def test_poisson_marginals_and_dc():
@@ -28,7 +30,7 @@ def test_reconcile_hits_consistent_targets():
     truth = poisson_grids([1.7, 0.7], [0.9, 1.8], rho=-0.1)
     target = probs_from_grids(truth)
     out = probs_from_grids(reconcile(start, target, iters=300))
-    for k in target:
+    for k in ["1x2"] + BINARY_MARKETS:              # the markets reconciliation targets
         np.testing.assert_allclose(out[k], target[k], atol=2e-3)
 
 

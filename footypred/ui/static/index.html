@@ -61,6 +61,7 @@ select, input[type="date"] { font: inherit; color: var(--ink); background: var(-
 .row2 { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .row2 label.inline { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 14px;
   padding-bottom: 9px; }
+.btns { display: flex; gap: 10px; margin-left: auto; align-items: end; }
 button.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
   padding: 10px 22px; font: inherit; font-weight: 600; cursor: pointer; }
 button.primary:disabled { opacity: .6; cursor: progress; }
@@ -204,14 +205,20 @@ button.small { padding: 5px 10px; font-size: 13px; }
         <label class="inline"><input type="checkbox" id="neutral"> Neutral venue</label>
         <fieldset class="mk" id="markets"><legend>Best pick from</legend>
           <label class="inline"><input type="checkbox" value="1x2" checked> 1X2</label>
-          <label class="inline"><input type="checkbox" value="ou25" checked> O/U 2.5</label>
+          <label class="inline"><input type="checkbox" value="totals" checked> Total goals</label>
           <label class="inline"><input type="checkbox" value="btts" checked> BTTS</label>
           <label class="inline"><input type="checkbox" value="team_totals" checked> Team goals</label>
         </fieldset>
-        <label>Min odds<input type="number" id="min-odds" min="1" max="10" step="0.01" value="1.12"></label>
-        <div class="spacer"></div>
-        <button type="button" class="ghost" id="swap" title="Swap home and away">⇄ Swap</button>
-        <button type="submit" class="primary" id="go">Predict</button>
+        <label>Pick style<select id="style">
+          <option value="safe">Safe · odds 1.15–1.60</option>
+          <option value="balanced" selected>Balanced · odds 1.25–2.20</option>
+          <option value="bold">Bold · odds 1.60–3.50</option>
+        </select></label>
+        <label>Min odds<input type="number" id="min-odds" min="1" max="10" step="0.01" placeholder="auto"></label>
+        <div class="btns">
+          <button type="button" class="ghost" id="swap" title="Swap home and away">⇄ Swap</button>
+          <button type="submit" class="primary" id="go">Predict</button>
+        </div>
       </div>
     </form>
     <div id="error" class="msg err hidden"></div>
@@ -355,7 +362,14 @@ function evidenceList(name, ev) {
 }
 function bestPickCard(p) {
   const f = p.form, b = f.best_pick;
-  const kids = [el("div", { class: "kicker" }, `★ Best pick — last ${f.window} form + model`)];
+  const st = f.settings || {};
+  const kids = [el("div", { class: "kicker" }, `★ Best pick — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}`)];
+  if (f.gap && f.gap.lopsided)
+    kids.push(el("div", { class: "pick", style: "margin:6px 0 0" }, el("b", {}, "Big strength gap: "),
+      `${f.gap.favourite} win ${pct(f.gap.win_prob)} (Elo gap ${Math.abs(f.gap.elo_gap).toFixed(0)}) — the favourite's safe lines are too short, so bigger lines are considered.`));
+  if (f.too_short)
+    kids.push(el("div", { class: "pick", style: "margin:4px 0 0" },
+      `↑ ${f.too_short.label} is ${pct(f.too_short.model_prob)} but only ${f.too_short.fair_odds.toFixed(2)} — too short, looked further up the ladder.`));
   if (b) {
     kids.push(el("div", { class: "top" }, el("div", { class: "big" }, b.label),
       el("div", { class: "nums" }, el("span", {}, "model ", el("b", {}, pct(b.model_prob))),
@@ -371,11 +385,15 @@ function bestPickCard(p) {
   for (const [side, team, venue] of [["home", p.home, "at home"], ["away", p.away, "away"]]) {
     const tags = f.profiles[side][venue].length ? f.profiles[side][venue] : f.profiles[side].overall;
     if (tags.length) kids.push(el("div", { class: "tags" }, el("b", {}, `${team} ${venue}: `), tags.join(" · ")));
+    const sim = f.profiles[side]["vs similar"] || [];
+    const other = side === "home" ? p.away : p.home;
+    if (sim.length) kids.push(el("div", { class: "tags" }, el("b", {}, `${team} vs teams rated like ${other}: `), sim.join(" · ")));
   }
   kids.push(el("div", { class: "scroll", style: "margin-top:10px" }, el("table", {},
-    el("thead", {}, el("tr", {}, ["Best in each market", "Selection", "Model", "Form", ""].map((t) => el("th", {}, t)))),
+    el("thead", {}, el("tr", {}, ["Best in each market", "Selection", "Model", "Odds", "Form", ""].map((t) => el("th", {}, t)))),
     el("tbody", {}, Object.values(f.best_by_market).map((r) => el("tr", {},
       el("td", {}, r.market_name), el("td", {}, r.label), el("td", {}, pct(r.model_prob)),
+      el("td", {}, r.fair_odds.toFixed(2)),
       el("td", {}, r.form_rate == null ? "–" : pct(r.form_rate)),
       el("td", {}, r.eligible ? strongChip("pick") : el("span", { class: "chip" }, "no clear pick"))))))));
   for (const c of f.conflicts || [])
@@ -385,15 +403,16 @@ function bestPickCard(p) {
 }
 function formCard(p) {
   const f = p.form, c = f.counts, n = f.window;
-  const cols = [["home_last", "last " + n], ["home_home", "home"], ["home_away", "away"],
-                ["away_last", "last " + n], ["away_home", "home"], ["away_away", "away"], ["h2h", "meetings"]];
+  const cols = [["home_last", "last " + n], ["home_home", "home"], ["home_away", "away"], ["home_similar", "vs similar"],
+                ["away_last", "last " + n], ["away_home", "home"], ["away_away", "away"], ["away_similar", "vs similar"],
+                ["h2h", "meetings"]];
   const rows = [["Results W-D-L", null], ["Scored 1+", "scored"], ["Scored 2+", "scored2"], ["Scored 3+", "scored3"],
     ["Conceded 1+", "conceded"], ["Conceded 2+", "conceded2"], ["Clean sheet", "clean_sheets"],
-    ["Failed to score", "failed_to_score"], ["BTTS", "btts"], ["Over 2.5", "o25"]];
+    ["Failed to score", "failed_to_score"], ["BTTS", "btts"], ["Over 1.5", "o15"], ["Over 2.5", "o25"], ["Over 3.5", "o35"]];
   const cell = (k, key) => { const x = c[k]; if (!x.n) return "–"; return key ? `${x[key]}/${x.n}` : `${x.w}-${x.d}-${x.l}`; };
   const table = el("table", { class: "form" },
-    el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", { class: "grp", colspan: "3" }, p.home),
-      el("th", { class: "grp", colspan: "3" }, p.away), el("th", { class: "grp" }, "H2H")),
+    el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", { class: "grp", colspan: "4" }, p.home),
+      el("th", { class: "grp", colspan: "4" }, p.away), el("th", { class: "grp" }, "H2H")),
       el("tr", {}, el("th", {}, ""), cols.map(([, l]) => el("th", {}, l)))),
     el("tbody", {}, rows.map(([lbl, key]) => el("tr", {}, el("td", {}, lbl), cols.map(([k]) => el("td", {}, cell(k, key)))))));
   const lists = [["home_last", `${p.home} — last ${n}`], ["away_last", `${p.away} — last ${n}`], ["h2h", "Head-to-head"]]
@@ -421,7 +440,9 @@ function render(p) {
     card("1X2 — match result", c["1x2"], el("div", { class: "bars" },
       barRow(`${p.home} win`, m["1x2"].home, "var(--home)"), barRow("Draw", m["1x2"].draw, "var(--neutral)"),
       barRow(`${p.away} win`, m["1x2"].away, "var(--away)")), pickLine(pk["1x2"])),
-    card("Over / Under 2.5 goals", c["over_under_2.5"], splitBar("Over", "Under", m["over_under_2.5"].over),
+    card("Total goals over / under", c["over_under_2.5"], splitBar("Over 2.5", "Under 2.5", m["over_under_2.5"].over),
+      m.totals ? el("div", { class: "bars", style: "margin-top:10px" },
+        ["1.5", "3.5"].filter((l) => m.totals["over_" + l] != null).map((l) => barRow(`Over ${l}`, m.totals["over_" + l], "var(--yes)"))) : null,
       pickLine(pk["over_under_2.5"])),
     card("Team goals over/under 0.5 · 1.5 · 2.5", c.team_totals,
       el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Over 0.5"), el("th", {}, "Over 1.5"), el("th", {}, "Over 2.5"))),
@@ -477,7 +498,8 @@ $("picker").addEventListener("submit", async (e) => {
     const markets = [...document.querySelectorAll("#markets input:checked")].map((x) => x.value);
     if (!markets.length) throw new Error("Tick at least one market for the best pick.");
     const q = new URLSearchParams({ home, away, date: $("date").value, neutral: $("neutral").checked ? "1" : "0",
-      markets: markets.join(","), min_odds: $("min-odds").value });
+      markets: markets.join(","), style: $("style").value });
+    if ($("min-odds").value) q.set("min_odds", $("min-odds").value);
     render(await api("/api/predict?" + q));
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) { showError(err.message); }
@@ -522,8 +544,10 @@ function imgMsg(text, kind) {
   m.classList.toggle("hidden", !text);
 }
 function pickSettings() {
-  return { markets: [...document.querySelectorAll("#markets input:checked")].map((x) => x.value).join(","),
-           min_odds: $("min-odds").value };
+  const o = { markets: [...document.querySelectorAll("#markets input:checked")].map((x) => x.value).join(","),
+              style: $("style").value };
+  if ($("min-odds").value) o.min_odds = $("min-odds").value;
+  return o;
 }
 function fixtureRow(f) {
   return el("tr", {},
@@ -588,20 +612,21 @@ async function predictAll(tbody, btn) {
 }
 function renderBatch(out) {
   const rows = out.map(({ f, p, err }) => {
-    if (err) return el("tr", {}, el("td", { class: "team" }, `${f.home} vs ${f.away}`), el("td", { colspan: "8", class: "pick-cell" }, "✗ " + err));
+    if (err) return el("tr", {}, el("td", { class: "team" }, `${f.home} vs ${f.away}`), el("td", { colspan: "9", class: "pick-cell" }, "✗ " + err));
     const b = p.form && p.form.best_pick, m = p.markets;
     const open = el("button", { type: "button", class: "ghost small" }, "Open");
     open.addEventListener("click", () => openFixture(p.home, p.away, p.date));
     return el("tr", {}, el("td", { class: "team" }, `${p.home} vs ${p.away}`), el("td", { "data-label": "Date" }, p.date),
       el("td", { class: "pick-cell", "data-label": "Best pick" }, b ? el("b", {}, b.label) : el("span", { class: "muted" }, "no clear pick")),
-      el("td", { "data-label": "Model" }, b ? pct(b.model_prob) : "–"), el("td", { "data-label": "Form" }, b ? pct(b.form_rate) : "–"),
+      el("td", { "data-label": "Model" }, b ? pct(b.model_prob) : "–"), el("td", { "data-label": "Odds" }, b ? b.fair_odds.toFixed(2) : "–"),
+      el("td", { "data-label": "Form" }, b ? pct(b.form_rate) : "–"),
       el("td", { "data-label": "1X2 H·D·A" }, `${pct(m["1x2"].home)} · ${pct(m["1x2"].draw)} · ${pct(m["1x2"].away)}`),
       el("td", { "data-label": "Over 2.5" }, pct(m["over_under_2.5"].over)), el("td", { "data-label": "BTTS" }, pct(m.btts.yes)), el("td", {}, open));
   });
   const box = $("img-results");
   box.replaceChildren(el("h2", {}, "Predictions", el("span", { class: "conf" }, "best pick = last-5 form + model · Open for the full analysis")),
     el("div", { class: "scroll" }, el("table", { class: "batch" },
-      el("thead", {}, el("tr", {}, ["Fixture", "Date", "Best pick", "Model", "Form", "1X2 H·D·A", "Over 2.5", "BTTS", ""].map((t) => el("th", {}, t)))),
+      el("thead", {}, el("tr", {}, ["Fixture", "Date", "Best pick", "Model", "Odds", "Form", "1X2 H·D·A", "Over 2.5", "BTTS", ""].map((t) => el("th", {}, t)))),
       el("tbody", {}, rows))));
   box.classList.remove("hidden");
   box.scrollIntoView({ behavior: "smooth", block: "start" });

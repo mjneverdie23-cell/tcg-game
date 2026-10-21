@@ -3,6 +3,7 @@
 For an upcoming fixture it looks at
 
     each team's last 5 matches, last 5 home games and last 5 away games
+    each team's last 5 games against opponents rated like this opponent
     the last 5 head-to-head meetings
 
 counts how often each team scored and conceded (1+, 2+, 3+), kept clean
@@ -15,8 +16,13 @@ probability as a sanity check:
     score = form_weight * form_rate(shrunk) + (1 - form_weight) * model_prob
 
 A selection is only eligible when both form and model back it
-(form >= min_form, model >= min_model) and its fair odds clear min_odds,
-so trivially safe lines don't win by default.
+(form >= min_form, model >= min_model), it beats a typical game in that
+league (min_lift), and its fair odds sit inside the style's range
+(safe / balanced / bold). In a lopsided match the favourite's safe lines
+are too short to be worth a bet, so the pick moves up the ladder: bigger
+team lines, the win, total goals, BTTS. The "vs similar opponents" window
+is what makes those bigger lines judgeable: it shows how the favourite
+does against teams like this opponent, not against an average side.
 
 Windows are read from match history strictly before the fixture date, so
 the same code is used for live picks and for the out-of-sample backtest.
@@ -30,14 +36,34 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-MARKETS = ("1x2", "ou25", "btts", "team_totals")
-MARKET_NAMES = {"1x2": "Match result", "ou25": "Over/Under 2.5", "btts": "Both teams to score",
+MARKETS = ("1x2", "totals", "btts", "team_totals")
+MARKET_NAMES = {"1x2": "Match result", "totals": "Total goals", "btts": "Both teams to score",
                 "team_totals": "Team goals"}
-DEFAULTS = {"window": 5, "form_weight": 0.6, "min_form": 0.6, "min_model": 0.5,
-            "min_odds": 1.12, "min_lift": 0.05, "shrink": 5.0, "markets": list(MARKETS)}
+MARKET_ALIASES = {"ou25": "totals", "ou": "totals", "total": "totals"}
 
-# window weights: the venue that matches the fixture counts most
-W_VENUE, W_LAST, W_OTHER, W_H2H = 1.25, 1.0, 0.5, 0.75
+# pick styles = fair-odds range + how strongly form and model must agree
+STYLES = {
+    "safe":     {"min_odds": 1.15, "max_odds": 1.60, "min_model": 0.60, "min_form": 0.60},
+    "balanced": {"min_odds": 1.25, "max_odds": 2.20, "min_model": 0.45, "min_form": 0.55},
+    "bold":     {"min_odds": 1.60, "max_odds": 3.50, "min_model": 0.30, "min_form": 0.45},
+}
+DEFAULTS = {"window": 5, "style": "balanced", "form_weight": 0.6, "min_lift": 0.05,
+            "shrink": 5.0, "markets": list(MARKETS), **STYLES["balanced"]}
+
+# window weights: games against similar opponents count most, then the venue
+# that matches the fixture
+W_SIMILAR, W_VENUE, W_LAST, W_OTHER, W_H2H = 1.5, 1.25, 1.0, 0.5, 0.75
+
+
+def resolve_opts(opts: dict | None) -> dict:
+    """Defaults <- style preset <- explicit settings (None values ignored)."""
+    opts = {k: v for k, v in (opts or {}).items() if v is not None}
+    style = opts.get("style") or DEFAULTS["style"]
+    if style not in STYLES:
+        raise ValueError(f"style must be one of {', '.join(STYLES)}")
+    o = {**DEFAULTS, **STYLES[style], **opts, "style": style}
+    o["markets"] = [MARKET_ALIASES.get(m, m) for m in (o.get("markets") or MARKETS)]
+    return o
 
 
 # ---------------------------------------------------------------- history
@@ -60,6 +86,43 @@ class FormIndex:
         conv = lambda d: {k: np.array(v, int) for k, v in d.items()}
         self.idx = {"all": conv(allx), "home": conv(homex), "away": conv(awayx)}
         self.pair = conv(pair)
+        self._elo()
+
+    def _elo(self) -> None:
+        """Pre- and post-match Elo for both sides of every match, so the
+        strength of any opponent *at the time* is known (no look-ahead)."""
+        from footypred.features.ratings import Elo
+        elo = Elo(k=20)
+        n = len(self.home)
+        self.elo_pre = np.zeros((n, 2))
+        self.elo_post = np.zeros((n, 2))
+        for i, (h, a) in enumerate(zip(self.home, self.away)):
+            self.elo_pre[i] = elo.rating(h), elo.rating(a)
+            elo.update(h, a, int(self.gh[i]), int(self.ga[i]), bool(self.neutral[i]))
+            self.elo_post[i] = elo.rating(h), elo.rating(a)
+
+    def rating(self, team: str, date) -> float:
+        rows = self._before(self.idx["all"].get(team), date, 1)
+        if not len(rows):
+            return 1500.0
+        i = rows[-1]
+        return float(self.elo_post[i, 0 if self.home[i] == team else 1])
+
+    def similar(self, team: str, opponent: str, date, n: int = 5,
+                bands=(80.0, 160.0), lookback: int = 40) -> list[dict]:
+        """`team`'s last n games against opponents rated (then) like
+        `opponent` is rated now (within ±80 Elo, widened to ±160)."""
+        target = self.rating(opponent, date)
+        rows = self._before(self.idx["all"].get(team), date, lookback)
+        for band in bands:
+            keep = []
+            for i in rows:
+                opp_elo = self.elo_pre[i, 1 if self.home[i] == team else 0]
+                if abs(opp_elo - target) <= band:
+                    keep.append(i)
+            if len(keep) >= 3:
+                return [self._rec(i, team) for i in keep[-n:]]
+        return []
 
     def _before(self, rows: np.ndarray | None, date, n: int) -> np.ndarray:
         if rows is None or not len(rows):
@@ -94,7 +157,8 @@ def form_counts(recs: list[dict]) -> dict:
         "scored": c(gf > 0), "scored2": c(gf > 1), "scored3": c(gf > 2),
         "conceded": c(ga > 0), "conceded2": c(ga > 1), "conceded3": c(ga > 2),
         "clean_sheets": c(ga == 0), "failed_to_score": c(gf == 0),
-        "btts": c((gf > 0) & (ga > 0)), "o25": c(gf + ga > 2),
+        "btts": c((gf > 0) & (ga > 0)), "o15": c(gf + ga > 1), "o25": c(gf + ga > 2),
+        "o35": c(gf + ga > 3),
         "gf_avg": float(gf.mean()) if n else None, "ga_avg": float(ga.mean()) if n else None,
         "results": [f"{r['result']} {r['gf']}-{r['ga']} {'v' if r['venue'] == 'H' else '@'} "
                     f"{r['opponent']}" for r in reversed(recs)],
@@ -161,10 +225,16 @@ def _candidates() -> list[Candidate]:
                   lambda f, a: f == a, lambda f, a: f == a, *both("drawn")),
         Candidate("away_win", "1x2", "{away} to win", "1x2:2", False,
                   lambda f, a: f < a, lambda f, a: f > a, "{home} lost", "{away} won", "{away} won"),
-        Candidate("over_2.5", "ou25", "Over 2.5 goals", "o25", False,
-                  lambda f, a: f + a > 2, lambda f, a: f + a > 2, *both("3+ goals in the game")),
-        Candidate("under_2.5", "ou25", "Under 2.5 goals", "o25", True,
-                  lambda f, a: f + a <= 2, lambda f, a: f + a <= 2, *both("2 or fewer goals in the game")),
+    ]
+    for k, line in ((1, "1.5"), (2, "2.5"), (3, "3.5")):
+        mk = "o" + line.replace(".", "")
+        C += [Candidate(f"over_{line}", "totals", f"Over {line} goals", mk, False,
+                        lambda f, a, k=k: f + a > k, lambda f, a, k=k: f + a > k,
+                        *both(f"{k + 1}+ goals in the game")),
+              Candidate(f"under_{line}", "totals", f"Under {line} goals", mk, True,
+                        lambda f, a, k=k: f + a <= k, lambda f, a, k=k: f + a <= k,
+                        *both(f"{k} or fewer goals in the game"))]
+    C += [
         Candidate("btts_yes", "btts", "Both teams to score", "btts", False,
                   lambda f, a: f > 0 and a > 0, lambda f, a: f > 0 and a > 0,
                   *both("both teams scored")),
@@ -198,9 +268,13 @@ def _candidates() -> list[Candidate]:
 CANDIDATES = _candidates()
 
 
-def _model_prob(probs: dict, c: Candidate) -> float:
+def _model_prob(probs: dict, c: Candidate) -> float | None:
+    """None when the model output lacks this line (e.g. a bundle trained
+    before total O/U 1.5/3.5 existed): the selection is then skipped."""
     if c.model_key.startswith("1x2:"):
         p = float(np.asarray(probs["1x2"]).ravel()[int(c.model_key[-1])])
+    elif c.model_key not in probs:
+        return None
     else:
         p = float(np.asarray(probs[c.model_key]).ravel()[0])
     return 1 - p if c.negate else p
@@ -215,12 +289,16 @@ def gather_windows(index: FormIndex, home: str, away: str, date, n: int = 5) -> 
         "away_last": index.window(away, "all", date, n),
         "away_away": index.window(away, "away", date, n),
         "away_home": index.window(away, "home", date, n),
+        "home_similar": index.similar(home, away, date, n),
+        "away_similar": index.similar(away, home, date, n),
         "h2h": index.h2h(home, away, date, n),
     }
 
 
 # (window key, side, weight, label)
-WINDOW_SPEC = [("home_home", "home", W_VENUE, "{home}'s last {n} home games"),
+WINDOW_SPEC = [("home_similar", "home", W_SIMILAR, "{home}'s last {n} vs teams rated like {away}"),
+               ("away_similar", "away", W_SIMILAR, "{away}'s last {n} vs teams rated like {home}"),
+               ("home_home", "home", W_VENUE, "{home}'s last {n} home games"),
                ("home_last", "home", W_LAST, "{home}'s last {n} games"),
                ("home_away", "home", W_OTHER, "{home}'s last {n} away games"),
                ("away_away", "away", W_VENUE, "{away}'s last {n} away games"),
@@ -247,9 +325,11 @@ def base_rates(matches: pd.DataFrame, min_league_games: int = 200) -> dict:
 
 def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dict | None = None,
                      neutral: bool = False, base: dict | None = None) -> list[dict]:
-    o = {**DEFAULTS, **(opts or {})}
+    o = resolve_opts(opts)
     out = []
     for c in CANDIDATES:
+        if _model_prob(probs, c) is None:
+            continue
         hits_w = n_w = 0.0
         evidence = []
         for key, side, w, label in WINDOW_SPEC:
@@ -272,9 +352,15 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
         score = o["form_weight"] * shrunk + (1 - o["form_weight"]) * p
         typical = (base or {}).get(c.key)
         lift = None if typical is None else p - typical
-        eligible = (form is not None and form >= o["min_form"] and p >= o["min_model"]
-                    and 1 / max(p, 1e-9) >= o["min_odds"]
-                    and (lift is None or lift >= o["min_lift"]))
+        odds = 1 / max(p, 1e-9)
+        fails = [name for name, ok in (
+            ("form", form is not None and form >= o["min_form"]),
+            ("model", p >= o["min_model"]),
+            ("too short", round(odds, 2) >= o["min_odds"]),
+            ("too long", round(odds, 2) <= o.get("max_odds", 99.0)),
+            ("ordinary", lift is None or lift >= o["min_lift"]),
+            ("market off", c.market in o["markets"])) if not ok]
+        eligible = not fails
         if form is None:
             agree = "no form data"
         elif abs(form - p) <= 0.15:
@@ -289,7 +375,8 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
                     "score": round(score, 4), "fair_odds": round(1 / max(p, 1e-9), 2),
                     "typical": None if typical is None else round(typical, 4),
                     "lift": None if lift is None else round(lift, 4),
-                    "eligible": bool(eligible), "agreement": agree, "evidence": evidence})
+                    "eligible": bool(eligible), "fails": fails, "agreement": agree,
+                    "evidence": evidence})
     out.sort(key=lambda d: (d["eligible"], d["score"]), reverse=True)
     return out
 
@@ -297,14 +384,11 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
 def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
                opts: dict | None = None, neutral: bool = False, base: dict | None = None) -> dict:
     """Everything the UI needs: windows, counts, profiles, ranked picks."""
-    o = {**DEFAULTS, **(opts or {})}
+    o = resolve_opts(opts)
     win = gather_windows(index, home, away, date, int(o["window"]))
     counts = {k: form_counts(v) for k, v in win.items()}
     ranked = score_candidates(win, probs, home, away, o, neutral, base)
-    allowed = set(o.get("markets") or MARKETS)
-    for r in ranked:                      # markets the user switched off can't be picked
-        if r["market"] not in allowed:
-            r["eligible"] = False
+    allowed = set(o["markets"])
     ranked.sort(key=lambda d: (d["eligible"], d["score"]), reverse=True)
     best = ranked[0] if ranked and ranked[0]["eligible"] else None
     best_by_market = {}
@@ -315,25 +399,42 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
             best_by_market[mk] = {**top, "market_name": MARKET_NAMES[mk]}
     profiles = {
         "home": {"at home": profile(counts["home_home"]), "overall": profile(counts["home_last"]),
-                 "away": profile(counts["home_away"])},
+                 "away": profile(counts["home_away"]),
+                 "vs similar": profile(counts["home_similar"])},
         "away": {"away": profile(counts["away_away"]), "overall": profile(counts["away_last"]),
-                 "at home": profile(counts["away_home"])},
+                 "at home": profile(counts["away_home"]),
+                 "vs similar": profile(counts["away_similar"])},
     }
+    # lopsided match: the favourite's safe lines are too short -> say so
+    too_short = next((r for r in ranked if r["fails"] == ["too short"]), None)
+    p1 = np.asarray(probs["1x2"]).ravel()
+    fav = int(np.argmax([p1[0], p1[2]]))
+    gap = {"favourite": (home, away)[fav], "win_prob": round(float(max(p1[0], p1[2])), 4),
+           "elo_gap": round(index.rating(home, date) - index.rating(away, date), 1),
+           "lopsided": bool(max(p1[0], p1[2]) >= 0.62)}
+    # model leans one way, recent form clearly doesn't (>= 10 points lower)
     conflicts = [r for r in ranked if r["form_rate"] is not None and r["model_prob"] >= 0.5
-                 and r["form_rate"] < o["min_form"] and r["market"] != "1x2"][:3]
+                 and r["form_rate"] < o["min_form"] and r["form_rate"] <= r["model_prob"] - 0.10
+                 and r["market"] != "1x2"][:3]
     return {"window": int(o["window"]), "counts": counts, "profiles": profiles,
             "best_pick": best, "top_picks": [r for r in ranked if r["eligible"]][:5],
+            "too_short": too_short, "gap": gap,
             "best_by_market": best_by_market,
             "conflicts": conflicts, "candidates": ranked,
-            "settings": {k: o[k] for k in ("form_weight", "min_form", "min_model", "min_odds",
-                                           "min_lift", "markets")},
-            "reason": _reason(best, counts, profiles, home, away)}
+            "settings": {k: o[k] for k in ("style", "form_weight", "min_form", "min_model",
+                                           "min_odds", "max_odds", "min_lift", "markets")},
+            "reason": _reason(best, counts, profiles, home, away, too_short, gap)}
 
 
-def _reason(best, counts, profiles, home, away) -> str:
+def _reason(best, counts, profiles, home, away, too_short=None, gap=None) -> str:
+    short = ""
+    if too_short is not None:
+        short = (f"{too_short['label']} ({100 * too_short['model_prob']:.0f}%, odds "
+                 f"{too_short['fair_odds']:.2f}) is too short to be worth it"
+                 + (" in this lopsided match" if gap and gap["lopsided"] else "") + "; ")
     if best is None:
-        return ("No clear pick: no selection is backed by both recent form "
-                "and the model at the current thresholds.")
+        return (short + "No clear pick: no selection is backed by both recent form "
+                "and the model within the chosen odds range.")
     bits = []
     hp = profiles["home"]["at home"] or profiles["home"]["overall"]
     ap = profiles["away"]["away"] or profiles["away"]["overall"]
@@ -345,7 +446,7 @@ def _reason(best, counts, profiles, home, away) -> str:
     ev = "; ".join(f"{e['event']} in {e['hits']}/{e['n']} of {e['window']}" for e in top)
     typ = (f" vs {100 * best['typical']:.0f}% in a typical game"
            if best.get("typical") is not None else "")
-    return (f"{best['label']}: {ev}. "
+    return (short + f"{best['label']}: {ev}. "
             + (" · ".join(bits) + "." if bits else "")
             + f" Model {100 * best['model_prob']:.0f}%{typ}, form {100 * best['form_rate']:.0f}%"
             f" ({best['agreement']}).")
@@ -371,7 +472,7 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
              mask: np.ndarray | None = None, base: dict | None = None) -> dict:
     """Best pick per match from pre-match form + out-of-fold model
     probabilities; reports how often picks landed vs what was claimed."""
-    o = {**DEFAULTS, **(opts or {})}
+    o = resolve_opts(opts)
     cand = {c.key: c for c in CANDIDATES}
     rows = []
     rng = range(len(matches)) if mask is None else np.where(mask)[0]
@@ -381,7 +482,7 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
         p_i = {k: (v[i] if np.ndim(v) == 1 else v[i]) for k, v in probs.items()}
         b = (base or {}).get(r["league"]) or (base or {}).get("_all")
         ranked = score_candidates(win, p_i, r["home"], r["away"], o, bool(r.get("neutral") or 0), b)
-        ranked = [x for x in ranked if x["market"] in set(o.get("markets") or MARKETS)] or ranked
+
         best = ranked[0] if ranked and ranked[0]["eligible"] else None
         if best is None:
             rows.append({"pick": None})
@@ -416,7 +517,8 @@ def form_reliability(index: FormIndex, matches: pd.DataFrame, n: int = 5, limit:
     for _, r in rows.iterrows():
         win = gather_windows(index, r["home"], r["away"], r["date"], n)
         dummy = {"1x2": np.array([1 / 3] * 3), **{k: 0.5 for k in
-                 ("o25", "btts", "h_o05", "h_o15", "h_o25", "a_o05", "a_o15", "a_o25")}}
+                 ("o15", "o25", "o35", "btts", "h_o05", "h_o15", "h_o25", "a_o05", "a_o15",
+                  "a_o25")}}
         for c in score_candidates(win, dummy, r["home"], r["away"], {"min_odds": 0}):
             if c["form_rate"] is None:
                 continue

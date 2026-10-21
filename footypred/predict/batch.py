@@ -42,7 +42,7 @@ def summary_row(pred) -> dict:
 def render_batch(results: list[dict]) -> str:
     pct = lambda x: f"{100 * x:.0f}%"
     head = (f"{'#':>2}  {'Fixture':<38}{'Date':<12}{'Best pick (last-5 form + model)':<34}"
-            f"{'model':>6}{'form':>6}   {'1X2 H-D-A':<13}{'O2.5':>5}{'BTTS':>6}")
+            f"{'model':>6}{'odds':>6}{'form':>6}   {'1X2 H-D-A':<13}{'O2.5':>5}{'BTTS':>6}")
     L = [head, "─" * len(head)]
     for i, r in enumerate(results, 1):
         fx = r["fixture"]
@@ -54,6 +54,7 @@ def render_batch(results: list[dict]) -> str:
         best = s["best_pick"] or "no clear pick"
         L.append(f"{i:>2}  {name[:37]:<38}{s['date']:<12}{best[:33]:<34}"
                  f"{(pct(s['best_model']) if s['best_model'] is not None else '-'):>6}"
+                 f"{(format(s['best_odds'], '.2f') if s['best_odds'] is not None else '-'):>6}"
                  f"{(pct(s['best_form']) if s['best_form'] is not None else '-'):>6}   "
                  f"{pct(s['home_win']) + '-' + pct(s['draw']) + '-' + pct(s['away_win']):<13}"
                  f"{pct(s['over_2.5']):>5}{pct(s['btts']):>6}")

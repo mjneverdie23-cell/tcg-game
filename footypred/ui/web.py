@@ -30,9 +30,12 @@ def pick_opts(q: dict) -> dict:
     """Best-pick settings from query parameters (invalid values are ignored)."""
     o = {}
     if q.get("markets"):
-        allowed = {"1x2", "ou25", "btts", "team_totals"}
+        allowed = {"1x2", "totals", "ou25", "btts", "team_totals"}
         o["markets"] = [m for m in q["markets"].split(",") if m in allowed]
-    for key, lo, hi in (("min_odds", 1.0, 10.0), ("form_weight", 0.0, 1.0), ("min_lift", 0.0, 0.5)):
+    if q.get("style") in ("safe", "balanced", "bold"):
+        o["style"] = q["style"]
+    for key, lo, hi in (("min_odds", 1.0, 10.0), ("max_odds", 1.0, 50.0), ("form_weight", 0.0, 1.0),
+                        ("min_lift", 0.0, 0.5)):
         try:
             if q.get(key) not in (None, ""):
                 o[key] = min(max(float(q[key]), lo), hi)
