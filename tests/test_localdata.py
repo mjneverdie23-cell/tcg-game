@@ -118,3 +118,75 @@ def test_name_cleaning():
     assert clean_team_name("FK Bodø/Glimt") == "Bodo/Glimt"
     assert clean_team_name("1. FSV Mainz 05") == "Mainz 05"
     assert clean_team_name("Paris FC") == "Paris FC"
+
+
+T1_FILE = ("Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,HTHG,HTAG,HS,AS,B365H,B365D,B365A\n"
+           "T1,08/08/2025,19:00,Galatasaray,Goztep,3,0,1,0,15,6,1.30,5.50,9.00\n"
+           "T1,16/08/2025,19:00,Buyuksehyr,Fenerbahce,1,1,0,1,10,12,4.20,3.80,1.80\n"
+           "T1,23/08/2025,19:00,Fenerbahce,Galatasaray,2,2,1,1,13,11,2.40,3.50,2.80\n"
+           "T1,13/04/2021,16:00,Kasimpasa,Galatasaray,0,2,0,1,8,14,3.10,3.40,2.30\n")
+NOR_FILE = ("Country,League,Season,Date,Time,Home,Away,HG,AG,Res,PSCH,PSCD,PSCA\n"
+            "Norway,Eliteserien,2021,15/05/2021,18:00,Bodo/Glimt,Molde,2,1,H,2.1,3.6,3.2\n"
+            "Norway,Eliteserien,2024,06/04/2024,18:00,Bodo/Glimt,Molde,3,1,H,1.9,3.8,3.6\n"
+            "Norway,Eliteserien,2024,07/04/2024,18:00,Lillestrom,Ham-Kam,1,0,H,2.4,3.4,2.9\n"
+            "Norway,Eliteserien,2026,20/12/2026,18:00,Viking,Molde,,,,3.4,3.8,2.0\n")
+MERGE_SPECS = SPECS + [CompetitionSpec.from_config(
+    "NOR", {"area": "Norway", "name": "Eliteserien", "couk": "NOR", "calendar_year": True})]
+
+
+def _have(path):
+    """Your file: two Süper Lig games already came from the API (UTC dates)."""
+    lf.write_csv(pd.DataFrame({
+        "match_id": ["fd-1", "fd-2"], "source": "football-data.org", "competition": "T1",
+        "season": 2025, "date": ["2025-08-09", "2025-08-16"], "kickoff": "16:00", "kickoff_tz": "UTC",
+        "home": ["Galatasaray", "Basaksehir"], "away": ["Goztepe", "Fenerbahce"],
+        "fthg": [3, 1], "ftag": [0, 1]}), path)
+
+
+def test_merge_adds_only_missing_matches(tmp_path):
+    path = tmp_path / "matches.csv"
+    _have(path)
+    (tmp_path / "in").mkdir()
+    (tmp_path / "in" / "T1.csv").write_bytes(T1_FILE.encode("cp1252"))
+    (tmp_path / "in" / "NOR.csv").write_text(NOR_FILE, encoding="utf-8")
+    before = path.read_text()
+    dry = lf.merge(path, [tmp_path / "in"], MERGE_SPECS, 2022, "2026-10-20", dry_run=True)
+    assert dry["added"] == 3 and path.read_text() == before          # dry run writes nothing
+    r = lf.merge(path, [tmp_path / "in"], MERGE_SPECS, 2022, "2026-10-20")
+    # T1: the 08/08 game is the API's 09/08 (a day apart), 16/08 is the same game;
+    # 2021 is before the first season. NOR: 2021 too old, the December game unplayed
+    assert r["by_competition"]["T1"] == {"added": 1, "already": 2}
+    assert r["by_competition"]["NOR"] == {"added": 2, "already": 0}
+    assert path.read_text().startswith(before)                       # appended, not rewritten
+    df = lf.read_csv(path)
+    nor = df[df["competition"] == "NOR"]
+    assert set(nor["season"]) == {2024} and "HamKam" in set(nor["away"])
+    assert set(df[df["competition"] == "T1"]["home"]) == {"Galatasaray", "Basaksehir", "Fenerbahce"}
+    assert ",3,0," in path.read_text()                               # goals stay whole numbers
+    again = lf.merge(path, [tmp_path / "in"], MERGE_SPECS, 2022, "2026-10-20")
+    assert again["added"] == 0 and again["already"] == 5
+
+
+def test_merge_fill_names_formats_and_errors(tmp_path):
+    path = tmp_path / "matches.csv"
+    _have(path)
+    t1 = tmp_path / "T1.csv"
+    t1.write_bytes(T1_FILE.replace("Goztep", "Goztepee").encode("cp1252"))   # a typo
+    r = lf.merge(path, [t1], MERGE_SPECS, 2022, "2026-10-20", fill=True)
+    assert r["renamed"] == {"Goztepee": "Goztepe"} and r["filled"] == 2
+    assert (tmp_path / "matches.csv.bak").exists()
+    got = lf.read_csv(path).set_index("match_id")
+    assert got.loc["fd-1", "odds_h"] == 1.30 and got.loc["fd-1", "hs"] == 15
+    assert got.loc["fd-1", "kickoff"] == "16:00"                    # API kickoff (UTC) kept
+    # European-Excel CSV (';', decimal commas, UTF-8 BOM) without a competition column
+    xl = tmp_path / "excel.csv"
+    xl.write_text("Date;Home;Away;home_goals;away_goals;B365H\n"
+                  "13.09.2025;Trabzonspor;Samsunspor;2;1;1,85\n", encoding="utf-8-sig")
+    bad = lf.merge(path, [xl], MERGE_SPECS, 2022, "2026-10-20")
+    assert bad["added"] == 0 and "--competition" in bad["errors"][0]
+    ok = lf.merge(path, [xl], MERGE_SPECS, 2022, "2026-10-20", competition="T1")
+    assert ok["added"] == 1
+    row = lf.read_csv(path).query("home == 'Trabzonspor'").iloc[0]
+    assert (row["date"], row["competition"], row["season"]) == ("2025-09-13", "T1", 2025)
+    with pytest.raises(ValueError, match="not found"):
+        lf.merge(path, [tmp_path / "nope.csv"], MERGE_SPECS)

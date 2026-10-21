@@ -132,7 +132,10 @@ class PredictionService:
                 "model_data_source": (self.predictor.res.report or {}).get("data_source"),
                 "model_trained_until": str(self.predictor.state.last_date.date())
                 if self.predictor.state.last_date is not None else None,
-                "competitions": []}
+                "competitions": [],
+                "config_competitions": [{"code": sp.key, "name": sp.name}
+                                        for sp in lf.specs_from_config(self.cfg)],
+                "first_season": lf.first_season(self.cfg)}
         if path.exists():
             df = lf.read_csv(path)
             info.update({"rows": len(df), "size_kb": round(path.stat().st_size / 1024, 1),
@@ -160,6 +163,28 @@ class PredictionService:
             n = sync_db(self.cfg, self.db, force=True)
             self._load()
         return {"imported": n or 0, **self.data_info()}
+
+    def merge_files(self, params: dict) -> dict:
+        """Add matches from other CSV files on this PC (paths, not uploads)
+        that aren't in your match file yet; same as `footy data merge`."""
+        from footypred.data import localfile as lf
+        raw = params.get("paths") or []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        paths = [p.strip().strip('"').strip("'") for p in raw if p and p.strip()]
+        if not paths:
+            raise ValueError("enter the path of a CSV file or a folder of CSV files")
+        path = lf.csv_path(self.cfg)
+        with self._lock:
+            r = lf.merge(path, paths, lf.specs_from_config(self.cfg),
+                         None if params.get("all_seasons") else lf.first_season(self.cfg),
+                         competition=(params.get("competition") or "").strip() or None,
+                         aliases=lf.load_aliases(self.cfg), fill=bool(params.get("fill")),
+                         dry_run=bool(params.get("dry_run")))
+            if not r["dry_run"] and (r["added"] or r["filled"]):
+                lf.sync_db(self.cfg, self.db)
+                self._load()
+        return {**r, "text": lf.render_merge(r, path), "info": self.data_info()}
 
     def start_update(self) -> dict:
         """Background job: append new matches from football-data.org to the

@@ -105,6 +105,18 @@ def test_data_and_backtest_endpoints(server):
     assert code == 200 and csv.count(b"\n") == r["matches"] + 1 and b"pick_balanced" in csv
 
 
+def test_merge_endpoint(server, cfg, tmp_path):
+    from footypred.data.localfile import csv_path
+    assert _post(server + "/api/data/merge", {"paths": ""})[0] == 400
+    code, body = _post(server + "/api/data/merge", {"paths": str(tmp_path / "missing.csv")})
+    assert code == 400 and "not found" in body["error"]
+    f = tmp_path / "T1.csv"
+    f.write_text("Div,Date,HomeTeam,AwayTeam,FTHG,FTAG\nT1,08/08/2025,Galatasaray,Goztep,3,0\n")
+    code, r = _post(server + "/api/data/merge", {"paths": f'"{f}"', "dry_run": True})
+    assert code == 200 and r["added"] == 1 and r["dry_run"] and "Would add 1" in r["text"]
+    assert not csv_path(cfg).exists()              # a preview never writes
+
+
 def test_image_upload_and_batch_endpoints(server):
     import importlib.util
     if importlib.util.find_spec("rapidocr_onnxruntime") is None:

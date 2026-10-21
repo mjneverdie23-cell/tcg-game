@@ -55,6 +55,9 @@ form.picker { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; ali
   letter-spacing: 0.06em; }
 .side.home .tag { color: var(--home); } .side.away .tag { color: var(--away); }
 label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+textarea { font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--baseline); border-radius: 8px; padding: 8px 10px;
+  width: 100%; resize: vertical; }
 select, input[type="date"] { font: inherit; color: var(--ink); background: var(--surface);
   border: 1px solid var(--baseline); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
 .vs { align-self: center; color: var(--muted); font-weight: 600; padding-bottom: 8px; }
@@ -819,8 +822,48 @@ function renderData(d) {
       el("thead", {}, el("tr", {}, ["Competition", "Code", "Matches", "First", "Last", "Source"].map((t) => el("th", {}, t)))),
       el("tbody", {}, comps.map((c) => el("tr", {}, el("td", { class: "team" }, c.name), el("td", {}, c.code),
         el("td", {}, c.matches.toLocaleString()), el("td", {}, c.first), el("td", {}, c.last), el("td", { class: "src" }, c.sources)))))) : null,
+    mergeBox(d),
     el("p", { class: "pick" }, "Terminal: ", el("code", {}, "footy data update"), " adds matches since the last run · ",
       el("code", {}, "footy data check"), " lists team names that may be the same club · ", el("code", {}, "footy train"), " retrains on the file."));
+}
+
+let MERGE_REPORT = "";
+function mergeBox(d) {
+  const paths = el("textarea", { rows: "2", placeholder: "C:\\Users\\you\\Downloads\\T1.csv\nC:\\Users\\you\\Downloads\\NOR.csv   (one file or folder per line)", "aria-label": "CSV files or folders" });
+  paths.value = store.get("merge-paths") || "";
+  const comp = el("select", {}, el("option", { value: "" }, "Auto (from the file)"),
+    (d.config_competitions || []).map((c) => el("option", { value: c.code }, `${c.name} (${c.code})`)));
+  const fill = el("input", { type: "checkbox" }), all = el("input", { type: "checkbox" });
+  const out = el("pre", { class: MERGE_REPORT ? "" : "hidden", style: "margin-top:10px" }, MERGE_REPORT);
+  const preview = el("button", { type: "button", class: "ghost" }, "Preview");
+  const go = el("button", { type: "button", class: "primary" }, "Merge into my file");
+  const run = async (dry) => {
+    store.set("merge-paths", paths.value);
+    preview.disabled = go.disabled = true; msg("data-msg", dry ? "Checking…" : "Merging…", "warn");
+    try {
+      const r = await api("/api/data/merge", { paths: paths.value, competition: comp.value, fill: fill.checked,
+        all_seasons: all.checked, dry_run: dry });
+      MERGE_REPORT = r.text; out.textContent = r.text; out.classList.remove("hidden");
+      if (!dry && (r.added || r.filled)) {
+        renderData(r.info); await afterDataChange();
+        msg("data-msg", `Merged: ${r.added} new matches` + (r.filled ? `, filled ${r.filled}` : "") + ".", "");
+      } else msg("data-msg", dry ? `Preview: would add ${r.added} matches (${r.already} already in the file).` : "Nothing new to add.", "");
+    } catch (err) { msg("data-msg", err.message, "err"); }
+    finally { preview.disabled = go.disabled = false; }
+  };
+  preview.addEventListener("click", () => run(true));
+  go.addEventListener("click", () => run(false));
+  return el("div", { class: "section" },
+    el("h2", {}, "Add matches from other CSV files", el("span", { class: "conf" }, "only matches not in your file yet are added")),
+    el("label", {}, "Files or folders on this PC", paths),
+    el("div", { class: "row2", style: "margin-top:10px" },
+      el("label", {}, "Competition (for files without one)", comp),
+      el("label", { class: "inline" }, fill, "Also fill empty odds/stats on matches already there"),
+      el("label", { class: "inline" }, all, `Keep seasons before ${d.first_season}/${String(d.first_season + 1).slice(2)}`),
+      el("div", { class: "btns" }, preview, go)),
+    el("p", { class: "pick" }, "Works with football-data.co.uk files (league files like ", el("code", {}, "T1.csv"),
+      ", country files like ", el("code", {}, "NOR.csv"), "), another footypred file, or any CSV with date, home, away and goal columns."),
+    out);
 }
 
 // ------------------------------------------------------------ backtest tab

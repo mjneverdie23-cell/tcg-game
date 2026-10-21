@@ -75,6 +75,25 @@ def cmd_data(cfg, args):
             if v:
                 print(f"  {k:<5} +{v}")
         _db(cfg)
+    elif args.data_cmd == "merge":
+        first_season = None if args.all_seasons else first
+        print(("Checking" if args.dry_run else "Merging") + f" into {path}"
+              + ("" if args.all_seasons else f" (seasons {first}/{str(first + 1)[2:]} on)"))
+        try:
+            r = lf.merge(path, args.paths, lf.specs_from_config(cfg), first_season, to,
+                         competition=args.competition, aliases=lf.load_aliases(cfg),
+                         fill=args.fill_missing, dry_run=args.dry_run)
+        except ValueError as exc:
+            sys.exit(f"✗ {exc}")
+        print(lf.render_merge(r, path))
+        if r["errors"] and not r["files"]:
+            sys.exit("nothing merged")
+        if r["dry_run"]:
+            print("(dry run — nothing written; run again without --dry-run to merge)")
+        elif r["added"] or r["filled"]:
+            if r["filled"]:
+                print(f"Backup of the previous file: {path.name}.bak")
+            _db(cfg)
     elif args.data_cmd == "import":
         from footypred.data.db import Database
         db = Database(cfg.paths.db_file)
@@ -364,7 +383,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--seed", type=int, default=7)
     sub.add_parser("update", help="scrape/refresh all enabled data sources")
 
-    d = sub.add_parser("data", help="your local match file: download / update / import / info / check")
+    d = sub.add_parser("data", help="your local match file: download / update / merge / import / "
+                                    "info / check")
     dsub = d.add_subparsers(dest="data_cmd", required=True)
     dd = dsub.add_parser("download", help="build the match CSV from football-data.org")
     du = dsub.add_parser("update", help="append matches played since the last run")
@@ -376,6 +396,19 @@ def build_parser() -> argparse.ArgumentParser:
         p_.add_argument("--no-fallback", action="store_true",
                         help="don't fill gaps from football-data.co.uk")
     dd.add_argument("--force", action="store_true", help="overwrite an existing file")
+    dm = dsub.add_parser("merge", help="add matches from other CSV files (e.g. Süper Lig or "
+                         "Eliteserien from football-data.co.uk) that aren't in your file yet")
+    dm.add_argument("paths", nargs="+", help="CSV file(s) or folder(s) of CSVs")
+    dm.add_argument("--competition", help="competition code for a file that has none (e.g. T1)")
+    dm.add_argument("--first-season", type=int, help="skip seasons before this (default from "
+                                                    "config: 2022)")
+    dm.add_argument("--all-seasons", action="store_true", help="keep every season in the files")
+    dm.add_argument("--to", help="skip matches after this date (default: today)")
+    dm.add_argument("--fill-missing", action="store_true",
+                    help="also fill empty odds/stats on matches already in your file "
+                         "(rewrites it; the old one is kept as .bak)")
+    dm.add_argument("--dry-run", action="store_true", help="show what would be added, write nothing")
+    dm.add_argument("--file", help="your match file (default: local_data.csv in the config)")
     di = dsub.add_parser("import", help="load the CSV into the system (also automatic)")
     di.add_argument("--file", help="import this CSV instead of the configured one")
     for name, hlp in (("info", "matches per competition and season"),

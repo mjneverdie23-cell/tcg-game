@@ -116,6 +116,8 @@ OFFICIAL_ALIASES = {
     "Konyaspor": "Konyaspor", "Sivasspor": "Sivasspor", "Antalyaspor": "Antalyaspor",
     "Gaziantep FK": "Gaziantep", "Kayserispor": "Kayserispor", "Alanyaspor": "Alanyaspor",
     "Samsunspor": "Samsunspor", "Goztepe SK": "Goztepe", "Eyupspor": "Eyupspor",
+    "Goztep": "Goztepe", "Ad. Demirspor": "Adana Demirspor", "MKE Ankaragucu": "Ankaragucu",
+    "Fatih Karagumruk": "Karagumruk", "Caykur Rizespor": "Rizespor",
     # Norway
     "FK Bodo/Glimt": "Bodo/Glimt", "Bodo Glimt": "Bodo/Glimt", "Molde FK": "Molde",
     "Rosenborg BK": "Rosenborg", "SK Brann": "Brann", "Viking FK": "Viking",
@@ -123,6 +125,7 @@ OFFICIAL_ALIASES = {
     "Stromsgodset IF": "Stromsgodset", "Sarpsborg 08 FF": "Sarpsborg 08",
     "Fredrikstad FK": "Fredrikstad", "Ham-Kam": "HamKam", "Odds BK": "Odd", "Odd": "Odd",
     "Sandefjord Fotball": "Sandefjord", "KFUM Oslo": "KFUM Oslo", "Kristiansund BK": "Kristiansund",
+    "Hamarkameratene": "HamKam", "KFUM-Kameratene Oslo": "KFUM Oslo", "Aalesunds": "Aalesund",
 }
 _AFFIX_TOKENS = {"FC", "AFC", "CF", "CFC", "SK", "FK", "JK", "BK", "IL", "IF", "FF", "SC", "CD",
                  "UD", "SD", "RCD", "RC", "SAD", "AC", "AS", "SS", "SSC", "US", "ACF", "BC", "CA",

@@ -1,4 +1,4 @@
-# footypred 2.4 — four-market football prediction
+# footypred 2.4.1 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -217,6 +217,54 @@ and per-competition counts, with **Reload from file** and
 * Other commands: `footy data info` shows matches per competition and
   season, and `footy data import [--file other.csv]` imports right away.
 
+### Merging other CSV files (e.g. Süper Lig and Eliteserien)
+
+If you downloaded CSVs yourself, `footy data merge` adds the matches from
+them that aren't in your file yet. A typical case is Süper Lig and
+Eliteserien from football-data.co.uk when the API doesn't cover them:
+
+| competition | download from football-data.co.uk |
+|---|---|
+| Süper Lig | one file per season: `mmz4281/2223/T1.csv`, `2324/T1.csv`, `2425/T1.csv`, `2526/T1.csv`, `2627/T1.csv` |
+| Eliteserien | one file with every season: `new/NOR.csv` |
+
+```bash
+footy data merge Downloads/T1_2526.csv Downloads/NOR.csv --dry-run   # see what would be added
+footy data merge Downloads/T1_2526.csv Downloads/NOR.csv             # add them
+footy data merge Downloads/footy-extra/                              # every CSV in a folder
+```
+
+* **Formats detected:**
+  - a football-data.co.uk league file (with a `Div` column, e.g. T1)
+  - a football-data.co.uk country file (`Country`/`Season`, e.g. NOR)
+  - another footypred match file
+  - any CSV with date, home, away and home/away goal columns; add
+    `--competition T1` if it has no competition column
+  - files saved from Excel with `;` separators and decimal commas
+* **"Not in it yet":** a match counts as already present when the
+  competition and both teams match and the date is within a day. One day
+  of slack covers the API's UTC dates against a source's local dates.
+  New matches are appended to the end of the file; nothing else changes.
+* **Seasons** before `first_season` (2022/23) are skipped unless you pass
+  `--all-seasons`. Unplayed fixtures are skipped too. `--to` sets the
+  latest date to include.
+* **Team names** are cleaned the same way as the API's names
+  ("Buyuksehyr" → "Basaksehir"). Names that differ only in accents,
+  punctuation or one typo are matched to the spelling already in your file
+  ('Goztep' → 'Goztepe'). The report lists every new team name with its
+  closest existing name, so you can spot a missed duplicate. Add it to
+  `aliases.csv` and merge again.
+* `--fill-missing` also fills empty odds, shots, cards and half-time scores
+  on matches already in your file. This rewrites the file and keeps the
+  previous version as `matches.csv.bak`.
+* After merging, `footy data update` keeps those competitions current as
+  well.
+
+In the web app, the **Data** tab has the same tool under **Add matches from
+other CSV files**. Paste file or folder paths from your PC (quotes are
+fine), click **Preview**, then **Merge into my file**. The files are read
+straight from disk, not uploaded.
+
 Columns: `match_id, source, competition, competition_name, season, date,
 kickoff, kickoff_tz, matchday, stage, status, home, away, home_raw, away_raw,
 fthg, ftag, hthg, htag, duration, home_aet, away_aet, neutral, hs, as_, hst,
@@ -281,6 +329,7 @@ footy image screenshot.png      # read fixtures from an image and predict them a
 footy backtest-picks            # how often best picks landed out of sample
 footy backtest --from 2026-01-01 --to 2026-05-31   # walk-forward over a date range
 footy data update               # add yesterday's matches to your match file
+footy data merge T1.csv NOR.csv # add matches from other CSVs that aren't in your file
 ```
 
 For automatic refreshes, schedule `footy data update && footy train` with
@@ -419,7 +468,7 @@ footypred/
 │                           pick|image|backtest|backtest-picks
 ├── config.py, logging_utils.py
 ├── data/      db.py (SQLite, column-merging upserts) · http.py · names.py
-│              localfile.py (your match CSV: download, update, import)
+│              localfile.py (your match CSV: download, update, merge, import)
 │              synthetic.py (minute-level game-state simulator, incl. a Champions League)
 │              pipeline.py
 │              sources/ football_data_org · football_data · understat · clubelo ·
@@ -433,14 +482,15 @@ footypred/
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) · service.py
 config/default.yaml         every tunable setting
-tests/                      44 tests: market identities, reconciliation, leakage,
+tests/                      47 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
                             image layouts, OCR on a real browser screenshot,
                             Claude reader (mocked), image upload endpoint,
                             lopsided-match ladder, pick styles, older bundles,
-                            football-data.org download/update (mock API), file
+                            football-data.org download/update (mock API), CSV
+                            merge (co.uk / Excel formats, names, ±1 day), file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```

@@ -150,6 +150,8 @@ def make_handler(service):
             try:
                 if url.path == "/api/data/reload":
                     self._json(service.reload_data())
+                elif url.path == "/api/data/merge":
+                    self._json(service.merge_files(self._body_json()))
                 elif url.path == "/api/data/update":
                     self._json(service.start_update())
                 elif url.path == "/api/backtest":
