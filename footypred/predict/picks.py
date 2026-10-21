@@ -47,8 +47,11 @@ STYLES = {
     "balanced": {"min_odds": 1.25, "max_odds": 2.20, "min_model": 0.45, "min_form": 0.55},
     "bold":     {"min_odds": 1.60, "max_odds": 3.50, "min_model": 0.30, "min_form": 0.45},
 }
+# goal lines (total goals, team goals) can be limited to overs or unders
+DIRECTIONS = ("over", "under")
 DEFAULTS = {"window": 5, "style": "balanced", "form_weight": 0.6, "min_lift": 0.05,
-            "shrink": 5.0, "markets": list(MARKETS), **STYLES["balanced"]}
+            "shrink": 5.0, "markets": list(MARKETS), "directions": list(DIRECTIONS),
+            **STYLES["balanced"]}
 
 # window weights: games against similar opponents count most, then the venue
 # that matches the fixture
@@ -63,7 +66,19 @@ def resolve_opts(opts: dict | None) -> dict:
         raise ValueError(f"style must be one of {', '.join(STYLES)}")
     o = {**DEFAULTS, **STYLES[style], **opts, "style": style}
     o["markets"] = [MARKET_ALIASES.get(m, m) for m in (o.get("markets") or MARKETS)]
+    d = o["directions"]                       # [] is allowed: no over/under picks at all
+    d = d.split(",") if isinstance(d, str) else d
+    o["directions"] = [x.strip().lower() for x in d if x.strip().lower() in DIRECTIONS]
     return o
+
+
+def direction(key: str) -> str | None:
+    """'over' / 'under' for goal lines (total or team), None otherwise
+    (match result, BTTS)."""
+    for d in DIRECTIONS:
+        if key.startswith((f"{d}_", f"home_{d}_", f"away_{d}_")):
+            return d
+    return None
 
 
 # ---------------------------------------------------------------- history
@@ -359,7 +374,9 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
             ("too short", round(odds, 2) >= o["min_odds"]),
             ("too long", round(odds, 2) <= o.get("max_odds", 99.0)),
             ("ordinary", lift is None or lift >= o["min_lift"]),
-            ("market off", c.market in o["markets"])) if not ok]
+            ("market off", c.market in o["markets"]),
+            ("direction off", direction(c.key) is None or direction(c.key) in o["directions"]))
+            if not ok]
         eligible = not fails
         if form is None:
             agree = "no form data"
@@ -395,7 +412,8 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
     for mk in MARKETS:
         group = [r for r in ranked if r["market"] == mk]
         if group:
-            top = max(group, key=lambda d: (d["eligible"] or mk not in allowed, d["score"]))
+            top = max(group, key=lambda d: (d["eligible"] or mk not in allowed,
+                                            "direction off" not in d["fails"], d["score"]))
             best_by_market[mk] = {**top, "market_name": MARKET_NAMES[mk]}
     profiles = {
         "home": {"at home": profile(counts["home_home"]), "overall": profile(counts["home_last"]),
@@ -426,7 +444,8 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
     # model leans one way, recent form clearly doesn't (>= 10 points lower)
     conflicts = [r for r in ranked if r["form_rate"] is not None and r["model_prob"] >= 0.5
                  and r["form_rate"] < o["min_form"] and r["form_rate"] <= r["model_prob"] - 0.10
-                 and r["market"] != "1x2"][:3]
+                 and r["market"] != "1x2"
+                 and not {"market off", "direction off"} & set(r["fails"])][:3]
     return {"window": int(o["window"]), "counts": counts, "profiles": profiles,
             "best_pick": best, "top_picks": [r for r in ranked if r["eligible"]][:5],
             "follow_ups": follow_ups, "by_style": by_style,
@@ -434,7 +453,8 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
             "best_by_market": best_by_market,
             "conflicts": conflicts, "candidates": ranked,
             "settings": {k: o[k] for k in ("style", "form_weight", "min_form", "min_model",
-                                           "min_odds", "max_odds", "min_lift", "markets")},
+                                           "min_odds", "max_odds", "min_lift", "markets",
+                                           "directions")},
             "reason": _reason(best, counts, profiles, home, away, too_short, gap)}
 
 
@@ -487,7 +507,8 @@ def follow_up_picks(ranked: list[dict], best: dict | None, n: int = 4) -> list[d
     if len(out) < n:
         # closest to the style first: fewest rules missed, "odds too short" last
         near = lambda c: (len(c["fails"]), "too short" in c["fails"], -c["score"])
-        soft = sorted([c for c in ranked if not c["eligible"] and "market off" not in c["fails"]
+        soft = sorted([c for c in ranked if not c["eligible"]
+                       and not {"market off", "direction off"} & set(c["fails"])
                        and c["model_prob"] >= 0.40 and (c["form_rate"] is None or c["form_rate"] >= 0.40)],
                       key=near)
         for c in sorted(diverse(soft, set(used) | {_group(x) for x in strict}, n - len(out)), key=near):

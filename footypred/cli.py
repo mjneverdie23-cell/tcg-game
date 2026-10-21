@@ -167,6 +167,9 @@ def _pick_opts(args) -> dict:
         o["max_odds"] = args.max_odds
     if getattr(args, "style", None):
         o["style"] = args.style
+    if getattr(args, "no_under", False) or getattr(args, "no_over", False):
+        o["directions"] = [d for d, off in (("over", args.no_over), ("under", args.no_under))
+                           if not off]
     return o
 
 
@@ -183,6 +186,10 @@ def _add_pick_args(p):
                    "best pick vs the model (default 0.6)")
     p.add_argument("--min-lift", type=float, help="how far above a typical game a pick must be "
                    "(default 0.05; 0 allows ordinary safe picks)")
+    p.add_argument("--no-under", action="store_true",
+                   help="never pick unders (total goals and team goals)")
+    p.add_argument("--no-over", action="store_true",
+                   help="never pick overs (total goals and team goals)")
 
 
 def cmd_backtest_picks(cfg, args):

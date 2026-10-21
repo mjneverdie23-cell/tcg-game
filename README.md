@@ -1,4 +1,4 @@
-# footypred 2.6 — four-market football prediction
+# footypred 2.6.1 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -185,8 +185,18 @@ form may carry more signal there than in the synthetic world.
 
 Options: `--style safe|balanced|bold`, `--markets 1x2,totals,btts,team_totals`,
 `--min-odds`, `--max-odds`, `--form-weight` (1.0 lets form decide alone),
-`--min-lift`. The web app has a pick-style menu, market checkboxes and a
-min-odds box (blank means the style decides).
+`--min-lift`, `--no-under`, `--no-over`. The web app has a pick-style menu,
+market checkboxes, **Goal lines: Over / Under** tick boxes and a min-odds
+box (blank means the style decides).
+
+The Over / Under boxes apply to total goals (1.5 / 2.5 / 3.5) and team
+goals (0.5 / 1.5 / 2.5). With **Under** unticked, no under is picked
+anywhere: not as the best pick, a follow-up, a lean or a per-style pick.
+That holds in Predict, From image and the Schedule's ★ Picks. Match result
+and BTTS (including BTTS No) aren't goal lines; untick those markets to
+leave them out. The probabilities for every market are still shown. Your
+choice is remembered in the browser. In the config it's
+`picks.directions: [over]`.
 
 ## Predict from a screenshot (one image, many matches)
 
@@ -627,7 +637,7 @@ config/default.yaml         every tunable setting (your own: config/local.yaml, 
 start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
 start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      60 tests: market identities, reconciliation, leakage,
+tests/                      62 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -640,7 +650,8 @@ tests/                      60 tests: market identities, reconciliation, leakage
                             ISO dates, schema upgrade), setup from the browser
                             (no model/data, settings, download, train, demo, names),
                             schedule (API window, co.uk fixtures, results, time
-                            zones), follow-up picks & leans, batch picks, file
+                            zones), follow-up picks & leans, batch picks,
+                            over/under tick boxes, file
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints
 ```

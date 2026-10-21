@@ -49,6 +49,9 @@ def _best_pick_lines(pred: Prediction) -> list[str]:
     st = f.get("settings", {})
     rng = (f"{st.get('style', '')} style, fair odds {st.get('min_odds', 0):.2f}–"
            f"{st.get('max_odds', 0):.2f}" if st.get("max_odds") else "")
+    dirs = st.get("directions")
+    if dirs is not None and len(dirs) < 2:
+        rng += ("; " if rng else "") + (f"{dirs[0]}s only" if dirs else "no over/under picks")
     L = ["", f" ★ BEST PICK (last-{f['window']} form + model{'; ' + rng if rng else ''})"]
     g = f.get("gap")
     if g and g["lopsided"]:

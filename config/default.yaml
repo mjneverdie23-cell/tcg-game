@@ -72,6 +72,7 @@ picks:                          # last-5 form check + best pick
   # min_odds: 1.25              # explicit overrides of the style, if you want them
   # max_odds: 2.20
   # markets: [1x2, totals, btts, team_totals]
+  # directions: [over, under]   # goal lines (total + team goals); [over] = never pick unders
 
 image:                          # reading fixtures from screenshots
   engine: auto                  # auto | ocr (offline) | claude (needs `pip install

@@ -150,3 +150,41 @@ def test_older_model_outputs_without_new_lines_still_work():
     p.pop("o15"); p.pop("o35")
     f = form_check(idx, "A", "B", "2025-10-20", p)
     assert all(c["key"] not in ("over_1.5", "under_3.5") for c in f["candidates"])
+
+
+def _low_scoring():
+    """Two tight teams: every game 1-0 or 0-0, so unders are the natural picks."""
+    rows, d = [], pd.Timestamp("2025-08-01")
+    for i in range(6):
+        rows.append(_m(d + pd.Timedelta(days=14 * i), "C", f"P{i}", 1, 0))
+        rows.append(_m(d + pd.Timedelta(days=14 * i + 7), f"Q{i}", "C", 0, 0))
+        rows.append(_m(d + pd.Timedelta(days=14 * i + 1), "D", f"R{i}", 0, 0))
+        rows.append(_m(d + pd.Timedelta(days=14 * i + 8), f"S{i}", "D", 1, 0))
+    return pd.DataFrame(rows)
+
+
+def test_over_under_tick_boxes():
+    from footypred.predict.picks import direction
+    idx = FormIndex(_low_scoring())
+    probs = _probs(o15=0.45, o25=0.24, o35=0.10, btts=0.25, h_o05=0.66, h_o15=0.30, h_o25=0.10,
+                   a_o05=0.45, a_o15=0.15, a_o25=0.04, **{"1x2": np.array([0.45, 0.33, 0.22])})
+    picks = lambda f: [f["best_pick"], *f["follow_ups"], *f["by_style"].values()]
+    both = form_check(idx, "C", "D", "2025-11-10", probs)
+    assert direction(both["best_pick"]["key"]) == "under"              # unders win by default
+    overs = form_check(idx, "C", "D", "2025-11-10", probs, {"directions": ["over"]})
+    got = [c for c in picks(overs) if c]
+    assert got and not any(direction(c["key"]) == "under" for c in got)
+    assert overs["settings"]["directions"] == ["over"]
+    assert not any(direction(c["key"]) == "under" for c in overs["conflicts"])
+    assert direction(overs["best_by_market"]["totals"]["key"]) == "over"
+    none = form_check(idx, "C", "D", "2025-11-10", probs, {"directions": []})
+    assert not any(direction(c["key"]) for c in picks(none) if c)       # 1X2 / BTTS only
+    assert form_check(idx, "C", "D", "2025-11-10", probs, {"directions": "over"})["settings"]["directions"] == ["over"]
+
+
+def test_directions_query_parameter():
+    from footypred.ui.web import pick_opts
+    assert pick_opts({"directions": "over"})["directions"] == ["over"]
+    assert pick_opts({"directions": "none"})["directions"] == []
+    assert pick_opts({"directions": "over,under,sideways"})["directions"] == ["over", "under"]
+    assert "directions" not in pick_opts({})

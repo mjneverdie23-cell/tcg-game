@@ -346,6 +346,10 @@ nav .sm { display: none; }
           <label class="inline"><input type="checkbox" value="btts" checked> BTTS</label>
           <label class="inline"><input type="checkbox" value="team_totals" checked> Team goals</label>
         </fieldset>
+        <fieldset class="mk" id="directions" title="Applies to total goals and team goals"><legend>Goal lines</legend>
+          <label class="inline"><input type="checkbox" value="over" checked> Over</label>
+          <label class="inline"><input type="checkbox" value="under" checked> Under</label>
+        </fieldset>
         <label>Pick style<select id="style">
           <option value="safe">Safe · odds 1.15–1.60</option>
           <option value="balanced" selected>Balanced · odds 1.25–2.20</option>
@@ -554,7 +558,9 @@ function evidenceList(name, ev) {
 function bestPickCard(p) {
   const f = p.form, b = f.best_pick;
   const st = f.settings || {};
-  const kids = [el("div", { class: "kicker" }, `★ Best pick — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}`)];
+  const dirs = st.directions || ["over", "under"];
+  const dirNote = dirs.length === 2 ? "" : dirs.length ? ` · ${dirs[0]}s only` : " · no over/under picks";
+  const kids = [el("div", { class: "kicker" }, `★ Best pick — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}${dirNote}`)];
   if (f.gap && f.gap.lopsided)
     kids.push(el("div", { class: "pick", style: "margin:6px 0 0" }, el("b", {}, "Big strength gap: "),
       `${f.gap.favourite} win ${pct(f.gap.win_prob)} (Elo gap ${Math.abs(f.gap.elo_gap).toFixed(0)}) — the favourite's safe lines are too short, so bigger lines are considered.`));
@@ -701,11 +707,9 @@ $("picker").addEventListener("submit", async (e) => {
   store.set("last", { hl: $("home-league").value, ht: home, al: $("away-league").value, at: away, neutral: $("neutral").checked });
   const go = $("go"); go.disabled = true; go.textContent = "Predicting…";
   try {
-    const markets = [...document.querySelectorAll("#markets input:checked")].map((x) => x.value);
-    if (!markets.length) throw new Error("Tick at least one market for the best pick.");
+    checkPickSettings();
     const q = new URLSearchParams({ home, away, date: $("date").value, neutral: $("neutral").checked ? "1" : "0",
-      markets: markets.join(","), style: $("style").value });
-    if ($("min-odds").value) q.set("min_odds", $("min-odds").value);
+      ...pickSettings() });
     if ($("competition").value) q.set("competition", $("competition").value);
     render(await api("/api/predict?" + q));
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -763,12 +767,34 @@ function imgMsg(text, kind) {
   const m = $("img-msg"); m.className = "msg " + (kind || ""); m.textContent = text;
   m.classList.toggle("hidden", !text);
 }
+// best-pick settings from the Predict tab, used by every tab that makes picks
+const ticked = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((x) => x.value);
 function pickSettings() {
-  const o = { markets: [...document.querySelectorAll("#markets input:checked")].map((x) => x.value).join(","),
-              style: $("style").value };
+  const dirs = ticked("directions");
+  const o = { markets: ticked("markets").join(","), style: $("style").value, directions: dirs.join(",") || "none" };
   if ($("min-odds").value) o.min_odds = $("min-odds").value;
   return o;
 }
+function checkPickSettings() {
+  const mk = ticked("markets");
+  if (!mk.length) throw new Error("Tick at least one market for the best pick.");
+  if (!ticked("directions").length && mk.every((m) => m === "totals" || m === "team_totals"))
+    throw new Error("Tick Over or Under — with both off there are no goal-line picks, and no other market is ticked.");
+}
+function savePickSettings() {
+  store.set("picks", { markets: ticked("markets"), directions: ticked("directions"), style: $("style").value, min_odds: $("min-odds").value });
+}
+(function restorePickSettings() {
+  const p = store.get("picks");
+  if (!p) return;
+  for (const [id, vals] of [["markets", p.markets], ["directions", p.directions]])
+    if (Array.isArray(vals)) document.querySelectorAll(`#${id} input`).forEach((x) => { x.checked = vals.includes(x.value); });
+  if (p.style) $("style").value = p.style;
+  if (p.min_odds) $("min-odds").value = p.min_odds;
+})();
+for (const id of ["markets", "directions"]) $(id).addEventListener("change", savePickSettings);
+$("style").addEventListener("change", savePickSettings);
+$("min-odds").addEventListener("change", savePickSettings);
 function fixtureRow(f) {
   return el("tr", {},
     el("td", {}, el("input", { type: "checkbox", checked: "", "aria-label": "include" })),
@@ -816,6 +842,7 @@ async function predictAll(tbody, btn) {
   const rows = [...tbody.querySelectorAll("tr")].filter((tr) => tr.querySelector("input[type=checkbox]").checked)
     .map((tr) => { const s = tr.querySelectorAll("select"); return { home: s[0].value, away: s[1].value, date: tr.querySelector("input[type=date]").value }; });
   if (!rows.length) return imgMsg("Tick at least one fixture.", "warn");
+  try { checkPickSettings(); } catch (err) { return imgMsg(err.message + " (Predict tab)", "warn"); }
   btn.disabled = true;
   const out = [];
   for (let i = 0; i < rows.length; i++) {
@@ -1211,7 +1238,7 @@ function dayLabel(n) {
   return dayOffset(n).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
 }
 const matchDay = (m) => m.utc ? localDay(m.utc) : m.date;
-const pickKey = (m) => `${m.home}|${m.away}|${m.date}|${$("sch-style").value}`;
+const pickKey = (m) => { const o = pickSettings(); return `${m.home}|${m.away}|${m.date}|${o.style}|${o.markets}|${o.directions}|${o.min_odds || ""}`; };
 function crest(url, name) {
   // initials underneath, the crest image on top once it loads (none offline)
   let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
@@ -1304,7 +1331,7 @@ async function loadPicks(list) {
     for (let i = 0; i < need.length; i += 12) {
       const chunk = need.slice(i, i + 12);
       const res = await api("/api/predict-batch", { fixtures: chunk.map((m, j) => ({ id: j, home: m.home, away: m.away,
-        date: matchDay(m), competition: m.competition, neutral: m.neutral ? 1 : 0 })), pick_opts: { style: $("sch-style").value } });
+        date: matchDay(m), competition: m.competition, neutral: m.neutral ? 1 : 0 })), pick_opts: pickSettings() });
       res.forEach((r, j) => { SCH_PICKS[pickKey(chunk[j])] = r; });
       renderScheduleRowsOnly();
     }
@@ -1316,8 +1343,10 @@ function schNote() {
   if (!SCH) return;
   const f = SCH.fetched_at ? new Date(SCH.fetched_at) : null;
   const ago = f ? Math.round((Date.now() - f) / 60000) : null;
+  const dirs = ticked("directions");
   const bits = [f ? `updated ${ago < 1 ? "just now" : ago < 90 ? ago + " min ago" : f.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "not fetched yet",
     "times in your time zone", "results from football-data.org and your match file"];
+  if (schPrefs.picks && dirs.length < 2) bits.push(dirs.length ? `picks: ${dirs[0]}s only (Predict tab)` : "picks: no over/under (Predict tab)");
   $("sch-note").textContent = bits.join(" · ") + ((SCH.notes || []).length ? " · " + SCH.notes.join(" · ") : "");
 }
 async function refreshSchedule(quiet) {
@@ -1348,7 +1377,8 @@ $("sch-day").addEventListener("change", () => { SCH_DAY = +$("sch-day").value; r
 for (const [id, k] of [["sch-live", "live"], ["sch-bytime", "bytime"], ["sch-picks", "picks"]])
   $(id).addEventListener("click", () => { schPrefs[k] = !schPrefs[k]; store.set("sched", schPrefs); renderSchedule(); });
 $("sch-filter").addEventListener("input", () => renderSchedule());
-$("sch-style").addEventListener("change", () => { $("style").value = $("sch-style").value; renderSchedule(); });
+for (const id of ["sch-picks"]) $(id).addEventListener("click", () => schNote());
+$("sch-style").addEventListener("change", () => { $("style").value = $("sch-style").value; savePickSettings(); renderSchedule(); schNote(); });
 $("sch-refresh").addEventListener("click", () => refreshSchedule(false));
 
 // ------------------------------------------------------------ backtest tab

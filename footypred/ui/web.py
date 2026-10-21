@@ -36,6 +36,8 @@ def pick_opts(q: dict) -> dict:
         o["markets"] = [m for m in q["markets"].split(",") if m in allowed]
     if q.get("style") in ("safe", "balanced", "bold"):
         o["style"] = q["style"]
+    if q.get("directions"):                       # "over", "under", "over,under" or "none"
+        o["directions"] = [d for d in q["directions"].split(",") if d in ("over", "under")]
     for key, lo, hi in (("min_odds", 1.0, 10.0), ("max_odds", 1.0, 50.0), ("form_weight", 0.0, 1.0),
                         ("min_lift", 0.0, 0.5)):
         try:
