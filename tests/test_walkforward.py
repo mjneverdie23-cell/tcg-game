@@ -81,3 +81,51 @@ def test_competition_filter_and_bad_ranges(cfg, short_db, cached_training, monke
         wf.walk_forward(cfg, short_db, "2020-01-01", END)
     text = wf.render(r)
     assert "Walk-forward backtest" in text and "balanced" in text
+
+
+def test_high_stake_backtest(cfg, short_db, cached_training, monkeypatch, tmp_path):
+    """One walk, scored in both modes: the model without the factor is the
+    balanced model, the factor moves flagged matches only, picks are 1.70+,
+    and a day's results never reach that day's high stake predictions."""
+    monkeypatch.setattr(wf, "train_until", cached_training)
+    run = wf.predict_range(cfg, short_db, START, END, competitions=["E0"], tune=False)
+    bal = wf.score_range(cfg, short_db, run)
+    zero = wf.score_range(cfg, short_db, run, mode="high", factor=0.0)
+    hi = wf.score_range(cfg, short_db, run, mode="high", factor=1.0)
+    cols = ["p_home", "p_draw", "p_away"]
+    assert bal.rows[cols].equals(zero.rows[cols]) and not bal.high_stake
+    assert zero.high_stake["adjusted"] == 0
+    assert zero.high_stake["model"] == zero.high_stake["with_factor"]
+    h = hi.high_stake
+    assert h["matches"] == len(hi.rows) and h["adjusted"] > 0 and h["factor"] == 1.0
+    assert h["model"] == zero.high_stake["model"]                     # same walk underneath
+    assert h["with_factor"]["1x2"]["logloss"] != h["model"]["1x2"]["logloss"]
+    fav = h["favourite_non_wins"]
+    assert fav["all"]["matches"] == len(hi.rows) and 0 <= fav["all"]["actual"] <= len(hi.rows)
+    assert fav["more_upsets"]["matches"] + fav["fewer_upsets"]["matches"] <= h["adjusted"]
+    # the "model" columns are the balanced numbers; only flagged matches moved
+    assert np.allclose(hi.rows["p_home_model"], bal.rows["p_home"], atol=1e-4)
+    moved = hi.rows["factor_applied"].to_numpy(bool)
+    d = (hi.rows["p_home"] - hi.rows["p_home_model"]).abs().to_numpy()
+    assert (d[moved] > 0).any() and (d[~moved] < 1e-4).all()
+    assert (hi.rows.loc[moved, "flags"] > 0).all()
+    for style in ("safe", "balanced", "bold"):
+        assert (hi.rows[f"pick_{style}_fair_odds"].dropna() >= 1.70).all()
+        assert set(hi.picks[style].get("by_market", {})) <= {
+            "1x2", "handicap", "combo", "totals", "btts", "team_totals"}
+    assert hi.settings["mode"] == "high" and bal.settings["mode"] == "balanced"
+    text = wf.render(hi)
+    assert "owner & sponsor factor 100%" in text and "Favourite didn't win" in text
+    with pytest.raises(ValueError, match="mode"):
+        wf.score_range(cfg, short_db, run, mode="reckless")
+
+    # change every result on the last day: that day's high stake numbers must not move
+    last = hi.rows["date"].max()
+    path = tmp_path / "changed_hs.sqlite"
+    shutil.copy(short_db.path, path)
+    with sqlite3.connect(path) as con:
+        con.execute("UPDATE matches SET fthg = fthg + 3 WHERE date = ?", (last,))
+    hi2 = wf.walk_forward(cfg, Database(path), START, END, competitions=["E0"], tune=False,
+                          mode="high", factor=1.0)
+    cols = ["p_home", "p_draw", "p_away", "p_o25", "upset_ratio", "pick_balanced"]
+    assert hi.rows[cols].equals(hi2.rows[cols])

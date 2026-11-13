@@ -249,14 +249,16 @@ def cmd_backtest(cfg, args):
           f" — trains on matches before the start, then predicts each day before seeing it")
     r = walk_forward(cfg, db, args.date_from, args.date_to, competitions=comps,
                      retrain_every=args.retrain_every, models=models, pick_opts=_pick_opts(args),
-                     tune=not args.no_tune, value_edge=args.value_edge, progress=progress)
+                     tune=not args.no_tune, value_edge=args.value_edge, progress=progress,
+                     mode=args.mode, factor=args.factor / 100)
     if args.json:
         print(json.dumps(r.summary(), indent=2, default=float))
     else:
         print("\n" + render(r))
     out = Path(args.out) if args.out else cfg.paths.data_dir / "backtests"
     out.mkdir(parents=True, exist_ok=True)
-    stem = f"backtest_{r.start}_{r.end}" + (f"_{'-'.join(comps)}" if comps else "")
+    stem = f"backtest_{r.start}_{r.end}" + (f"_{'-'.join(comps)}" if comps else "") \
+        + (f"_high{args.factor:g}" if args.mode == "high" else "")
     r.rows.to_csv(out / f"{stem}.csv", index=False)
     print(f"\nPer-match predictions: {out / (stem + '.csv')}")
     print(f"Chart: {plot_walkforward(r, out / (stem + '.png'))}")
@@ -459,6 +461,12 @@ def build_parser() -> argparse.ArgumentParser:
     wf.add_argument("--no-tune", action="store_true", help="skip rating tuning (faster)")
     wf.add_argument("--value-edge", type=float, default=0.05,
                     help="value bets: model edge needed over the bookmaker's price (default 0.05)")
+    wf.add_argument("--mode", choices=["balanced", "high"], default="balanced",
+                    help="high = high stake mode: picks at odds 1.70+ and the owner & sponsor "
+                         "factor (see --factor)")
+    wf.add_argument("--factor", type=float, default=0.0, metavar="PERCENT",
+                    help="high stake mode: how much American owners / betting sponsors move "
+                         "a match, 0-100 (default 0)")
     wf.add_argument("--out", help="folder for the CSV and chart (default: data/backtests)")
     wf.add_argument("--json", action="store_true")
     _add_pick_args(wf)

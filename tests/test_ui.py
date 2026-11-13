@@ -89,7 +89,8 @@ def test_data_and_backtest_endpoints(server):
     assert _post(server + "/api/backtest", {"to": "2026-05-01"})[0] == 400
     assert _post(server + "/api/backtest", {"from": "not a date"})[0] == 400
     code, job = _post(server + "/api/backtest", {"from": "2026-05-01", "to": "2026-05-24",
-                                                 "quick": True, "no_tune": True})
+                                                 "quick": True, "no_tune": True,
+                                                 "mode": "high", "factor": "33"})
     assert code == 200 and job["status"] == "running"
     code, busy = _post(server + "/api/backtest", {"from": "2026-05-01"})
     assert code == 400 and "already running" in busy["error"]
@@ -101,8 +102,13 @@ def test_data_and_backtest_endpoints(server):
     r = job["result"]
     assert r["matches"] > 20 and r["chart_png"] and r["table"] and r["start"] == "2026-05-01"
     assert set(r["picks"]) == {"safe", "balanced", "bold"}
+    # high stake mode from the page's mode bar: factor 33% -> 0.33, with vs without
+    assert r["settings"]["mode"] == "high" and r["high_stake"]["factor"] == 0.33
+    assert r["high_stake"]["matches"] == r["matches"] and "p_home_model" in r["table"][0]
+    assert "owner & sponsor factor 33%" in r["text"]
     code, csv = _get(server + "/api/backtest.csv?id=" + job["id"])
     assert code == 200 and csv.count(b"\n") == r["matches"] + 1 and b"pick_balanced" in csv
+    assert b"upset_ratio" in csv
 
 
 def test_follow_ups_and_batch_picks(server):

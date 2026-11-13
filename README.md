@@ -1,4 +1,4 @@
-# footypred 2.8 — four-market football prediction
+# footypred 2.9 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -101,9 +101,9 @@ The bar at the top of the page switches between two modes:
 * **High stake:** the same page, but it only picks at fair odds of 1.70
   and up. Match result, handicap and BTTS + over 2.5 come first.
 
-The mode applies to Schedule, Predict and From image, and the browser
-remembers it. Backtest, Model report and Data don't use it, so the bar
-hides on those tabs.
+The mode applies to Schedule, Predict, From image and Backtest, and the
+browser remembers it. Model report and Data don't use it, so the bar hides
+on those tabs.
 
 In high stake mode:
 - **Pick styles** become Safe 1.70–2.30, Balanced 1.70–3.20 and Bold
@@ -124,9 +124,13 @@ Two kinds of club are flagged:
 - clubs with an American owner (majority, joint or largest investor)
 - clubs with a betting-company sponsor, on or off the shirt
 
-They get a red ⚠ alert in Schedule, Predict and From image, in either
-mode. In high stake mode, the slider (0–100%) sets how much those flags
-move a match:
+They get a red ⚠ alert in either mode:
+- **Predict:** the owner and sponsor names, under the headline.
+- **Schedule and From image:** a short line, e.g. "Chelsea: American
+  owner + betting sponsor". Hover over it for the names.
+
+In high stake mode, the slider (0–100%) sets how much those flags move a
+match:
 
 1. Each team's last 40 matches are compared with what pre-match Elo
    ratings expected:
@@ -153,7 +157,15 @@ nothing changes.
 
 The analyses of your match file found no evidence that these clubs have
 more upsets than their ratings expect. The factor is your own assumption,
-so the slider starts at 0%. The backtest doesn't use it.
+so the slider starts at 0%.
+
+**Test it with a backtest.** Set the mode and slider, then run a backtest
+(Backtest tab, or `footy backtest --mode high --factor 33`). Each match
+gets the factor as it would have on the day: upset records use earlier
+matches only. The result compares the model with and without the factor
+on the same matches (accuracy, log loss, Brier score). It also shows how
+often the favourite failed to win against what each version expected.
+Picks are the high stake ones.
 
 ### The club list: `config/club_flags.csv`
 
@@ -579,6 +591,9 @@ Reported results:
   the model claimed
 * flat-stake profit at bookmaker odds for those picks and for value bets
   (model edge over 5%), where odds exist
+* in high stake mode (`--mode high --factor 33`, or the mode bar on the
+  page): the owner & sponsor factor applied as of each match, the model
+  with and without it on the same matches, and high stake picks (1.70+)
 
 `--competitions` limits which matches are scored. Every match still feeds
 the ratings. Output: a per-match CSV (every market, every pick style, hits)
@@ -779,7 +794,7 @@ config/club_flags.csv       clubs with an American owner / betting sponsor (high
 start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
 start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      68 tests: market identities, reconciliation, leakage,
+tests/                      69 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -798,5 +813,5 @@ tests/                      68 tests: market identities, reconciliation, leakage
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints, high stake mode (club list,
                             upset records, the factor, 1.70+ picks, handicaps,
-                            BTTS + over 2.5, alerts on the schedule)
+                            BTTS + over 2.5, alerts on the schedule, backtests)
 ```

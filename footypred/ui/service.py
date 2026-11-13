@@ -266,7 +266,9 @@ class PredictionService:
                              models=QUICK_MODELS if params.get("quick") else None,
                              pick_opts=params.get("pick_opts") or None,
                              tune=not params.get("no_tune"),
-                             progress=lambda f, m: job.say(m, f), should_stop=job.cancelled)
+                             progress=lambda f, m: job.say(m, f), should_stop=job.cancelled,
+                             mode=params.get("mode") or "balanced",
+                             factor=params.get("factor") or 0.0)
             return self._backtest_payload(r, job)
         return self.jobs.start("backtest", work)
 
@@ -277,10 +279,14 @@ class PredictionService:
             buf = io.BytesIO()
             plot_walkforward(r, buf)
         job.files["csv"] = r.rows.to_csv(index=False).encode()
-        job.files["name"] = f"backtest_{r.start}_{r.end}.csv"
+        high = r.settings.get("mode") == "high"
+        job.files["name"] = (f"backtest_{r.start}_{r.end}"
+                             + (f"_high{100 * r.settings['factor']:.0f}" if high else "") + ".csv")
         cols = ["date", "league", "home", "away", "fthg", "ftag", "p_home", "p_draw", "p_away",
                 "p_o25", "p_btts", "xg_home", "xg_away", "pick_balanced", "pick_balanced_hit",
-                "pick_safe", "pick_safe_hit", "pick_bold", "pick_bold_hit"]
+                "pick_balanced_fair_odds", "pick_safe", "pick_safe_hit", "pick_safe_fair_odds",
+                "pick_bold", "pick_bold_hit", "pick_bold_fair_odds",
+                "p_home_model", "p_draw_model", "p_away_model", "flags", "upset_ratio"]
         table = r.rows[[c for c in cols if c in r.rows]].tail(1500)
         table = table.astype(object).where(table.notna(), None)
         return {**r.summary(), "matches": len(r.rows), "text": render(r),

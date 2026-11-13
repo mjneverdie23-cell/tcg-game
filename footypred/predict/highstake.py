@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 MIN_ODDS = 1.70
 COUNTED_STAKES = {"majority", "joint", "largest investor"}
@@ -144,7 +145,10 @@ class UpsetProfiles:
     with what pre-match Elo ratings expected. Built on the pick engine's
     FormIndex (same matches, same Elo walk, nothing after each kickoff)."""
 
-    def __init__(self, index, home_adv: float = 60.0):
+    def __init__(self, index, home_adv: float = 60.0, calibrate_before=None):
+        """calibrate_before: learn "how often a favourite wins at this rating
+        gap" from matches before this date only (a backtest must not peek
+        at the period it tests). Records always use earlier matches only."""
         self.index = index
         n = len(index.home)
         d = index.elo_pre[:, 0] - index.elo_pre[:, 1] + np.where(index.neutral > 0, 0.0, home_adv)
@@ -164,9 +168,12 @@ class UpsetProfiles:
         self.warm = (prev >= WARMUP).all(axis=1)
         # P(favourite wins) by rating gap, from the warmed-up matches
         b = np.clip(np.searchsorted(GAP_BINS, gap, side="right") - 1, 0, len(GAP_BINS) - 2)
+        learn = self.warm.copy()
+        if calibrate_before is not None:
+            learn &= index.date < pd.Timestamp(calibrate_before).to_datetime64().astype("datetime64[D]")
         rate = np.full(len(GAP_BINS) - 1, np.nan)
         for k in range(len(rate)):
-            m = self.warm & (b == k)
+            m = learn & (b == k)
             rate[k] = (self.fav_won[m].sum() + 1) / (m.sum() + 2)
         rate = np.maximum.accumulate(np.nan_to_num(rate, nan=0.45))   # bigger gap, never lower
         self.p_fav_win = rate[b]
@@ -209,7 +216,8 @@ def adjust(grid: np.ndarray, home: str, away: str, flags: dict[str, ClubFlags],
     fl = {t: flags[t] for t in (home, away) if t in flags and flags[t].count}
     n_flags = sum(f.count for f in fl.values())
     weight = min(1.0, 0.5 * n_flags)
-    factor = float(min(max(factor, 0.0), 1.0))
+    factor = float(factor or 0.0)
+    factor = min(max(factor, 0.0), 1.0) if np.isfinite(factor) else 0.0
     lam = factor * weight
     info = {"mode": "high", "factor": round(factor, 2), "flags": n_flags, "flag_weight": weight,
             "flagged": {t: f.alerts() for t, f in fl.items()}, "favourite": fav, "underdog": dog,
@@ -253,10 +261,17 @@ def adjust(grid: np.ndarray, home: str, away: str, flags: dict[str, ClubFlags],
     return out, info
 
 
+def extra_probs_many(grids: np.ndarray) -> dict[str, np.ndarray]:
+    """Handicap +0.5 / +1.5 for each side and BTTS + over 2.5, for a stack
+    of score grids (n, G, G)."""
+    g = np.asarray(grids, float)
+    i, j = np.indices(g.shape[-2:])
+    take = lambda m: g[:, m].sum(axis=1)                      # noqa: E731
+    return {"hcp_h05": take(i >= j), "hcp_h15": take(i - j >= -1),
+            "hcp_a05": take(j >= i), "hcp_a15": take(j - i >= -1),
+            "btts_o25": take((i > 0) & (j > 0) & (i + j > 2))}
+
+
 def extra_probs(grid: np.ndarray) -> dict[str, float]:
-    """Handicap +0.5 / +1.5 for each side and BTTS + over 2.5, off the grid."""
-    g = np.asarray(grid, float)
-    i, j = np.indices(g.shape)
-    return {"hcp_h05": float(g[i >= j].sum()), "hcp_h15": float(g[i - j >= -1].sum()),
-            "hcp_a05": float(g[j >= i].sum()), "hcp_a15": float(g[j - i >= -1].sum()),
-            "btts_o25": float(g[(i > 0) & (j > 0) & (i + j > 2)].sum())}
+    """The same for one grid."""
+    return {k: float(v[0]) for k, v in extra_probs_many(np.asarray(grid, float)[None]).items()}

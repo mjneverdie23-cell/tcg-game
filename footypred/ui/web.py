@@ -33,10 +33,10 @@ def mode_opts(q: dict) -> tuple[str, float]:
     as 0-100 (%), returned as 0-1. Invalid values fall back to balanced / 0."""
     mode = q.get("mode") if q.get("mode") in ("balanced", "high") else "balanced"
     try:
-        factor = min(max(float(q.get("factor") or 0), 0.0), 100.0) / 100
+        f = float(q.get("factor") or 0)
     except (TypeError, ValueError):
-        factor = 0.0
-    return mode, factor
+        f = 0.0
+    return mode, (min(max(f, 0.0), 100.0) / 100 if f == f else 0.0)     # NaN -> 0
 
 
 def pick_opts(q: dict) -> dict:
@@ -84,6 +84,8 @@ def backtest_params(body: dict) -> dict:
     out["quick"] = bool(body.get("quick"))
     out["no_tune"] = bool(body.get("no_tune"))
     out["pick_opts"] = pick_opts({k: str(v) for k, v in (body.get("pick_opts") or {}).items()})
+    out["mode"], out["factor"] = mode_opts({k: str(v) for k, v in body.items()
+                                            if k in ("mode", "factor")})
     return out
 
 

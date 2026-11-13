@@ -295,9 +295,9 @@ label.factor input[type="range"] { flex: 1; min-width: 80px; accent-color: var(-
 label.factor output { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); min-width: 3.2em; text-align: right; }
 label.factor.off { opacity: .45; }
 .mode-hint { font-size: 12.5px; color: var(--muted); margin: -4px 0 12px; }
-/* the mode only changes Schedule, Predict and From image */
-body[data-tab="backtest"] .modebar, body[data-tab="report"] .modebar, body[data-tab="data"] .modebar,
-body[data-tab="backtest"] #mode-hint, body[data-tab="report"] #mode-hint, body[data-tab="data"] #mode-hint { display: none; }
+/* the mode changes Schedule, Predict, From image and Backtest */
+body[data-tab="report"] .modebar, body[data-tab="data"] .modebar,
+body[data-tab="report"] #mode-hint, body[data-tab="data"] #mode-hint { display: none; }
 /* anything scrolled into view lands below the sticky bar */
 main * { scroll-margin-top: calc(var(--mb, 0px) + 12px); }
 /* handicap rows carry full team names */
@@ -562,9 +562,13 @@ function alertShort(alerts, home, away) {
   for (const [side, team] of [["home", home], ["away", away]]) {
     const a = alerts && alerts[side];
     if (!a) continue;
-    bits.push(`${team}: ` + [a.american ? "American owner" : null, a.betting ? `betting sponsor ${a.sponsor}` : null].filter(Boolean).join(", "));
+    bits.push(`${team}: ` + [a.american ? "American owner" : null, a.betting ? "betting sponsor" : null].filter(Boolean).join(" + "));
   }
   return bits.length ? "⚠ " + bits.join(" · ") : null;
+}
+function alertTitle(alerts, home, away) {      // the names, on hover
+  return [["home", home], ["away", away]].filter(([s]) => alerts && alerts[s])
+    .map(([s, t]) => `${t}: ${alerts[s].alerts.join(" · ")}`).join("\n");
 }
 async function api(path, payload) {
   const r = await fetch(path, payload === undefined ? {} : { method: "POST", body: JSON.stringify(payload),
@@ -1448,7 +1452,7 @@ function matchRow(m, showComp) {
   row.addEventListener("click", open);
   row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   const warn = alertShort(m.alerts, m.home, m.away);
-  return [row, warn ? el("div", { class: "malert", role: "note" }, warn) : null, schPickLine(m)];
+  return [row, warn ? el("div", { class: "malert", role: "note", title: alertTitle(m.alerts, m.home, m.away) }, warn) : null, schPickLine(m)];
 }
 function dayMatches() {
   if (!SCH) return [];
@@ -1596,7 +1600,7 @@ $("bt-form").addEventListener("submit", async (e) => {
   const ticked = all.filter((x) => x.checked).map((x) => x.value);
   if (!ticked.length) return msg("bt-msg", "Tick at least one competition.", "warn");
   const body = { from: $("bt-from").value, to: $("bt-to").value, retrain_every: +$("bt-retrain").value,
-    quick: $("bt-quick").checked, competitions: ticked.length === all.length ? [] : ticked };
+    quick: $("bt-quick").checked, competitions: ticked.length === all.length ? [] : ticked, ...modeParams() };
   store.set("bt", { from: body.from, to: body.to, retrain: $("bt-retrain").value, quick: body.quick });
   msg("bt-msg", "");
   try { followBacktest(await api("/api/backtest", body)); }
@@ -1615,14 +1619,44 @@ async function followBacktest(j0) {
   finally { $("bt-go").disabled = false; $("bt-cancel").classList.add("hidden"); BT_JOB = null; }
 }
 function tile(k, v, sub) { return el("div", { class: "tile" }, el("div", { class: "k" }, k), el("div", { class: "v" }, v), sub ? el("div", { class: "s" }, sub) : null); }
+function highStakeBacktest(r) {
+  const h = r.high_stake, f = h.favourite_non_wins;
+  const better = (a, b, lower) => (lower ? b < a - 1e-9 : b > a + 1e-9) ? "up" : (lower ? b > a + 1e-9 : b < a - 1e-9) ? "down" : "";
+  const rowsFor = [["1x2", "1X2 (match result)"], ["o25", "Over 2.5"], ["btts", "BTTS"]].map(([k, n]) => {
+    const a = h.model[k], c = h.with_factor[k];
+    return el("tr", {}, el("td", { class: "team" }, n), el("td", {}, pct(a.accuracy, 1)), el("td", { class: better(a.accuracy, c.accuracy, false) }, pct(c.accuracy, 1)),
+      el("td", {}, a.logloss.toFixed(4)), el("td", { class: better(a.logloss, c.logloss, true) }, c.logloss.toFixed(4)),
+      el("td", {}, a.brier.toFixed(4)), el("td", { class: better(a.brier, c.brier, true) }, c.brier.toFixed(4)));
+  });
+  const favLine = (g, name) => g && g.matches ? el("div", { class: "tags" }, el("b", {}, `${name}: `),
+    `favourite didn't win ${g.actual} of ${g.matches} · model expected ${g.model.toFixed(1)} · with the factor ${g.with_factor.toFixed(1)}`) : null;
+  const styles = ["safe", "balanced", "bold"];
+  const markets = [...new Set(styles.flatMap((s) => Object.keys(r.picks[s].by_market || {})))];
+  const byMarket = markets.length ? el("div", { class: "scroll" }, el("table", {},
+    el("thead", {}, el("tr", {}, ["Picks by market", ...styles.map((s) => `${s} ${STYLE_ODDS.high[s]}`)].map((t) => el("th", {}, t)))),
+    el("tbody", {}, markets.map((mk) => el("tr", {}, el("td", { class: "team" }, MARKET_LABEL[mk] || mk),
+      styles.map((s) => { const x = (r.picks[s].by_market || {})[mk];
+        return el("td", {}, x ? `${x.n} · landed ${pct(x.hit_rate)} · model ${pct(x.mean_model)}` : "–"); })))))) : null;
+  return el("div", { class: "card section hs" },
+    el("div", { class: "kick" }, `High stake mode · owner & sponsor factor ${Math.round(100 * h.factor)}%`),
+    el("p", { class: "pick", style: "margin:6px 0 10px" }, `The factor changed ${h.adjusted} of ${h.matches} matches. Same matches, same model, without and with the factor:`),
+    el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, ["", "Accuracy: model", "with factor", "Log loss: model", "with factor", "Brier: model", "with factor"].map((t) => el("th", {}, t)))),
+      el("tbody", {}, rowsFor))),
+    favLine(f.all, "All matches"), favLine(f.more_upsets, "Factor favoured the underdog"), favLine(f.fewer_upsets, "Factor favoured the favourite"),
+    el("p", { class: "pick", style: "margin:6px 0 10px" }, "Lower log loss and Brier = better probabilities. " +
+      (h.matches < 100 ? `Only ${h.matches} matches: differences this small are mostly luck.` : "")),
+    byMarket);
+}
+const MARKET_LABEL = { "1x2": "Match result", totals: "Total goals", btts: "BTTS", team_totals: "Team goals", handicap: "Handicap +0.5 / +1.5", combo: "BTTS + over 2.5", first_half: "First half" };
 function renderBacktest(r, jobId) {
   const m = r.metrics, b = r.bookmaker || {}, bt = r.betting;
+  const hs = r.high_stake && r.high_stake.matches ? r.high_stake : null;
   const money = (x) => x && x.bets ? `${x.profit >= 0 ? "+" : ""}${x.profit.toFixed(1)} u · ROI ${pct(x.roi, 1)}` : "no odds";
   const bal = r.picks.balanced;
   const tiles = [tile("Matches predicted", r.matches.toLocaleString(), `${r.start} → ${r.end}`),
     m ? tile("Combined skill", m.combined_skill.toFixed(4), "log-loss gain vs base rate") : null,
-    m ? tile("1X2 accuracy", pct(m["1x2"].accuracy, 1), b["1x2"] ? `bookmaker ${pct(b["1x2"].book_accuracy, 1)}` : "") : null,
-    bal.picks ? tile("Balanced pick landed", pct(bal.hit_rate, 1), `${bal.picks} picks · model said ${pct(bal.mean_model, 1)}`) : null,
+    m ? tile("1X2 accuracy", pct(m["1x2"].accuracy, 1), hs ? `model alone ${pct(hs.model["1x2"].accuracy, 1)}` : b["1x2"] ? `bookmaker ${pct(b["1x2"].book_accuracy, 1)}` : "") : null,
+    bal.picks ? tile(hs ? "Balanced pick landed (1.70–3.20)" : "Balanced pick landed", pct(bal.hit_rate, 1), `${bal.picks} picks · model said ${pct(bal.mean_model, 1)} · avg odds ${bal.mean_odds.toFixed(2)}`) : null,
     tile("Value bets 1X2", bt.value_1x2.bets ? pct(bt.value_1x2.roi, 1) : "–", bt.value_1x2.bets ? `${bt.value_1x2.bets} bets · ${money(bt.value_1x2)}` : "no bookmaker odds")];
   const mk = [["1x2", "1X2"], ["o25", "Over 2.5"], ["btts", "BTTS"], ["h_o05", "Home o0.5"], ["h_o15", "Home o1.5"], ["a_o05", "Away o0.5"], ["a_o15", "Away o1.5"], ["o15", "Over 1.5"], ["o35", "Over 3.5"]];
   const metrics = m ? el("div", { class: "card section" }, el("h2", {}, "Markets", el("span", { class: "conf" }, "out of sample, predicted before kick-off")),
@@ -1634,7 +1668,7 @@ function renderBacktest(r, jobId) {
           el("tr", {}, el("td", { class: "team" }, n), el("td", {}, m.halftime[k].logloss.toFixed(4)), el("td", {}, m.halftime[k].skill.toFixed(4)),
             el("td", {}, pct(m.halftime[k].accuracy, 1)), el("td", {}, pct(m.halftime[k].ece, 1)), el("td", {}, "–"))) : null))),
     m.halftime ? el("p", { class: "pick" }, `First-half rows: ${m.halftime.matches} matches with a recorded half-time score.`) : null) : null;
-  const picks = el("div", { class: "card section" }, el("h2", {}, "Best picks", el("span", { class: "conf" }, "last-5 form + model, as on the day · profit at bookmaker odds where the file has them")),
+  const picks = el("div", { class: "card section" }, el("h2", {}, hs ? "Best picks (high stake, odds 1.70+)" : "Best picks", el("span", { class: "conf" }, "last-5 form + model, as on the day · profit at bookmaker odds where the file has them")),
     el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, ["Style", "Picks", "Landed", "Model said", "Avg fair odds", "Bets with odds", "Profit"].map((t) => el("th", {}, t)))),
       el("tbody", {}, ["safe", "balanced", "bold"].map((s) => { const p = r.picks[s], x = bt["picks_" + s];
         return el("tr", {}, el("td", { class: "team" }, s), el("td", {}, p.picks), el("td", {}, p.picks ? pct(p.hit_rate, 1) : "–"),
@@ -1643,20 +1677,21 @@ function renderBacktest(r, jobId) {
   const rows = r.table.slice(-300).reverse();
   const res = (x) => x === true ? el("td", { class: "hit" }, "✓") : x === false ? el("td", { class: "miss" }, "✗") : el("td", {}, "");
   const table = el("div", { class: "card section" }, el("h2", {}, "Match by match", el("a", { href: "/api/backtest.csv?id=" + jobId }, "Download all as CSV")),
-    el("div", { class: "scroll" }, el("table", { class: "form" }, el("thead", {}, el("tr", {}, ["Date", "Comp", "Match", "Score", "H · D · A", "O2.5", "BTTS", "Balanced pick", ""].map((t) => el("th", {}, t)))),
+    el("div", { class: "scroll" }, el("table", { class: "form" }, el("thead", {}, el("tr", {}, ["Date", "Comp", "Match", "Score", ...(hs ? ["H · D · A model", "with factor"] : ["H · D · A"]), "O2.5", "BTTS", hs ? "Pick (balanced 1.70–3.20)" : "Balanced pick", "Odds", ""].map((t) => el("th", {}, t)))),
       el("tbody", {}, rows.map((x) => el("tr", {}, el("td", {}, x.date), el("td", {}, x.league), el("td", { class: "team" }, `${x.home} – ${x.away}`),
-        el("td", {}, `${x.fthg}–${x.ftag}`), el("td", {}, `${pct(x.p_home)} · ${pct(x.p_draw)} · ${pct(x.p_away)}`), el("td", {}, pct(x.p_o25)),
-        el("td", {}, pct(x.p_btts)), el("td", {}, x.pick_balanced || "–"), res(x.pick_balanced_hit)))))),
+        el("td", {}, `${x.fthg}–${x.ftag}`), hs ? el("td", {}, x.p_home_model == null ? "–" : `${pct(x.p_home_model)} · ${pct(x.p_draw_model)} · ${pct(x.p_away_model)}`) : null,
+        el("td", {}, `${pct(x.p_home)} · ${pct(x.p_draw)} · ${pct(x.p_away)}`), el("td", {}, pct(x.p_o25)),
+        el("td", {}, pct(x.p_btts)), el("td", {}, x.pick_balanced || "–"), el("td", {}, x.pick_balanced_fair_odds ? x.pick_balanced_fair_odds.toFixed(2) : ""), res(x.pick_balanced_hit)))))),
     rows.length < r.matches ? el("p", { class: "pick" }, `Latest ${rows.length} of ${r.matches} shown — the CSV has every match with all markets and all three pick styles.`) : null);
   const dash = el("div", { class: "card section dash" }, el("div", { class: "tools" }, el("h2", { style: "margin:0" }, "Backtest charts"),
       el("a", { href: "data:image/png;base64," + r.chart_png, download: `backtest_${r.start}_${r.end}.png` }, "Download PNG")),
     el("img", { src: "data:image/png;base64," + r.chart_png, alt: "Backtest: best-pick hit rate over time by style, profit at bookmaker odds, results by competition, reliability of 1X2, over 2.5, BTTS and team goals" }));
   const t0 = r.trainings[0];
   put($("bt-result"), 
-    el("div", { class: "headline" }, el("h1", {}, `Backtest ${r.start} → ${r.end}`),
+    el("div", { class: "headline" }, el("h1", {}, `Backtest ${r.start} → ${r.end}` + (hs ? " · high stake" : "")),
       el("div", { class: "meta" }, `trained on ${t0.matches.toLocaleString()} matches ${t0.first} → ${t0.cutoff} (model ${t0.model}, ${t0.models.join(", ")})` +
         (r.trainings.length > 1 ? ` · retrained ${r.trainings.length - 1}×` : " · results fed in day by day") + ` · ${Math.round(r.seconds)}s`)),
-    el("div", { class: "tiles" }, tiles), metrics, picks, dash, table,
+    el("div", { class: "tiles" }, tiles), hs ? highStakeBacktest(r) : null, metrics, picks, dash, table,
     el("details", { class: "card section" }, el("summary", {}, "Text report"), el("pre", { style: "margin-top:8px" }, r.text)));
   $("bt-result").classList.remove("hidden");
   $("bt-result").scrollIntoView({ behavior: "smooth", block: "start" });

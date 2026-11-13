@@ -13,6 +13,13 @@ the day, every N days.
 Reported: per-market log loss / accuracy / calibration (vs the bookmaker
 where the file has odds), how often each pick style's best pick landed,
 and flat-stake profit at the bookmaker's odds for picks and value bets.
+
+High stake mode (`mode="high"`, `factor` 0-1) applies the owner & sponsor
+factor to every prediction as of its date. Each team's upset record uses
+earlier matches only, and the "favourite wins at this rating gap" table
+uses matches before the start. Picks are the high stake ones (odds 1.70+).
+The result also compares the model with and without the factor on the same
+matches.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ import pandas as pd
 from footypred.logging_utils import get_logger
 from footypred.models.market_head import probs_from_grids
 from footypred.models.metrics import binary_logloss, evaluate, multi_logloss, outcomes
+from footypred.predict import highstake
 from footypred.predict.picks import FormIndex, backtest, base_rates
 
 log = get_logger("predict.walkforward")
@@ -52,6 +60,7 @@ class WalkForwardResult:
     trainings: list = field(default_factory=list)
     settings: dict = field(default_factory=dict)
     seconds: float = 0.0
+    high_stake: dict = field(default_factory=dict)   # high stake mode: model vs with the factor
 
     def summary(self) -> dict:
         """JSON-friendly (no per-match table)."""
@@ -115,8 +124,23 @@ def _predict_day(res, state, games: list[dict]):
 def walk_forward(cfg, db, start, end=None, competitions: list[str] | None = None,
                  retrain_every: int | None = None, models: list[str] | None = None,
                  pick_opts: dict | None = None, tune: bool = True, value_edge: float = 0.05,
-                 progress=None, should_stop=None) -> WalkForwardResult:
-    """progress(fraction 0..1, message); should_stop() -> True cancels."""
+                 progress=None, should_stop=None, mode: str = "balanced",
+                 factor: float = 0.0) -> WalkForwardResult:
+    """progress(fraction 0..1, message); should_stop() -> True cancels.
+    mode "high" = high stake mode with the owner & sponsor factor (0-1)."""
+    if mode not in ("balanced", "high"):
+        raise ValueError("mode must be 'balanced' or 'high'")
+    run = predict_range(cfg, db, start, end, competitions, retrain_every, models, tune,
+                        progress, should_stop)
+    return score_range(cfg, db, run, pick_opts, value_edge, mode, factor)
+
+
+def predict_range(cfg, db, start, end=None, competitions: list[str] | None = None,
+                  retrain_every: int | None = None, models: list[str] | None = None,
+                  tune: bool = True, progress=None, should_stop=None) -> dict:
+    """The walk itself: every match in the range predicted as of its morning.
+    Score the returned run with score_range (as often as you like: e.g.
+    balanced and high stake from the same predictions)."""
     t0 = time.time()
     say = progress or (lambda *_: None)
     allm = db.load_matches().sort_values(["date", "match_id"]).reset_index(drop=True)
@@ -167,18 +191,87 @@ def walk_forward(cfg, db, start, end=None, competitions: list[str] | None = None
 
     grids = np.concatenate(out_grids)
     rows = pd.DataFrame(out_rows).reset_index(drop=True)
-    probs = probs_from_grids(grids)
     ht = ({k: np.concatenate([h[k] for h in out_ht]) for k in out_ht[0]}
           if out_ht and all(h is not None for h in out_ht) else None)
-    return _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, value_edge,
-                  {"competitions": sorted(comps) if comps else None,
-                   "retrain_every": retrain_every, "models": trainings[0]["models"],
-                   "tune": tune, "value_edge": value_edge}, t0, ht)
+    return {"allm": allm, "start": start, "end": end, "rows": rows, "grids": grids, "ht": ht,
+            "trainings": trainings, "t0": t0,
+            "settings": {"competitions": sorted(comps) if comps else None,
+                         "retrain_every": retrain_every, "models": trainings[0]["models"],
+                         "tune": tune}}
+
+
+def score_range(cfg, db, run: dict, pick_opts: dict | None = None, value_edge: float = 0.05,
+                mode: str = "balanced", factor: float = 0.0) -> WalkForwardResult:
+    """Score a predicted range in balanced or high stake mode. In high stake
+    mode every match is reweighted for the owner & sponsor factor as of its
+    date, and the model without the factor is kept for comparison.
+    (First-half numbers use the model's own expected goals.)"""
+    if mode not in ("balanced", "high"):
+        raise ValueError("mode must be 'balanced' or 'high'")
+    factor = float(factor or 0.0)
+    factor = min(max(factor, 0.0), 1.0) if np.isfinite(factor) else 0.0
+    if "index" not in run:                         # the form index is shared between scorings
+        run["index"] = FormIndex(run["allm"])
+    rows, grids, high = run["rows"].copy(), run["grids"], None
+    if mode == "high":
+        grids, high = _factor_grids(cfg, db, run["index"], rows, grids, factor, run["start"])
+    settings = {**run["settings"], "value_edge": value_edge, "mode": mode,
+                "factor": round(factor, 2) if mode == "high" else None}
+    return _score(cfg, run["allm"], run["start"], run["end"], rows, grids,
+                  probs_from_grids(grids), run["trainings"], pick_opts, value_edge, settings,
+                  run["t0"], run["ht"], index=run["index"], mode=mode, high=high,
+                  model_grids=run["grids"])
+
+
+def _factor_grids(cfg, db, index, rows, grids, factor, start):
+    """The owner & sponsor factor on every match, as of its date."""
+    flags = highstake.load_flags(highstake.flags_path(cfg), db.teams(), db.load_aliases())
+    prof = highstake.UpsetProfiles(index, calibrate_before=start)
+    out, infos = grids.copy(), []
+    for i, r in enumerate(rows[["home", "away", "date"]].itertuples(index=False)):
+        out[i], info = highstake.adjust(grids[i], r.home, r.away, flags, prof, factor, r.date)
+        infos.append(info)
+    return out, infos
+
+
+def _three_way(P, y) -> dict:
+    p_true = np.clip(P[np.arange(len(y)), y], 1e-12, 1)
+    return {"accuracy": float((P.argmax(1) == y).mean()), "logloss": float(-np.log(p_true).mean()),
+            "brier": float(((P - np.eye(3)[y]) ** 2).sum(1).mean())}
+
+
+def _two_way(p, y) -> dict:
+    q = np.clip(p, 1e-12, 1 - 1e-12)
+    return {"accuracy": float(((p > 0.5) == y).mean()),
+            "logloss": float(-(y * np.log(q) + (1 - y) * np.log(1 - q)).mean()),
+            "brier": float(((p - y) ** 2).mean())}
+
+
+def _high_summary(infos, model, adj, out, factor) -> dict:
+    """The model without and with the factor on the same matches, plus how
+    often the favourite failed to win compared with what each expected."""
+    y = out["1x2"]
+    home_fav = model["1x2"][:, 0] >= model["1x2"][:, 2]
+    fav_won = np.where(home_fav, y == 0, y == 2)
+    nw_model = 1 - np.where(home_fav, model["1x2"][:, 0], model["1x2"][:, 2])
+    nw_adj = 1 - np.where(home_fav, adj["1x2"][:, 0], adj["1x2"][:, 2])
+    applied = np.array([bool(h["applied"]) for h in infos])
+    ratio = np.array([h["ratio"] if h["ratio"] is not None else 1.0 for h in infos])
+    groups = {"all": np.ones(len(y), bool), "more_upsets": applied & (ratio > 1),
+              "fewer_upsets": applied & (ratio < 1)}
+    fav = {k: {"matches": int(m.sum()), "actual": int((~fav_won[m]).sum()),
+               "model": round(float(nw_model[m].sum()), 1),
+               "with_factor": round(float(nw_adj[m].sum()), 1)} for k, m in groups.items()}
+    view = lambda P: {"1x2": _three_way(P["1x2"], y), "o25": _two_way(P["o25"], out["o25"]),
+                      "btts": _two_way(P["btts"], out["btts"])}
+    return {"factor": factor, "matches": int(len(y)), "adjusted": int(applied.sum()),
+            "model": view(model), "with_factor": view(adj), "favourite_non_wins": fav}
 
 
 # ----------------------------------------------------------------- scoring
 def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, value_edge,
-           settings, t0, ht=None) -> WalkForwardResult:
+           settings, t0, ht=None, index=None, mode="balanced", high=None,
+           model_grids=None) -> WalkForwardResult:
     yh, ya = rows["fthg"].to_numpy(int), rows["ftag"].to_numpy(int)
     G = grids.shape[-1]
     k = np.arange(G)
@@ -193,8 +286,8 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
 
     metrics = evaluate(probs, yh, ya) if len(rows) >= 30 and len(set(out["1x2"])) == 3 else None
     bookmaker = _vs_bookmaker(rows, probs, out)
-    pick_probs = probs
-    if ht is not None:                             # first half: predicted vs half-time scores
+    pick_probs = {**probs, **highstake.extra_probs_many(grids)}   # + handicaps, BTTS & over 2.5
+    if ht is not None:                           # first half: predicted vs half-time scores
         from footypred.models.halftime import evaluate_ht
         for c, (k, j) in (("p_ht_home", ("1x2", 0)), ("p_ht_draw", ("1x2", 1)), ("p_ht_away", ("1x2", 2)),
                           ("p_ht_o05", ("o05", None)), ("p_ht_o15", ("o15", None)),
@@ -207,13 +300,23 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
                                                  rows.loc[has, "hthg"].astype(int),
                                                  rows.loc[has, "htag"].astype(int)),
                                    "matches": int(m.sum())}
-        pick_probs = {**probs, **{f"ht_{k}": v for k, v in ht.items() if k in
-                                  ("1x2", "o05", "o15", "o25", "btts")}}
+        pick_probs.update({f"ht_{k}": v for k, v in ht.items() if k in
+                           ("1x2", "o05", "o15", "o25", "btts")})
+
+    high_stake = {}
+    if mode == "high" and high is not None:        # the factor: without vs with, same matches
+        model = probs_from_grids(model_grids)
+        high_stake = _high_summary(high, model, probs, out, settings.get("factor"))
+        for j, c in enumerate(("p_home_model", "p_draw_model", "p_away_model")):
+            rows[c] = np.round(model["1x2"][:, j], 4)
+        rows["flags"] = [h["flags"] for h in high]
+        rows["upset_ratio"] = [h["ratio"] for h in high]
+        rows["factor_applied"] = [bool(h["applied"]) for h in high]
 
     # best picks per style, form windows strictly before each match
-    index = FormIndex(allm)
+    index = index if index is not None else FormIndex(allm)
     typical = base_rates(allm[allm["date"] < start])
-    base_opts = {**(cfg.raw.get("picks") or {}), **(pick_opts or {})}
+    base_opts = {**(cfg.raw.get("picks") or {}), **(pick_opts or {}), "mode": mode}
     picks, betting = {}, {}
     for style in STYLES:
         r = backtest(index, rows, pick_probs, {**base_opts, "style": style}, base=typical,
@@ -232,7 +335,7 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
     return WalkForwardResult(start=str(start.date()), end=str(end.date()), rows=rows,
                              metrics=metrics, bookmaker=bookmaker, picks=picks, betting=betting,
                              trainings=trainings, settings=settings,
-                             seconds=round(time.time() - t0, 1))
+                             seconds=round(time.time() - t0, 1), high_stake=high_stake)
 
 
 def _book(r, pick) -> float | None:
@@ -322,8 +425,10 @@ def _value_bets(rows, probs, out, edge):
 def render(r: WalkForwardResult) -> str:
     pct = lambda x: f"{100 * x:.1f}%"
     t = r.trainings[0]
+    hs = r.high_stake
     L = [f"Walk-forward backtest {r.start} → {r.end}: {len(r.rows)} matches"
-         + (f" ({', '.join(r.settings['competitions'])})" if r.settings.get("competitions") else ""),
+         + (f" ({', '.join(r.settings['competitions'])})" if r.settings.get("competitions") else "")
+         + (f" · high stake mode, owner & sponsor factor {100 * hs['factor']:.0f}%" if hs else ""),
          f"Trained on {t['matches']} matches {t['first']} → day before {t['cutoff']} "
          f"(selected: {t['model']}; folds: {t['folds']})"
          + (f"; retrained {len(r.trainings) - 1}× (every {r.settings['retrain_every']} days)"
@@ -359,6 +464,24 @@ def render(r: WalkForwardResult) -> str:
                 L.append(f"  {name:<8} log loss model {b['model_logloss']:.4f} vs book "
                          f"{b['book_logloss']:.4f}   accuracy {pct(b['model_accuracy'])} vs "
                          f"{pct(b['book_accuracy'])}   (n={b['matches']})")
+    if hs:
+        L += ["", f"Owner & sponsor factor {100 * hs['factor']:.0f}%: changed {hs['adjusted']} of "
+                  f"{hs['matches']} matches. Same matches, without vs with the factor:",
+              f"{'market':<10}{'':<14}{'accuracy':>9}{'log loss':>10}{'Brier':>8}"]
+        for key, name in (("1x2", "1X2"), ("o25", "Over 2.5"), ("btts", "BTTS")):
+            for side, label in (("model", "model alone"), ("with_factor", "with factor")):
+                x = hs[side][key]
+                L.append(f"{name if side == 'model' else '':<10}{label:<14}{pct(x['accuracy']):>9}"
+                         f"{x['logloss']:10.4f}{x['brier']:8.4f}")
+        f = hs["favourite_non_wins"]
+        for key, name in (("all", "all matches"), ("more_upsets", "factor favoured the underdog"),
+                          ("fewer_upsets", "factor favoured the favourite")):
+            g = f[key]
+            if g["matches"]:
+                L.append(f"Favourite didn't win: {g['actual']} of {g['matches']} ({name}); "
+                         f"model expected {g['model']:.1f}, with the factor {g['with_factor']:.1f}")
+        if hs["matches"] < 100:
+            L.append(f"(only {hs['matches']} matches: differences this small are mostly luck)")
     L.append(f"\n{'best pick':<10}{'picks':>7}{'landed':>9}{'model said':>12}{'avg odds':>10}"
              f"{'book bets':>11}{'profit':>9}{'ROI':>8}")
     for style in STYLES:
