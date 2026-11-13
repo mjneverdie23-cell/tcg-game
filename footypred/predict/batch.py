@@ -86,4 +86,7 @@ def pick_summary(pred) -> dict:
             "xg": pred.expected_goals, "confidence": pred.confidence["overall"],
             "ht": ({"1x2": pred.halftime["1x2"], "totals": pred.halftime["totals"],
                     "btts": pred.halftime["btts"]["yes"]} if pred.halftime else None),
-            "warnings": pred.warnings[:2]}
+            "warnings": pred.warnings[:2],
+            "mode": pred.mode, "alerts": pred.alerts,
+            "high_stake": ({k: pred.high_stake.get(k) for k in ("applied", "factor", "before", "after", "text")}
+                           if pred.high_stake else None)}

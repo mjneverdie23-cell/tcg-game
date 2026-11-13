@@ -1,4 +1,4 @@
-# footypred 2.7 — four-market football prediction
+# footypred 2.8 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -47,6 +47,12 @@ Everything you need afterwards is in the page:
 | **Model report** | Out-of-sample evaluation of the current model. |
 | **Data** | Your match file, plus everything below. |
 
+The bar under the tabs switches between **Balanced** (the model as before)
+and **High stake**. High stake mode only picks at odds of 1.70 and up, and
+its slider sets how much American owners and betting sponsors move a match.
+See [High stake mode](#high-stake-mode-odds-170-owner--sponsor-factor). Those
+clubs get a red ⚠ alert in Schedule, Predict and From image.
+
 The **Data** tab has these sections:
 - **Your match file:** the file and its leagues, **Update from
   football-data.org** (adds the latest matches), **Reload from file**, and
@@ -86,6 +92,92 @@ file, which only ever holds finished results.
 
 Teams with no matches in your data (e.g. a Champions League club from a
 league you don't follow) are shown greyed out; they can't be predicted.
+
+## High stake mode (odds 1.70+, owner & sponsor factor)
+
+The bar at the top of the page switches between two modes:
+
+* **Balanced:** the model as before.
+* **High stake:** the same page, but it only picks at fair odds of 1.70
+  and up. Match result, handicap and BTTS + over 2.5 come first.
+
+The mode applies to Schedule, Predict and From image, and the browser
+remembers it. Backtest, Model report and Data don't use it, so the bar
+hides on those tabs.
+
+In high stake mode:
+- **Pick styles** become Safe 1.70–2.30, Balanced 1.70–3.20 and Bold
+  2.20–6.00 (fair odds). Min odds can't be set below 1.70.
+- **Two new markets** join the picks:
+  - Handicap +0.5 / +1.5 for either side (+0.5 = win or draw, +1.5 = doesn't
+    lose by two or more).
+  - BTTS + over 2.5 (both teams score and there are 3+ goals).
+- **Order:** match result, handicap and the combo are picked first. Total
+  goals, BTTS and team goals still appear when their odds are 1.70 or more.
+- **Extra cards:** a *High stake adjustment* card shows the 1X2 before and
+  after the factor, with each team's upset record. A *Handicap & BTTS +
+  over 2.5* card shows the new markets.
+
+### The owner & sponsor factor (the slider)
+
+Two kinds of club are flagged:
+- clubs with an American owner (majority, joint or largest investor)
+- clubs with a betting-company sponsor, on or off the shirt
+
+They get a red ⚠ alert in Schedule, Predict and From image, in either
+mode. In high stake mode, the slider (0–100%) sets how much those flags
+move a match:
+
+1. Each team's last 40 matches are compared with what pre-match Elo
+   ratings expected:
+   - how often it failed to win as the favourite
+   - how often it avoided defeat as the underdog
+
+   Small samples are pulled towards "as expected".
+2. The match's **upset ratio** combines the favourite's record with the
+   underdog's. 1.00 means as many upsets as expected; the ratio is kept
+   between 0.5 and 2.
+3. The favourite's chance of not winning is multiplied by
+   `1 + slider × flag weight × (upset ratio − 1)`. Each flag adds 0.5 to
+   the weight, up to 1. A flag is an American owner or a betting sponsor,
+   on either club.
+4. Every scoreline is reweighted to match, so the handicaps, totals and
+   BTTS move with it.
+
+Example: both clubs are flagged, the slider is at 100% and the upset ratio
+is 1.25. A favourite with a 46% chance of not winning goes to 57.5%.
+
+If the teams have had *fewer* upsets than expected (ratio below 1), the
+favourite gets stronger instead. At 0%, or when neither club is flagged,
+nothing changes.
+
+The analyses of your match file found no evidence that these clubs have
+more upsets than their ratings expect. The factor is your own assumption,
+so the slider starts at 0%. The backtest doesn't use it.
+
+### The club list: `config/club_flags.csv`
+
+Each club is one row with these columns:
+
+`team,league,american_owner,owner_stake,owner_since,betting_sponsor,sponsor_deal,sponsor_season,note`
+
+- `owner_stake`: only `majority`, `joint` or `largest investor` count.
+  Anything else (`minority`, `pending`) is listed but doesn't count.
+- `betting_sponsor`: any name counts. Leave it empty if there is none.
+- `sponsor_season`: if a deal is from an earlier season, the alert shows
+  that season, e.g. "(shirt, 2025-26)".
+- `team`: the name has to match your data exactly, ignoring case and
+  accents, or through a known alias. Names are never fuzzy-matched, so a
+  typo can't put an alert on the wrong club.
+- Rows whose team starts with `#` are skipped.
+
+The list was researched in November 2026, and owners and sponsors change.
+To change it, edit the file in a spreadsheet app or text editor and
+restart the app.
+
+A new download of the app replaces this file, so keep a copy of your
+edits. You can also point `high_stake.flags_file` in `config/local.yaml`
+at your own copy.
 
 ## First half (1X2, over/under, BTTS)
 
@@ -676,16 +768,18 @@ footypred/
 │              pipeline.py (train + save) ·
 │              metrics.py · registry.py · summary.py
 ├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
+│              highstake.py (high stake mode: club flags, upset records, the factor)
 │              walkforward.py (date-range backtest) · explain.py · report.py · charts.py ·
 │              batch.py
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
 └── ui/        web.py (local web app) · static/index.html · menu.py (terminal) ·
                service.py (predictions, data & training jobs, settings)
 config/default.yaml         every tunable setting (your own: config/local.yaml, from Settings)
+config/club_flags.csv       clubs with an American owner / betting sponsor (high stake mode)
 start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
 start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      62 tests: market identities, reconciliation, leakage,
+tests/                      68 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -702,5 +796,7 @@ tests/                      62 tests: market identities, reconciliation, leakage
                             over/under tick boxes, first half (out-of-sample,
                             consistency with full time, opt-in picks, old models), file
                             import & aliases, walk-forward backtest (no look-ahead),
-                            data and backtest endpoints
+                            data and backtest endpoints, high stake mode (club list,
+                            upset records, the factor, 1.70+ picks, handicaps,
+                            BTTS + over 2.5, alerts on the schedule)
 ```

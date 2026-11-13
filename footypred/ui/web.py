@@ -28,11 +28,22 @@ def _page() -> bytes:
     return resources.files("footypred.ui").joinpath("static/index.html").read_bytes()
 
 
+def mode_opts(q: dict) -> tuple[str, float]:
+    """Prediction mode (balanced | high) and the owner & sponsor factor, sent
+    as 0-100 (%), returned as 0-1. Invalid values fall back to balanced / 0."""
+    mode = q.get("mode") if q.get("mode") in ("balanced", "high") else "balanced"
+    try:
+        factor = min(max(float(q.get("factor") or 0), 0.0), 100.0) / 100
+    except (TypeError, ValueError):
+        factor = 0.0
+    return mode, factor
+
+
 def pick_opts(q: dict) -> dict:
     """Best-pick settings from query parameters (invalid values are ignored)."""
     o = {}
     if q.get("markets"):
-        allowed = {"1x2", "totals", "ou25", "btts", "team_totals", "first_half"}
+        allowed = {"1x2", "totals", "ou25", "btts", "team_totals", "first_half", "handicap", "combo"}
         o["markets"] = [m for m in q["markets"].split(",") if m in allowed]
     if q.get("style") in ("safe", "balanced", "bold"):
         o["style"] = q["style"]
@@ -110,10 +121,12 @@ def make_handler(service):
                 elif url.path == "/api/predict":
                     if not q.get("home") or not q.get("away"):
                         return self._json({"error": "choose both teams"}, HTTPStatus.BAD_REQUEST)
+                    mode, factor = mode_opts(q)
                     self._json(service.predict_payload(
                         q["home"], q["away"], q.get("date") or None,
                         q.get("neutral") in ("1", "true", "on"), pick_opts=pick_opts(q),
-                        chart=q.get("chart", "1") != "0", competition=q.get("competition")))
+                        chart=q.get("chart", "1") != "0", competition=q.get("competition"),
+                        mode=mode, factor=factor))
                 elif url.path == "/api/team-index":
                     self._json(service.team_index())
                 elif url.path == "/api/evaluation":
@@ -168,9 +181,10 @@ def make_handler(service):
                     self._json(service.refresh_schedule())
                 elif url.path == "/api/predict-batch":
                     b = self._body_json()
-                    self._json(service.predict_batch(
-                        b.get("fixtures") or [],
-                        pick_opts({k: str(v) for k, v in (b.get("pick_opts") or {}).items()})))
+                    po = {k: str(v) for k, v in (b.get("pick_opts") or {}).items()}
+                    mode, factor = mode_opts({**po, **{k: str(b[k]) for k in ("mode", "factor") if k in b}})
+                    self._json(service.predict_batch(b.get("fixtures") or [], pick_opts(po),
+                                                     mode=mode, factor=factor))
                 elif url.path == "/api/data/merge":
                     self._json(service.merge_files(self._body_json()))
                 elif url.path == "/api/data/update":

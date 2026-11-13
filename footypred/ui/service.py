@@ -52,6 +52,9 @@ class PredictionService:
         except Exception as exc:                  # e.g. a model from an incompatible version
             log.exception("could not load the model")
             self.model_error = f"could not load the model: {exc}"
+        from footypred.predict import highstake
+        self.flags = highstake.load_flags(highstake.flags_path(self.cfg), self.db.teams(),
+                                          self.db.load_aliases())
         tl = self.db.team_league(cup_codes(self.cfg))
         teams: dict[str, list[str]] = {}
         for team, lg in tl.items():
@@ -89,12 +92,13 @@ class PredictionService:
     # ----------------------------------------------------------- prediction
     def predict(self, home: str, away: str, date: str | None = None,
                 neutral: bool = False, chart: bool = True, pick_opts: dict | None = None,
-                competition: str | None = None):
+                competition: str | None = None, mode: str = "balanced", factor: float = 0.0):
         from footypred.predict.charts import plot_prediction
         predictor = self._model()
         with self._lock:
             pred = predictor.predict(home, away, date=date or None, neutral=neutral,
-                                          pick_opts=pick_opts, competition=competition or None)
+                                     pick_opts=pick_opts, competition=competition or None,
+                                     mode=mode, factor=factor)
             png = None
             if chart:
                 buf = io.BytesIO()
@@ -103,9 +107,10 @@ class PredictionService:
         return pred, png
 
     def predict_payload(self, home, away, date=None, neutral=False, pick_opts=None,
-                        chart: bool = True, competition: str | None = None) -> dict:
+                        chart: bool = True, competition: str | None = None,
+                        mode: str = "balanced", factor: float = 0.0) -> dict:
         pred, png = self.predict(home, away, date, neutral, chart=chart, pick_opts=pick_opts,
-                                 competition=competition)
+                                 competition=competition, mode=mode, factor=factor)
         d = pred.to_dict()
         d["chart_png"] = base64.b64encode(png).decode() if png else None
         return d
@@ -296,8 +301,11 @@ class PredictionService:
         """Fixtures and results from 3 days back to 5 ahead (Schedule tab)."""
         from footypred.data import schedule as sch
         w = sch.window(self.cfg)
+        from footypred.predict.highstake import alerts_for
         teams = set(self.db.teams())
         for m in w["matches"]:
+            m["alerts"] = {"home": alerts_for(self.flags, m["home"]),
+                           "away": alerts_for(self.flags, m["away"])}
             m["home_known"], m["away_known"] = m["home"] in teams, m["away"] in teams
             m["known"] = m["home_known"] and m["away_known"]
             m["predictable"] = (m["known"] and self.predictor is not None
@@ -335,7 +343,8 @@ class PredictionService:
         except Exception as exc:                  # the schedule is a bonus here
             say(f"(schedule not refreshed: {exc})")
 
-    def predict_batch(self, items: list[dict], pick_opts: dict | None = None) -> list[dict]:
+    def predict_batch(self, items: list[dict], pick_opts: dict | None = None,
+                      mode: str = "balanced", factor: float = 0.0) -> list[dict]:
         """Best pick + follow-ups for several fixtures at once."""
         from footypred.predict.batch import pick_summary
         predictor = self._model()
@@ -346,7 +355,7 @@ class PredictionService:
             try:
                 pred, _ = self.predict(it.get("home", ""), it.get("away", ""), it.get("date") or None,
                                        bool(it.get("neutral")), chart=False, pick_opts=pick_opts,
-                                       competition=comp)
+                                       competition=comp, mode=mode, factor=factor)
                 out.append({"ok": True, "id": it.get("id"), **pick_summary(pred)})
             except Exception as exc:              # one fixture never stops the rest
                 out.append({"ok": False, "id": it.get("id"), "error": str(exc)})

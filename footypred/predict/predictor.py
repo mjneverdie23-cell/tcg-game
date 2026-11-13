@@ -19,6 +19,7 @@ from footypred.logging_utils import get_logger
 from footypred.models.market_head import probs_from_grids, reconcile
 from footypred.models.registry import ModelRegistry
 from footypred.models.scorematrix import ScoreMatrix
+from footypred.predict import highstake
 from footypred.predict.explain import drivers, evidence
 from footypred.predict.picks import FormIndex, base_rates, form_check
 
@@ -55,6 +56,9 @@ class Prediction:
     form: dict = field(default_factory=dict)          # last-5 form check + best pick
     halftime: dict = field(default_factory=dict)      # first-half markets (if the model has them)
     warnings: list = field(default_factory=list)
+    mode: str = "balanced"                            # balanced | high (high stake)
+    alerts: dict = field(default_factory=dict)        # American owner / betting sponsor, per side
+    high_stake: dict = field(default_factory=dict)    # what the owner & sponsor factor did
     # raw objects for charts (not serialised)
     score_matrix: ScoreMatrix | None = None
     model_matrices: dict = field(default_factory=dict)
@@ -69,7 +73,12 @@ def _market_view(p: dict) -> dict:
     """Flat market probabilities -> the four structured markets."""
     r = lambda x: round(float(x), 4)
     tt = lambda s: {f"over_{l}": r(p[f"{s}_o{l.replace('.', '')}"]) for l in ("0.5", "1.5", "2.5")}
-    return {
+    extra = {}
+    if "hcp_h05" in p:                       # handicaps and BTTS + over 2.5 (high stake picks)
+        extra = {"handicap": {"home_+0.5": r(p["hcp_h05"]), "home_+1.5": r(p["hcp_h15"]),
+                              "away_+0.5": r(p["hcp_a05"]), "away_+1.5": r(p["hcp_a15"])},
+                 "combo": {"btts_over_2.5": r(p["btts_o25"])}}
+    return {**extra,
         "1x2": {"home": r(p["1x2"][0]), "draw": r(p["1x2"][1]), "away": r(p["1x2"][2])},
         "over_under_2.5": {"over": r(p["o25"]), "under": r(1 - p["o25"])},
         "totals": {f"over_{l}": r(p[k]) for l, k in (("1.5", "o15"), ("2.5", "o25"),
@@ -154,6 +163,10 @@ class Predictor:
         self.form_index = FormIndex(matches)
         self.base_rates = base_rates(matches)
         self.pick_opts = dict((cfg.raw.get("picks") or {}))
+        # high stake mode: flagged clubs (config/club_flags.csv) and upset records
+        self.flags = highstake.load_flags(highstake.flags_path(cfg), self.db.teams(),
+                                          self.db.load_aliases())
+        self.upsets = highstake.UpsetProfiles(self.form_index)
 
     def _sync_state(self):
         """Use the cached state; replay only results newer than it. Fall back
@@ -197,7 +210,12 @@ class Predictor:
         return lh or la or "UNK"
 
     def predict(self, home: str, away: str, date=None, neutral: bool = False,
-                pick_opts: dict | None = None, competition: str | None = None) -> Prediction:
+                pick_opts: dict | None = None, competition: str | None = None,
+                mode: str = "balanced", factor: float = 0.0) -> Prediction:
+        """mode "high" = high stake: the owner & sponsor factor (0-1) reweights
+        the score grid, and picks are at fair odds of 1.70 or more."""
+        if mode not in ("balanced", "high"):
+            raise ValueError("mode must be 'balanced' or 'high'")
         home, away = self.resolver.resolve(home), self.resolver.resolve(away)
         if home == away:
             raise ValueError("home and away must be different teams")
@@ -214,8 +232,12 @@ class Predictor:
                 row[c] = np.nan
         finals, mats = market_grids(res, row)
         final = finals[0]
+        high = {}
+        if mode == "high":
+            final, high = highstake.adjust(final, home, away, self.flags, self.upsets, factor, date)
         sm = ScoreMatrix.from_grid(final)
         p = {k: v[0] for k, v in probs_from_grids(final[None]).items()}
+        p.update(highstake.extra_probs(final))
         markets = _market_view(p)
 
         model_markets = {}
@@ -263,9 +285,11 @@ class Predictor:
             model_markets=model_markets, evidence=evidence(self.state, home, away, neutral),
             drivers=drivers(res.direct, row, fcols, home, away),
             form=form_check(self.form_index, home, away, date, p_all,
-                            {**self.pick_opts, **(pick_opts or {})}, neutral,
+                            {**self.pick_opts, **(pick_opts or {}), "mode": mode}, neutral,
                             self.base_rates.get(league) or self.base_rates.get("_all")),
-            warnings=warn, halftime=halftime,
+            warnings=warn, halftime=halftime, mode=mode, high_stake=high,
+            alerts={"home": highstake.alerts_for(self.flags, home),
+                    "away": highstake.alerts_for(self.flags, away)},
             score_matrix=sm, model_matrices={n: ScoreMatrix.from_grid(g[0]) for n, g in mats.items()},
             eval_preds=res.eval_preds,
         )

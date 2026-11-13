@@ -12,7 +12,7 @@
   --home: #2a78d6; --away: #e34948; --neutral: #b5b3ac; --yes: #4a3aa7;
   --accent: #2a78d6; --accent-ink: #ffffff; --warn-bg: #fff4dc; --warn-ink: #7a5200;
   --on-yes: #ffffff; --good: #006300;
-  --err-bg: #fde8e8; --err-ink: #8f1f1f;
+  --err-bg: #fde8e8; --err-ink: #8f1f1f; --alert: #c62828;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -21,7 +21,7 @@
     --grid: #2c2c2a; --baseline: #383835; --ring: rgba(255,255,255,0.10);
     --home: #3987e5; --away: #e66767; --neutral: #6b6a64; --yes: #9085e9; --on-yes: #0b0b0b; --good: #0ca30c;
     --accent: #3987e5; --warn-bg: #3a2f12; --warn-ink: #f3c96b;
-    --err-bg: #3b1a1a; --err-ink: #f2a3a3;
+    --err-bg: #3b1a1a; --err-ink: #f2a3a3; --alert: #ff6b6b;
   }
 }
 :root[data-theme="dark"] {
@@ -30,7 +30,7 @@
   --grid: #2c2c2a; --baseline: #383835; --ring: rgba(255,255,255,0.10);
   --home: #3987e5; --away: #e66767; --neutral: #6b6a64; --yes: #9085e9; --on-yes: #0b0b0b; --good: #0ca30c;
   --accent: #3987e5; --warn-bg: #3a2f12; --warn-ink: #f3c96b;
-  --err-bg: #3b1a1a; --err-ink: #f2a3a3;
+  --err-bg: #3b1a1a; --err-ink: #f2a3a3; --alert: #ff6b6b;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink);
@@ -44,7 +44,7 @@ nav { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
 nav button { background: none; border: 0; color: var(--ink-2); font: inherit; padding: 6px 12px;
   border-radius: 8px; cursor: pointer; white-space: nowrap; }
 nav button[aria-selected="true"] { background: var(--page); color: var(--ink); font-weight: 600; }
-main { padding: 20px 0 48px; }
+main, main.wrap { padding-top: 16px; padding-bottom: 48px; }
 .card { background: var(--card); border: 1px solid var(--ring); border-radius: 12px; padding: 18px; }
 .card h2 { margin: 0 0 12px; font-size: 15px; display: flex; justify-content: space-between;
   align-items: baseline; gap: 8px; }
@@ -281,6 +281,40 @@ nav .sm { display: none; }
     color: var(--muted); }
   table.batch td.pick-cell::before { display: inline; margin-right: 6px; }
 }
+/* mode bar: balanced / high stake + the owner & sponsor factor, always on top */
+.modebar { position: sticky; top: 0; z-index: 30; background: var(--surface); border-bottom: 1px solid var(--ring); }
+.modebar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 8px; padding-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--baseline); border-radius: 999px; padding: 2px; background: var(--page); flex: none; }
+.seg button { border: 0; background: none; color: var(--ink-2); font: 600 14px/1.2 system-ui, sans-serif; padding: 6px 14px;
+  border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--ring); }
+.seg button[data-mode="high"][aria-pressed="true"] { background: var(--alert); color: #fff; box-shadow: none; }
+label.factor { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); flex: 1 1 260px; min-width: 0; }
+label.factor .lbl { white-space: nowrap; }
+label.factor input[type="range"] { flex: 1; min-width: 80px; accent-color: var(--alert); }
+label.factor output { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); min-width: 3.2em; text-align: right; }
+label.factor.off { opacity: .45; }
+.mode-hint { font-size: 12.5px; color: var(--muted); margin: -4px 0 12px; }
+/* the mode only changes Schedule, Predict and From image */
+body[data-tab="backtest"] .modebar, body[data-tab="report"] .modebar, body[data-tab="data"] .modebar,
+body[data-tab="backtest"] #mode-hint, body[data-tab="report"] #mode-hint, body[data-tab="data"] #mode-hint { display: none; }
+/* anything scrolled into view lands below the sticky bar */
+main * { scroll-margin-top: calc(var(--mb, 0px) + 12px); }
+/* handicap rows carry full team names */
+.bars.wide .bar { grid-template-columns: minmax(0, 16em) 1fr 3.4em; }
+.bars.wide .bar .lbl { white-space: normal; }
+@media (max-width: 820px) { .bars.wide .bar { grid-template-columns: minmax(0, 9.5em) 1fr 3.2em; } }
+.seg button:focus-visible, label.factor input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hs-only { display: none !important; }
+body.mode-high label.inline.hs-only { display: flex !important; }
+.redalert { color: var(--alert); font-size: 14px; font-weight: 600; margin: 4px 0; }
+.redalert b { color: var(--alert); }
+.alerts { margin: 4px 0 12px; }
+.malert { padding: 0 16px 10px; margin-top: -6px; font-size: 12.5px; font-weight: 600; color: var(--alert); text-align: center; }
+.mini-alert { display: block; font-size: 12px; font-weight: 600; color: var(--alert); }
+.card.hs { border-left: 4px solid var(--alert); }
+.card.hs .kick { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--alert); }
+td.up { color: var(--good); font-weight: 600; } td.down { color: var(--alert); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -298,8 +332,20 @@ nav .sm { display: none; }
     </nav>
   </div>
 </header>
+<div class="modebar" id="modebar">
+  <div class="wrap">
+    <div class="seg" role="group" aria-label="Prediction mode">
+      <button type="button" data-mode="balanced" aria-pressed="true">Balanced</button>
+      <button type="button" data-mode="high" aria-pressed="false">High stake</button>
+    </div>
+    <label class="factor off" id="factor-box"><span class="lbl">Owner &amp; sponsor factor</span>
+      <input type="range" id="factor" min="0" max="100" step="5" value="0" aria-describedby="mode-hint">
+      <output id="factor-val" for="factor">0%</output></label>
+  </div>
+</div>
 
 <main class="wrap">
+  <div class="mode-hint" id="mode-hint"></div>
   <section id="tab-schedule" class="hidden">
     <div class="card sched">
       <div class="sched-head">
@@ -343,6 +389,8 @@ nav .sm { display: none; }
         <label class="inline"><input type="checkbox" id="neutral"> Neutral venue</label>
         <fieldset class="mk" id="markets"><legend>Best pick from</legend>
           <label class="inline"><input type="checkbox" value="1x2" checked> 1X2</label>
+          <label class="inline hs-only" title="+0.5 = win or draw; +1.5 = doesn't lose by 2 or more"><input type="checkbox" value="handicap" checked> Handicap +0.5/+1.5</label>
+          <label class="inline hs-only" title="Both teams score and 3 or more goals"><input type="checkbox" value="combo" checked> BTTS + Over 2.5</label>
           <label class="inline"><input type="checkbox" value="totals" checked> Total goals</label>
           <label class="inline"><input type="checkbox" value="btts" checked> BTTS</label>
           <label class="inline"><input type="checkbox" value="team_totals" checked> Team goals</label>
@@ -466,6 +514,58 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem("footy:" + k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem("footy:" + k, JSON.stringify(v)); } catch {} },
 };
+// ------------------------------------------------------------ mode bar
+const MODE = Object.assign({ mode: "balanced", factor: 0 }, store.get("mode") || {});
+const STYLE_ODDS = { balanced: { safe: "1.15–1.60", balanced: "1.25–2.20", bold: "1.60–3.50" },
+                     high: { safe: "1.70–2.30", balanced: "1.70–3.20", bold: "2.20–6.00" } };
+const isHigh = () => MODE.mode === "high";
+function modeParams() { return isHigh() ? { mode: "high", factor: String(MODE.factor) } : { mode: "balanced" }; }
+function applyMode() {
+  const high = isHigh();
+  document.body.classList.toggle("mode-high", high);
+  document.querySelectorAll(".seg [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === MODE.mode)));
+  $("factor").value = MODE.factor; $("factor-val").textContent = MODE.factor + "%";
+  $("factor").disabled = !high; $("factor-box").classList.toggle("off", !high);
+  $("mode-hint").textContent = high
+    ? `High stake: picks at odds 1.70 and up · match result, handicap +0.5/+1.5 and BTTS + over 2.5 first · the factor sets how much the upset record of clubs with an American owner or a betting sponsor moves their matches (0% = not at all)`
+    : "Balanced: the current model. Switch to High stake to use the owner & sponsor factor.";
+  for (const o of $("style").options) o.textContent = `${o.value[0].toUpperCase() + o.value.slice(1)} · odds ${STYLE_ODDS[MODE.mode][o.value]}`;
+  for (const o of $("sch-style").options) o.textContent = o.value[0].toUpperCase() + o.value.slice(1) + (high ? ` · ${STYLE_ODDS.high[o.value]}` : "");
+  $("min-odds").placeholder = high ? "1.70+" : "auto";
+}
+if (window.ResizeObserver) new ResizeObserver(() =>
+  document.documentElement.style.setProperty("--mb", $("modebar").offsetHeight + "px")).observe($("modebar"));
+let RERUN_QUIET = false;
+function modeChanged() {
+  store.set("mode", MODE); applyMode();
+  if (!$("result").classList.contains("hidden") && $("home-team").value && $("away-team").value) {
+    RERUN_QUIET = true; $("picker").requestSubmit();
+  }
+  if (SCH && !$("tab-schedule").classList.contains("hidden")) { renderSchedule(); schNote(); }
+}
+document.querySelectorAll(".seg [data-mode]").forEach((b) => b.addEventListener("click", () => {
+  if (MODE.mode === b.dataset.mode) return;
+  MODE.mode = b.dataset.mode; modeChanged();
+}));
+$("factor").addEventListener("input", () => { $("factor-val").textContent = $("factor").value + "%"; });
+$("factor").addEventListener("change", () => { MODE.factor = +$("factor").value; modeChanged(); });
+function alertLines(alerts, home, away) {
+  const out = [];
+  for (const [side, team] of [["home", home], ["away", away]]) {
+    const a = alerts && alerts[side];
+    if (a && a.alerts && a.alerts.length) out.push(el("div", { class: "redalert" }, "⚠ ", el("b", {}, team + ": "), a.alerts.join(" · ")));
+  }
+  return out.length ? el("div", { class: "alerts", role: "note" }, out) : null;
+}
+function alertShort(alerts, home, away) {
+  const bits = [];
+  for (const [side, team] of [["home", home], ["away", away]]) {
+    const a = alerts && alerts[side];
+    if (!a) continue;
+    bits.push(`${team}: ` + [a.american ? "American owner" : null, a.betting ? `betting sponsor ${a.sponsor}` : null].filter(Boolean).join(", "));
+  }
+  return bits.length ? "⚠ " + bits.join(" · ") : null;
+}
 async function api(path, payload) {
   const r = await fetch(path, payload === undefined ? {} : { method: "POST", body: JSON.stringify(payload),
     headers: { "Content-Type": "application/json" } });
@@ -579,7 +679,7 @@ function bestPickCard(p) {
   const st = f.settings || {};
   const dirs = st.directions || ["over", "under"];
   const dirNote = dirs.length === 2 ? "" : dirs.length ? ` · ${dirs[0]}s only` : " · no over/under picks";
-  const kids = [el("div", { class: "kicker" }, `★ Best pick — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}${dirNote}`)];
+  const kids = [el("div", { class: "kicker" }, `★ Best pick${st.mode === "high" ? " (high stake)" : ""} — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}${dirNote}`)];
   if (f.gap && f.gap.lopsided)
     kids.push(el("div", { class: "pick", style: "margin:6px 0 0" }, el("b", {}, "Big strength gap: "),
       `${f.gap.favourite} win ${pct(f.gap.win_prob)} (Elo gap ${Math.abs(f.gap.elo_gap).toFixed(0)}) — the favourite's safe lines are too short, so bigger lines are considered.`));
@@ -632,6 +732,35 @@ function bestPickCard(p) {
       `Form disagrees: ${c.label} — model ${pct(c.model_prob)}, but it landed in only ${pct(c.form_rate)} of recent games.`));
   return el("div", { class: "card best" }, kids);
 }
+function highStakeCard(p) {
+  const h = p.high_stake || {}, pr = h.profiles || {};
+  const names = [`${p.home} win`, "Draw", `${p.away} win`];
+  const diff = (x, y) => { const d = 100 * (y - x); return Math.abs(d) < 0.05 ? "–" : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}`; };
+  const prof = [];
+  if (pr.favourite) prof.push(el("div", { class: "tags" }, el("b", {}, `${pr.favourite.team} as favourite: `),
+    `didn't win ${pr.favourite.fav_slips} of ${pr.favourite.fav_games} (ratings expected ${pr.favourite.fav_slips_expected}) · lost ${pr.favourite.fav_lost} — last ${pr.favourite.games} games`));
+  if (pr.underdog) prof.push(el("div", { class: "tags" }, el("b", {}, `${pr.underdog.team} as underdog: `),
+    `avoided defeat in ${pr.underdog.dog_bites} of ${pr.underdog.dog_games} (ratings expected ${pr.underdog.dog_bites_expected}) · won ${pr.underdog.dog_won} — last ${pr.underdog.games} games`));
+  return el("div", { class: "card section hs" },
+    el("div", { class: "kick" }, "High stake adjustment"),
+    el("p", { class: "pick", style: "margin:6px 0 10px" }, h.text || ""),
+    h.applied ? el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, ["", "Model", "With the factor", "Change"].map((t) => el("th", {}, t)))),
+      el("tbody", {}, names.map((n, i) => el("tr", {}, el("td", {}, n), el("td", {}, pct(h.before[i], 1)), el("td", {}, pct(h.after[i], 1)),
+        el("td", { class: h.after[i] > h.before[i] + 0.0005 ? "up" : h.after[i] < h.before[i] - 0.0005 ? "down" : "" }, diff(h.before[i], h.after[i]))))))) : null,
+    prof,
+    h.ratio != null ? el("p", { class: "pick", style: "margin:6px 0 0" }, `Upset ratio ${h.ratio.toFixed(2)} (1.00 = as many upsets as their ratings expected) · flags ${h.flags} · every market below uses the adjusted numbers.`) : null);
+}
+function handicapCard(p) {
+  const hc = p.markets.handicap, cb = p.markets.combo;
+  const odds = (q) => (1 / Math.max(q, 1e-9)).toFixed(2);
+  return el("div", { class: "card section" }, el("h2", {}, "Handicap & BTTS + over 2.5", el("span", { class: "conf" }, "+0.5 = win or draw · +1.5 = doesn't lose by 2+")),
+    el("div", { class: "bars wide" },
+      barRow(`${p.home} +0.5`, hc["home_+0.5"], "var(--home)"), barRow(`${p.home} +1.5`, hc["home_+1.5"], "var(--home)"),
+      barRow(`${p.away} +0.5`, hc["away_+0.5"], "var(--away)"), barRow(`${p.away} +1.5`, hc["away_+1.5"], "var(--away)"),
+      barRow("BTTS + over 2.5", cb["btts_over_2.5"], "var(--yes)")),
+    el("div", { class: "pick" }, `Fair odds: ${p.home} +0.5 ${odds(hc["home_+0.5"])} · +1.5 ${odds(hc["home_+1.5"])} · ${p.away} +0.5 ${odds(hc["away_+0.5"])} · +1.5 ${odds(hc["away_+1.5"])} · BTTS + over 2.5 ${odds(cb["btts_over_2.5"])}`));
+}
 function formCard(p) {
   const f = p.form, c = f.counts, n = f.window;
   const cols = [["home_last", "last " + n], ["home_home", "home"], ["home_away", "away"], ["home_similar", "vs similar"],
@@ -657,8 +786,10 @@ function render(p) {
   const m = p.markets, pk = p.picks, c = p.confidence, eg = p.expected_goals;
   const out = [];
   out.push(el("div", { class: "headline" }, el("h1", {}, `${p.home} vs ${p.away}`),
-    el("div", { class: "meta" }, `${p.league_name} · ${p.date}${p.neutral ? " · neutral venue" : ""} · xG ${eg.home.toFixed(2)} – ${eg.away.toFixed(2)} (total ${eg.total.toFixed(2)}) · overall confidence ${c.overall}/100 · model ${p.model}`)));
+    el("div", { class: "meta" }, `${p.league_name} · ${p.date}${p.neutral ? " · neutral venue" : ""} · xG ${eg.home.toFixed(2)} – ${eg.away.toFixed(2)} (total ${eg.total.toFixed(2)}) · overall confidence ${c.overall}/100 · model ${p.model}${p.mode === "high" ? ` · high stake, factor ${pct(p.high_stake.factor)}` : ""}`)));
+  out.push(alertLines(p.alerts, p.home, p.away));
   for (const w of p.warnings || []) out.push(el("div", { class: "msg warn" }, w));
+  if (p.mode === "high") out.push(highStakeCard(p));
 
   const tt = (side) => m.team_totals[side];
   const ttRow = (side, team, color) => el("tr", {}, el("td", { class: "team" },
@@ -680,6 +811,7 @@ function render(p) {
         el("tbody", {}, ttRow("home", p.home, "var(--home)"), ttRow("away", p.away, "var(--away)"))), ttPicks),
     card("Both teams to score", c.btts, splitBar("Yes", "No", m.btts.yes), pickLine(pk.btts))));
 
+  if (p.mode === "high" && m.handicap) out.push(handicapCard(p));
   if (p.halftime && p.halftime["1x2"]) out.push(halftimeCard(p));
   out.push(el("div", { class: "scores" }, el("span", { class: "muted", style: "border:0;background:none;padding-left:0" }, "Most likely scores:"),
     p.top_scores.slice(0, 6).map(([s, q]) => el("span", {}, `${s}  ${pct(q, 1)}`))));
@@ -731,9 +863,11 @@ $("picker").addEventListener("submit", async (e) => {
     const q = new URLSearchParams({ home, away, date: $("date").value, neutral: $("neutral").checked ? "1" : "0",
       ...pickSettings() });
     if ($("competition").value) q.set("competition", $("competition").value);
+    const quiet = RERUN_QUIET; RERUN_QUIET = false;
+    const y = window.scrollY;
     render(await api("/api/predict?" + q));
-    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (err) { showError(err.message, err.setup); }
+    if (quiet) window.scrollTo(0, y); else $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) { RERUN_QUIET = false; showError(err.message, err.setup); }
   finally { go.disabled = !(STATUS && STATUS.ready); go.textContent = "Predict"; }
 });
 function showError(t, setup) {
@@ -752,6 +886,7 @@ let reportLoaded = false;
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", async () => {
   document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
   store.set("tab", b.dataset.tab);
+  document.body.dataset.tab = b.dataset.tab;
   for (const t of ["schedule", "predict", "image", "backtest", "report", "data"]) $("tab-" + t).classList.toggle("hidden", b.dataset.tab !== t);
   if (b.dataset.tab === "schedule") openSchedule();
   if (b.dataset.tab === "data") loadData();
@@ -789,26 +924,31 @@ function imgMsg(text, kind) {
 }
 // best-pick settings from the Predict tab, used by every tab that makes picks
 const ticked = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((x) => x.value);
+// handicaps and BTTS + over 2.5 are high stake markets
+const pickMarkets = () => ticked("markets").filter((m) => isHigh() || (m !== "handicap" && m !== "combo"));
 function pickSettings() {
   const dirs = ticked("directions");
-  const o = { markets: ticked("markets").join(","), style: $("style").value, directions: dirs.join(",") || "none" };
+  const o = { markets: pickMarkets().join(","), style: $("style").value, directions: dirs.join(",") || "none", ...modeParams() };
   if ($("min-odds").value) o.min_odds = $("min-odds").value;
   return o;
 }
 function checkPickSettings() {
-  const mk = ticked("markets");
+  const mk = pickMarkets();
   if (!mk.length) throw new Error("Tick at least one market for the best pick.");
   if (!ticked("directions").length && mk.every((m) => m === "totals" || m === "team_totals"))
     throw new Error("Tick Over or Under — with both off there are no goal-line picks, and no other market is ticked.");
 }
 function savePickSettings() {
-  store.set("picks", { markets: ticked("markets"), directions: ticked("directions"), style: $("style").value, min_odds: $("min-odds").value });
+  store.set("picks", { markets: ticked("markets"), directions: ticked("directions"), style: $("style").value,
+    min_odds: $("min-odds").value, hs_markets: true });
 }
 (function restorePickSettings() {
   const p = store.get("picks");
   if (!p) return;
+  // settings saved before high stake mode existed keep its two markets ticked
+  const keep = (x) => !p.hs_markets && (x.value === "handicap" || x.value === "combo");
   for (const [id, vals] of [["markets", p.markets], ["directions", p.directions]])
-    if (Array.isArray(vals)) document.querySelectorAll(`#${id} input`).forEach((x) => { x.checked = vals.includes(x.value); });
+    if (Array.isArray(vals)) document.querySelectorAll(`#${id} input`).forEach((x) => { if (!keep(x)) x.checked = vals.includes(x.value); });
   if (p.style) $("style").value = p.style;
   if (p.min_odds) $("min-odds").value = p.min_odds;
 })();
@@ -883,7 +1023,8 @@ function renderBatch(out) {
     const b = p.form && p.form.best_pick, m = p.markets;
     const open = el("button", { type: "button", class: "ghost small" }, "Open");
     open.addEventListener("click", () => openFixture(p.home, p.away, p.date));
-    return el("tr", {}, el("td", { class: "team" }, `${p.home} vs ${p.away}`), el("td", { "data-label": "Date" }, p.date),
+    const warn = alertShort(p.alerts, p.home, p.away);
+    return el("tr", {}, el("td", { class: "team" }, `${p.home} vs ${p.away}`, warn ? el("span", { class: "mini-alert" }, warn) : null), el("td", { "data-label": "Date" }, p.date),
       el("td", { class: "pick-cell", "data-label": "Best pick" }, b ? el("b", {}, b.label) : el("span", { class: "muted" }, "no clear pick"),
         (p.form.follow_ups || []).length ? el("span", { class: "then-line" }, (b ? "then: " : "leans: ") + p.form.follow_ups.slice(0, 3).map((c) => `${c.label} ${c.fair_odds.toFixed(2)}${c.lean && b ? " (lean)" : ""}`).join(" · ")) : null),
       el("td", { "data-label": "Model" }, b ? pct(b.model_prob) : "–"), el("td", { "data-label": "Odds" }, b ? b.fair_odds.toFixed(2) : "–"),
@@ -923,6 +1064,8 @@ document.addEventListener("paste", (e) => {
   const f = [...(e.clipboardData || {}).files || []].find((x) => x.type.startsWith("image/"));
   if (f) { e.preventDefault(); readImage(f); }
 });
+
+applyMode();
 
 let STATUS = null;
 async function refreshStatus() {
@@ -1261,7 +1404,7 @@ function dayLabel(n) {
   return dayOffset(n).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
 }
 const matchDay = (m) => m.utc ? localDay(m.utc) : m.date;
-const pickKey = (m) => { const o = pickSettings(); return `${m.home}|${m.away}|${m.date}|${o.style}|${o.markets}|${o.directions}|${o.min_odds || ""}`; };
+const pickKey = (m) => { const o = pickSettings(); return `${m.home}|${m.away}|${m.date}|${o.style}|${o.markets}|${o.directions}|${o.min_odds || ""}|${o.mode}|${o.factor || ""}`; };
 function crest(url, name) {
   // initials underneath, the crest image on top once it loads (none offline)
   let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
@@ -1304,7 +1447,8 @@ function matchRow(m, showComp) {
   const open = () => { if (STATUS && STATUS.ready) openFixture(m.home, m.away, matchDay(m), m.competition); else openTab("data"); };
   row.addEventListener("click", open);
   row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-  return [row, schPickLine(m)];
+  const warn = alertShort(m.alerts, m.home, m.away);
+  return [row, warn ? el("div", { class: "malert", role: "note" }, warn) : null, schPickLine(m)];
 }
 function dayMatches() {
   if (!SCH) return [];
@@ -1370,6 +1514,7 @@ function schNote() {
   const bits = [f ? `updated ${ago < 1 ? "just now" : ago < 90 ? ago + " min ago" : f.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "not fetched yet",
     "times in your time zone", "results from football-data.org and your match file"];
   if (schPrefs.picks && dirs.length < 2) bits.push(dirs.length ? `picks: ${dirs[0]}s only (Predict tab)` : "picks: no over/under (Predict tab)");
+  if (schPrefs.picks && isHigh()) bits.push(`picks: high stake, odds 1.70+, factor ${MODE.factor}%`);
   $("sch-note").textContent = bits.join(" · ") + ((SCH.notes || []).length ? " · " + SCH.notes.join(" · ") : "");
 }
 async function refreshSchedule(quiet) {

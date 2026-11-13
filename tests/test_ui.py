@@ -124,6 +124,35 @@ def test_follow_ups_and_batch_picks(server):
     assert code == 200 and sch["back"] == 3 and sch["ahead"] == 5 and sch["ready"] is True
 
 
+def test_high_stake_mode(server):
+    """Mode + factor from the page: balanced is unchanged, high stake moves
+    the numbers for flagged clubs and only picks at 1.70+."""
+    q = "/api/predict?home=Arsenal&away=Chelsea&date=2026-07-15&chart=0"
+    bal = json.loads(_get(server + q)[1])
+    assert bal["mode"] == "balanced" and bal["high_stake"] == {}
+    assert bal["alerts"]["home"]["american"] and bal["alerts"]["away"]["betting"]   # both on the list
+    zero = json.loads(_get(server + q + "&mode=high&factor=0")[1])
+    assert zero["high_stake"]["applied"] is False and zero["markets"]["1x2"] == bal["markets"]["1x2"]
+    code, body = _get(server + q + "&mode=high&factor=80&markets=1x2,handicap,combo,totals")
+    hi = json.loads(body)
+    hsk = hi["high_stake"]
+    assert code == 200 and hi["mode"] == "high" and hsk["applied"] and hsk["factor"] == 0.8
+    assert hsk["flags"] == 4 and hsk["before"] != hsk["after"] and hsk["text"]
+    assert hsk["after"] == [round(hi["markets"]["1x2"][k], 4) for k in ("home", "draw", "away")]
+    f = hi["form"]
+    assert f["settings"]["mode"] == "high" and f["settings"]["min_odds"] >= 1.7
+    assert all(c["fair_odds"] >= 1.7 for c in f["top_picks"])
+    assert {"handicap", "combo"} <= set(hi["markets"]) and "handicap" in f["best_by_market"]
+    assert _get(server + q + "&mode=high&factor=abc")[0] == 200            # bad factor -> 0
+    code, rows = _post(server + "/api/predict-batch", {"fixtures": [
+        {"id": 1, "home": "Arsenal", "away": "Chelsea", "date": "2026-07-15"}],
+        "pick_opts": {"style": "balanced", "mode": "high", "factor": 80}})
+    assert code == 200 and rows[0]["mode"] == "high" and rows[0]["high_stake"]["applied"]
+    assert rows[0]["alerts"]["home"]["alerts"][0].startswith("American owner")
+    sch = json.loads(_get(server + "/api/schedule")[1])
+    assert all("alerts" in m for m in sch["matches"])
+
+
 def test_merge_endpoint(server, cfg, tmp_path):
     from footypred.data.localfile import csv_path
     assert _post(server + "/api/data/merge", {"paths": ""})[0] == 400

@@ -96,15 +96,18 @@ def test_follow_up_picks_are_diverse():
     assert "btts_yes" not in [c["key"] for c in leans]
 
 
-def test_schedule_from_the_browser(setup):
+def test_schedule_from_the_browser(setup, monkeypatch):
     """Service + web: refresh fetches the window; rows say whether both
-    teams are known (so the page knows what it can predict)."""
+    teams are known (so the page knows what it can predict) and carry the
+    American owner / betting sponsor alerts."""
     import json
     import threading
     import urllib.request
     from footypred.data.db import Database
     from footypred.ui.service import PredictionService
     from footypred.ui.web import make_server
+    real = sch._bounds
+    monkeypatch.setattr(sch, "_bounds", lambda today=None: real(today or TODAY))   # the mock's "today"
     cfg, _, _, api = setup
     cfg.raw["football_data_org"].update({"api_key": "0123456789abcdef0123456789abcdef",
                                           "min_interval_seconds": 0,
@@ -122,6 +125,9 @@ def test_schedule_from_the_browser(setup):
         assert w["has_key"] and w["fetched_at"] and not w["ready"]
         names = {(m["home"], m["away"]): m for m in w["matches"]}
         assert names[("Arsenal", "Chelsea")]["known"] is True          # in the match file
+        al = names[("Arsenal", "Chelsea")]["alerts"]
+        assert al["home"]["american"] and al["away"]["betting"]
+        assert names[("Trabzonspor", "Besiktas")]["alerts"]["home"] is None
         assert names[("Bayern Munich", "Arsenal")]["home_known"] is False
         assert not any(m["predictable"] for m in w["matches"])         # no model yet
     finally:

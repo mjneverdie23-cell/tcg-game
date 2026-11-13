@@ -76,6 +76,10 @@ picks:                          # last-5 form check + best pick
   # markets: [1x2, totals, btts, team_totals]
   # directions: [over, under]   # goal lines (total + team goals); [over] = never pick unders
 
+high_stake:                     # the High stake mode on the web page (picks at odds 1.70+)
+  flags_file: null              # clubs with an American owner / betting sponsor;
+                                # null = config/club_flags.csv
+
 image:                          # reading fixtures from screenshots
   engine: auto                  # auto | ocr (offline) | claude (needs `pip install
                                 #   anthropic` + API key; sends the image to Anthropic)
