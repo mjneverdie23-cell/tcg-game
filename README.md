@@ -114,6 +114,12 @@ In high stake mode:
   - BTTS + over 2.5 (both teams score and there are 3+ goals).
 - **Order:** match result, handicap and the combo are picked first. Total
   goals, BTTS and team goals still appear when their odds are 1.70 or more.
+- **No "typical game" bar for the focus markets:** match result, handicap
+  and the combo don't have to beat the league's typical rate by 5 points.
+  At odds of 1.70+, an underdog's line is below the typical rate by
+  definition. In the Premier League, away +0.5 lands 56% of the time, but
+  odds of 1.70+ mean at most 59%. They still need the style's minimum model
+  probability and supporting form. The other markets keep the rule.
 - **Extra cards:** a *High stake adjustment* card shows the 1X2 before and
   after the factor, with each team's upset record. A *Handicap & BTTS +
   over 2.5* card shows the new markets.

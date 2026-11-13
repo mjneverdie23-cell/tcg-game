@@ -116,6 +116,15 @@ def test_high_stake_picks_are_1_70_and_up_and_lead_with_the_focus_markets():
     # a lower min odds can't take high stake mode under 1.70
     low = form_check(idx, "A", "B", when, _probs(), {"mode": "high", "min_odds": 1.3}, base=base)
     assert low["settings"]["min_odds"] == 1.70
+    # with the league yardstick: the match result, handicaps and the combo aren't
+    # "ordinary" in high stake mode (an underdog's 1.70+ line is below typical by
+    # definition); the other markets keep the rule
+    typical = {k: 0.99 for k in base}                       # nothing beats this league
+    hs_base = form_check(idx, "A", "B", when, _probs(), {"mode": "high"}, base=typical)["candidates"]
+    assert not any("ordinary" in c["fails"] for c in hs_base if c["market"] in FOCUS_MARKETS)
+    assert all("ordinary" in c["fails"] for c in hs_base if c["market"] not in FOCUS_MARKETS)
+    bal_base = form_check(idx, "A", "B", when, _probs(), {}, base=typical)["candidates"]
+    assert all("ordinary" in c["fails"] for c in bal_base)  # balanced mode: unchanged
     # balanced mode is unchanged: no handicap / combo picks or rows
     bal = form_check(idx, "A", "B", when, _probs(), {}, base=base)
     assert bal["settings"]["mode"] == "balanced"

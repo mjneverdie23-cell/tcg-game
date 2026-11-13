@@ -39,7 +39,10 @@ import pandas as pd
 MARKETS = ("1x2", "totals", "btts", "team_totals")          # the default "pick from"
 ALL_MARKETS = MARKETS + ("first_half",)                     # first half: opt-in
 # high stake mode adds handicaps (+0.5 / +1.5) and BTTS + over 2.5, and puts the
-# match result, handicaps and the combo first
+# match result, handicaps and the combo first. Those three skip the "beats a typical
+# game" rule (min_lift): at odds of 1.70+ an underdog's line is below the league's
+# typical rate by definition (EPL: away +0.5 lands 56% of the time, but 1.70+ means
+# at most 59%), so the rule would block every one of them.
 HIGH_EXTRA = ("handicap", "combo")
 HIGH_MARKETS = ("1x2", "handicap", "combo", "totals", "btts", "team_totals")
 FOCUS_MARKETS = ("1x2", "handicap", "combo")
@@ -462,7 +465,10 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
             ("model", p >= o["min_model"]),
             ("too short", round(odds, 2) >= o["min_odds"]),
             ("too long", round(odds, 2) <= o.get("max_odds", 99.0)),
-            ("ordinary", lift is None or lift >= o["min_lift"]),
+            # high stake mode: an underdog's line at 1.70+ is below the league's typical
+            # rate by definition, so the match result, handicaps and the combo skip this
+            ("ordinary", lift is None or lift >= o["min_lift"]
+             or (o.get("mode") == "high" and c.market in FOCUS_MARKETS)),
             ("market off", c.market in o["markets"]),
             ("direction off", direction(c.key) is None or direction(c.key) in o["directions"]))
             if not ok]
