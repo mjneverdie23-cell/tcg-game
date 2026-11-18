@@ -777,6 +777,23 @@ For each team:
   Poisson GLM's coefficients. Turn them off with
   `features.club_flags: false`.
 
+  Measured on a real 12,050-match file (9 competitions, 2022–2026), with
+  the same cross-validation and models run with and without the 16
+  columns, scored on 3,731 out-of-sample matches:
+
+  | | without | with |
+  |---|---|---|
+  | combined skill | 0.03984 | 0.04003 |
+  | 1X2 log loss | 0.98384 | 0.98367 |
+  | 1X2 accuracy | 52.64% | 52.69% |
+
+  The gain is tiny: smaller than the gap between two of the base models.
+  The models gave the columns 0.2–1.2% of their gain. In the GLM,
+  betting-sponsored clubs score about 1.5% more than their ratings imply,
+  which looks like a proxy for club size. American ownership moves
+  expected goals by about 1% either way, with mixed signs. There's no
+  upset effect to speak of.
+
 Every prediction prints the evidence as raw counts (e.g. "scored in 7/8
 home games · BTTS 2/8 away") and the features that moved each market.
 
