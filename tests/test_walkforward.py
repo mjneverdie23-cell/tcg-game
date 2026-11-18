@@ -110,7 +110,10 @@ def test_high_stake_backtest(cfg, short_db, cached_training, monkeypatch, tmp_pa
     assert (d[moved] > 0).any() and (d[~moved] < 1e-4).all()
     assert (hi.rows.loc[moved, "flags"] > 0).all()
     for style in ("safe", "balanced", "bold"):
-        assert (hi.rows[f"pick_{style}_fair_odds"].dropna() >= 1.70).all()
+        # 1.70+ is a payout floor: on the bookmaker's price where the match has one
+        fair, book = hi.rows[f"pick_{style}_fair_odds"], hi.rows[f"pick_{style}_book_odds"]
+        pays = book.where(book.notna(), fair).dropna()
+        assert len(pays) and (pays.round(2) >= 1.70 - 1e-9).all()
         assert set(hi.picks[style].get("by_market", {})) <= {
             "1x2", "handicap", "combo", "totals", "btts", "team_totals"}
     assert hi.settings["mode"] == "high" and bal.settings["mode"] == "balanced"

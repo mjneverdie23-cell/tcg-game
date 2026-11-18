@@ -336,7 +336,7 @@ table.lt tr.hl-away td:first-child { box-shadow: inset 3px 0 var(--away); }
 /* schedule: Polymarket combos */
 .combos { margin-top: 14px; }
 .combos .ctl { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 4px 0 10px; font-size: 13px; }
-.combos .ctl label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); }
+.combos .ctl label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); white-space: nowrap; }
 .combos .ctl select { font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--baseline);
   background: var(--card); color: var(--ink); }
 .combos .sum { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
@@ -375,7 +375,7 @@ table.lt tr.hl-away td:first-child { box-shadow: inset 3px 0 var(--away); }
       <button type="button" data-mode="high" aria-pressed="false">High stake</button>
     </div>
     <label class="factor off" id="factor-box"><span class="lbl">Owner &amp; sponsor factor</span>
-      <input type="range" id="factor" min="0" max="100" step="5" value="0" aria-describedby="mode-hint">
+      <input type="range" id="factor" min="0" max="100" step="1" value="0" aria-describedby="mode-hint">
       <output id="factor-val" for="factor">0%</output></label>
   </div>
 </div>
