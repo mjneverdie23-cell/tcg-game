@@ -34,6 +34,12 @@ class PredictionService:
         self._lock = threading.Lock()          # models + matplotlib aren't thread-safe
         self._schedule_lock = threading.Lock()
         self.jobs = JobRunner()
+        from collections import OrderedDict
+
+        from footypred.data.sources.polymarket import PolymarketClient
+        self.polymarket = PolymarketClient.from_config(cfg)     # None when switched off
+        self._pred_cache: OrderedDict = OrderedDict()           # batch / combos predictions
+        self._cache_lock = threading.Lock()
         self._load()
 
     def _load(self) -> None:
@@ -42,6 +48,8 @@ class PredictionService:
         from footypred.data.localfile import cup_codes
         from footypred.predict.predictor import Predictor
         self.predictor, self.model_error = None, None
+        with self._cache_lock:
+            self._pred_cache.clear()
         try:
             if self.db.count_matches():
                 self.predictor = Predictor(self.cfg, self.db)
@@ -92,13 +100,14 @@ class PredictionService:
     # ----------------------------------------------------------- prediction
     def predict(self, home: str, away: str, date: str | None = None,
                 neutral: bool = False, chart: bool = True, pick_opts: dict | None = None,
-                competition: str | None = None, mode: str = "balanced", factor: float = 0.0):
+                competition: str | None = None, mode: str = "balanced", factor: float = 0.0,
+                prices: dict | None = None, market: dict | None = None):
         from footypred.predict.charts import plot_prediction
         predictor = self._model()
         with self._lock:
             pred = predictor.predict(home, away, date=date or None, neutral=neutral,
                                      pick_opts=pick_opts, competition=competition or None,
-                                     mode=mode, factor=factor)
+                                     mode=mode, factor=factor, prices=prices, market=market)
             png = None
             if chart:
                 buf = io.BytesIO()
@@ -108,9 +117,18 @@ class PredictionService:
 
     def predict_payload(self, home, away, date=None, neutral=False, pick_opts=None,
                         chart: bool = True, competition: str | None = None,
-                        mode: str = "balanced", factor: float = 0.0) -> dict:
+                        mode: str = "balanced", factor: float = 0.0,
+                        use_market: bool = True) -> dict:
+        prices, market = None, None
+        if use_market and self.polymarket is not None and self.predictor is not None:
+            fx = self._fixture(home, away, date, competition, neutral, "1")
+            if fx is not None:
+                got, info = self.market_prices([fx])
+                prices, market = (got["1"]["prices"], got["1"]["market"]) if "1" in got else \
+                    (None, self._unpriced(info))
         pred, png = self.predict(home, away, date, neutral, chart=chart, pick_opts=pick_opts,
-                                 competition=competition, mode=mode, factor=factor)
+                                 competition=competition, mode=mode, factor=factor,
+                                 prices=prices, market=market)
         d = pred.to_dict()
         d["chart_png"] = base64.b64encode(png).decode() if png else None
         return d
@@ -350,22 +368,191 @@ class PredictionService:
             say(f"(schedule not refreshed: {exc})")
 
     def predict_batch(self, items: list[dict], pick_opts: dict | None = None,
-                      mode: str = "balanced", factor: float = 0.0) -> list[dict]:
-        """Best pick + follow-ups for several fixtures at once."""
+                      mode: str = "balanced", factor: float = 0.0,
+                      use_market: bool = True) -> list[dict]:
+        """Best pick + follow-ups for several fixtures at once (Polymarket
+        prices fetched once for all of them)."""
         from footypred.predict.batch import pick_summary
         predictor = self._model()
+        items = (items or [])[:80]
+        fixtures = [self._fixture(it.get("home", ""), it.get("away", ""), it.get("date"),
+                                  it.get("competition"), it.get("neutral"), str(i), it.get("utc"))
+                    for i, it in enumerate(items)]
+        priced, info = ({}, None)
+        if use_market and self.polymarket is not None:
+            priced, info = self.market_prices([f for f in fixtures if f])
         out = []
-        for it in (items or [])[:80]:
+        for i, it in enumerate(items):
             comp = it.get("competition")
             comp = comp if comp in predictor.competitions else None
+            got = priced.get(str(i))
             try:
-                pred, _ = self.predict(it.get("home", ""), it.get("away", ""), it.get("date") or None,
-                                       bool(it.get("neutral")), chart=False, pick_opts=pick_opts,
-                                       competition=comp, mode=mode, factor=factor)
+                pred = self._predict_cached(it.get("home", ""), it.get("away", ""),
+                                            it.get("date") or None, bool(it.get("neutral")),
+                                            pick_opts, comp, mode, factor,
+                                            got and got["prices"],
+                                            got["market"] if got else (info and self._unpriced(info)))
                 out.append({"ok": True, "id": it.get("id"), **pick_summary(pred)})
             except Exception as exc:              # one fixture never stops the rest
                 out.append({"ok": False, "id": it.get("id"), "error": str(exc)})
         return out
+
+    # -------------------------------------------------------- market prices
+    def _fixture(self, home, away, date, competition, neutral, fid, utc=None) -> dict | None:
+        """A fixture in our names, for the price lookup (None if a team is unknown)."""
+        p = self.predictor
+        if p is None:
+            return None
+        try:
+            h, a = p.resolver.resolve(home), p.resolver.resolve(away)
+        except Exception:
+            return None
+        comp = competition if competition in p.competitions else None
+        return {"id": fid, "home": h, "away": a, "competition": p._league_for(h, a, comp),
+                "date": str(pd.Timestamp(date).date()) if date else str(pd.Timestamp.today().date()),
+                "utc": utc, "neutral": bool(neutral)}
+
+    def market_prices(self, fixtures: list[dict]) -> tuple[dict, dict]:
+        """Polymarket prices: ({fixture id: {"prices", "market"}}, info). Never
+        raises: what went wrong is in info."""
+        if self.polymarket is None:
+            return {}, {"source": "polymarket", "status": "off"}
+        try:
+            quotes, info = self.polymarket.quotes_for(fixtures, self.db.load_aliases())
+        except Exception as exc:                  # a surprise in their data never breaks a prediction
+            log.exception("Polymarket prices failed")
+            return {}, {"source": "polymarket", "status": "error", "errors": [str(exc)]}
+        out = {}
+        for fid, q in quotes.items():
+            prices = self.polymarket.prices(q["quotes"])
+            out[fid] = {"prices": prices,
+                        "market": {"source": "polymarket", "status": "ok", "event": q["event"],
+                                   "url": q["url"], "kickoff": q["kickoff"],
+                                   "fetched_at": info.get("fetched_at"), "prices": prices}}
+        return out, info
+
+    @staticmethod
+    def _unpriced(info: dict) -> dict:
+        st = info.get("status")
+        return {"source": "polymarket",
+                "status": "off" if st == "off" else "unavailable" if st == "error" else "not listed",
+                "error": "; ".join(info.get("errors") or []) or None}
+
+    def _predict_cached(self, home, away, date, neutral, pick_opts, competition, mode, factor,
+                        prices=None, market=None):
+        """Predictions without a chart, cached (the schedule's picks and the
+        combos ask for the same fixtures again and again)."""
+        import json as _json
+        version = getattr(getattr(self.predictor, "bundle", None), "version", None)
+        key = _json.dumps([home, away, str(date), bool(neutral), pick_opts or {}, competition, mode,
+                           round(float(factor or 0), 4), prices or {}, version],
+                          sort_keys=True, default=str)
+        with self._cache_lock:
+            hit = self._pred_cache.get(key)
+            if hit is not None:
+                self._pred_cache.move_to_end(key)
+                return hit
+        pred, _ = self.predict(home, away, date, neutral, chart=False, pick_opts=pick_opts,
+                               competition=competition, mode=mode, factor=factor,
+                               prices=prices, market=market)
+        with self._cache_lock:
+            self._pred_cache[key] = pred
+            while len(self._pred_cache) > 300:
+                self._pred_cache.popitem(last=False)
+        return pred
+
+    # --------------------------------------------------------------- combos
+    def combos(self, fixtures: list[dict], pick_opts: dict | None = None, mode: str = "balanced",
+               factor: float = 0.0, sort: str = "ev", legs="any", limit: int = 100,
+               value_only: bool = False) -> dict:
+        """Polymarket Optimal Combos: every combo of one valid, Polymarket-
+        priced pick per match (2+ legs), ranked by EV or probability; the top
+        `limit` returned (ranking is exact over all of them)."""
+        from footypred.predict import combos as cb
+        predictor = self._model()
+        if self.polymarket is None:
+            raise ValueError("Polymarket prices are switched off (polymarket.enabled in "
+                             "config/local.yaml)")
+        if sort not in cb.OBJECTIVES:
+            raise ValueError("sort must be ev or prob")
+        lo, hi = cb.legs_filter(legs)
+        limit = min(max(int(limit or 100), 1), 500)
+        now = pd.Timestamp.now(tz="UTC")
+        fx, skipped = [], []
+        for i, it in enumerate((fixtures or [])[:120]):
+            name = f"{it.get('home', '?')} v {it.get('away', '?')}"
+            start = pd.Timestamp(it["utc"]) if it.get("utc") else None
+            if start is not None and start.tzinfo is None:
+                start = start.tz_localize("UTC")
+            if start is not None and start <= now:
+                skipped.append({"match": name, "why": "already kicked off"})
+                continue
+            f = self._fixture(it.get("home", ""), it.get("away", ""), it.get("date"),
+                              it.get("competition"), it.get("neutral"), str(it.get("id", i)),
+                              it.get("utc"))
+            if f is None:
+                skipped.append({"match": name, "why": "team not in your data"})
+                continue
+            f["pick_comp"] = it.get("competition") if it.get("competition") in predictor.competitions else None
+            fx.append(f)
+        priced, info = self.market_prices(fx)
+        groups, matches = [], []
+        for f in fx:
+            got = priced.get(f["id"])
+            row = {"id": f["id"], "home": f["home"], "away": f["away"], "competition": f["competition"],
+                   "utc": f["utc"], "priced": got is not None, "legs": 0, "valid": 0,
+                   "valid_unpriced": 0, "event": got and got["market"]["event"],
+                   "url": got and got["market"]["url"]}
+            legs_here = []
+            if got is not None:
+                try:
+                    pred = self._predict_cached(f["home"], f["away"], f["date"], f["neutral"],
+                                                pick_opts, f["pick_comp"], mode, factor,
+                                                got["prices"], got["market"])
+                    for c in pred.form["candidates"]:
+                        if not c["eligible"]:
+                            continue
+                        row["valid"] += 1
+                        if c.get("price_source") != "polymarket":
+                            row["valid_unpriced"] += 1
+                            continue
+                        if value_only and not c["value"]:
+                            continue
+                        pr = got["prices"][c["key"]]
+                        legs_here.append(cb.Leg(
+                            fixture=f["id"], match=f"{f['home']} v {f['away']}", key=c["key"],
+                            label=c["label"], prob=c["model_prob"], odds=pr["odds"],
+                            price=pr["price"], kind=pr["kind"], kickoff=f["utc"],
+                            competition=f["competition"], url=got["market"]["url"]))
+                except Exception as exc:
+                    row["error"] = str(exc)
+            row["legs"] = len(legs_here)
+            groups.append(legs_here)
+            matches.append(row)
+        ranked = cb.top_combos(groups, k=limit, objective=sort, min_legs=lo, max_legs=hi)
+        total = cb.count_combos([len(g) for g in groups], lo, hi)
+        return {"combos": ranked, "matches": matches, "skipped": skipped,
+                "total_combos": str(total), "legs_total": sum(len(g) for g in groups),
+                "matches_with_legs": sum(1 for g in groups if g), "sort": sort,
+                "legs": "any" if hi is None and lo == 2 else (f"{lo}+" if hi is None else str(lo)),
+                "limit": limit, "value_only": bool(value_only), "mode": mode,
+                "style": (pick_opts or {}).get("style") or (self.cfg.raw.get("picks") or {}).get("style"),
+                "polymarket": info,
+                "fee": self.polymarket.fee}
+
+    # ------------------------------------------------------------ standings
+    def standings(self, competition: str, home: str, away: str, date: str | None = None) -> dict:
+        """League table(s) behind a schedule match, both teams located."""
+        from footypred.data import schedule as sch
+        from footypred.data.standings import standings
+        if not competition or not home or not away:
+            raise ValueError("competition, home and away are needed")
+        try:
+            extra = [m for m in sch.window(self.cfg)["matches"]
+                     if m.get("status") in ("FINISHED", "AWARDED")]
+        except Exception:                        # no schedule fetched yet: the file is enough
+            extra = []
+        return standings(self.cfg, self.db, competition, home, away, date, extra)
 
     # --------------------------------------------------------- setup jobs
     def start_download(self, force: bool = False) -> dict:

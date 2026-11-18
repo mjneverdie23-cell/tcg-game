@@ -67,6 +67,17 @@ def render_training_report(rep: dict) -> str:
     elif h:
         L.append(f"\nFirst half: trained on {h['matches']} matches with half-time scores "
                  "(too few seasons to evaluate out of sample)")
+    cf = rep.get("club_features")
+    if cf:
+        L.append(f"\nOwner & sponsor features ({len(cf['columns'])} one-hot columns):")
+        gs = cf.get("gain_share") or {}
+        if gs:
+            L.append("  share of the gradient-boosting gain: " + ", ".join(
+                f"{GROUP_LABEL.get(k, k)} {100 * v:.2f}%" for k, v in gs.items()))
+        for target, coefs in (cf.get("glm") or {}).items():
+            big = sorted(((c, v) for c, v in coefs.items() if abs(v) >= 0.002), key=lambda x: -abs(x[1]))[:6]
+            L.append(f"  Poisson GLM, {target} (per 1 SD): "
+                     + (", ".join(f"{c} {v:+.3f}" for c, v in big) if big else "all within ±0.002 (no effect)"))
     L.append(f"\n{rep['n_matches']} matches · {rep['n_features']} features · "
              f"DC half-life {rep['dc_half_life_days']:.0f} days · trained in {rep['train_seconds']}s")
     return "\n".join(L)

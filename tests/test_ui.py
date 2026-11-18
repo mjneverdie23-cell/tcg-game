@@ -159,6 +159,75 @@ def test_high_stake_mode(server):
     assert all("alerts" in m for m in sch["matches"])
 
 
+def test_polymarket_prices_combos_and_standings(server, service):
+    """Polymarket prices feed the +EV route; combos take one priced pick per
+    match (2+ legs) and rank them exactly; a schedule match gets its table."""
+    from footypred.data.sources.polymarket import PolymarketClient
+    from footypred.predict.combos import count_combos
+    from pm_mock import MockGamma, event
+    ko = (pd.Timestamp.now(tz="UTC").normalize() + pd.Timedelta(days=3, hours=15)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    day = ko[:10]
+    gamma = MockGamma([event("Arsenal", "Chelsea", ko, 0.50, 0.27, 0.23),
+                       event("Liverpool", "Manchester City", ko, 0.40, 0.25, 0.35),
+                       event("Tottenham", "Everton", ko, 0.55, 0.25, 0.20)])
+    old = service.polymarket
+    service.polymarket = PolymarketClient(gamma.url, timeout=5, cache_seconds=60)
+    try:
+        d = json.loads(_get(server + f"/api/predict?home=Arsenal&away=Chelsea&date={day}&chart=0")[1])
+        assert d["market"]["status"] == "ok" and d["market"]["event"] == "Arsenal FC vs. Chelsea FC"
+        hw = next(c for c in d["form"]["candidates"] if c["key"] == "home_win")
+        assert hw["price_source"] == "polymarket" and hw["market_odds"] == pytest.approx(1 / 0.51, rel=1e-3)
+        assert hw["ev"] == pytest.approx(hw["model_prob"] * hw["market_odds"] - 1, abs=2e-3)
+        assert next(c for c in d["form"]["candidates"] if c["key"] == "away_plus_0.5")["market_odds"]
+        off = json.loads(_get(server + f"/api/predict?home=Arsenal&away=Chelsea&date={day}&chart=0&market=0")[1])
+        assert off["market"] == {} and all(c["market_odds"] is None for c in off["form"]["candidates"])
+        pairs = [("Arsenal", "Chelsea"), ("Liverpool", "Manchester City"), ("Tottenham", "Everton"),
+                 ("Newcastle United", "Brighton")]                    # the last isn't listed
+        fixtures = [{"id": i, "home": h, "away": a, "date": day, "competition": "E0", "utc": ko}
+                    for i, (h, a) in enumerate(pairs)] + [
+            {"id": 9, "home": "Leeds", "away": "Burnley", "date": "2020-01-01", "competition": "E0",
+             "utc": "2020-01-01T15:00:00Z"}]                          # already played
+        opts = {"style": "bold", "markets": "1x2,totals,btts,team_totals,handicap"}
+        code, r = _post(server + "/api/combos", {"fixtures": fixtures, "pick_opts": opts,
+                                                 "sort": "ev", "limit": 25})
+        assert code == 200 and r["polymarket"]["matched"] == 3, r["polymarket"]
+        assert [m["priced"] for m in r["matches"]] == [True, True, True, False]
+        assert r["skipped"][0]["why"] == "already kicked off"
+        assert r["legs_total"] >= 3 and r["combos"]
+        assert int(r["total_combos"]) == count_combos([m["legs"] for m in r["matches"]])
+        evs = [c["ev"] for c in r["combos"]]
+        assert evs == sorted(evs, reverse=True)
+        for c in r["combos"]:
+            fx = [leg["fixture"] for leg in c["legs"]]
+            assert c["n_legs"] >= 2 and len(set(fx)) == len(fx)            # one pick per match
+            assert all(leg["odds"] > 1 and 0 < leg["prob"] < 1 for leg in c["legs"])
+        code, r2 = _post(server + "/api/combos", {"fixtures": fixtures, "pick_opts": opts,
+                                                  "sort": "prob", "legs": 2, "limit": 10})
+        probs = [c["prob"] for c in r2["combos"]]
+        assert probs == sorted(probs, reverse=True) and all(c["n_legs"] == 2 for c in r2["combos"])
+        assert _post(server + "/api/combos", {"fixtures": fixtures, "legs": 1})[0] == 400
+        # Polymarket down: combos say why, predictions still work
+        service.polymarket = PolymarketClient("http://127.0.0.1:9", timeout=1, cache_seconds=60)
+        code, down = _post(server + "/api/combos", {"fixtures": fixtures, "pick_opts": opts})
+        assert code == 200 and down["polymarket"]["status"] == "error" and down["combos"] == []
+        assert "couldn't reach Polymarket" in down["polymarket"]["errors"][0]
+        d = json.loads(_get(server + f"/api/predict?home=Arsenal&away=Chelsea&date={day}&chart=0")[1])
+        assert d["market"]["status"] == "unavailable" and d["form"]["candidates"]
+    finally:
+        service.polymarket = old
+        gamma.close()
+    st = json.loads(_get(server + "/api/standings?competition=E0&home=Arsenal&away=Chelsea"
+                                  "&date=2026-03-01")[1])
+    t = st["tables"][0]
+    assert t["season"] == "2025-26" and t["rows"] and [r["pos"] for r in t["rows"]] == list(
+        range(1, len(t["rows"]) + 1))
+    pts = [r["pts"] for r in t["rows"]]
+    assert pts == sorted(pts, reverse=True) and t["home"]["team"] == "Arsenal" and t["away"]["pos"] >= 1
+    assert all(r["p"] == r["w"] + r["d"] + r["l"] for r in t["rows"])
+    assert _get(server + "/api/standings?competition=E0")[0] == 400
+
+
 def test_merge_endpoint(server, cfg, tmp_path):
     from footypred.data.localfile import csv_path
     assert _post(server + "/api/data/merge", {"paths": ""})[0] == 400

@@ -22,6 +22,7 @@ Feature families (h_ = home side, a_ = away side):
   the market probabilities those ratings imply
 * head-to-head, league scoring environment, rest/congestion, external
   (ClubElo, market value, FIFA points), weather
+* club owner and sponsor categories, one-hot and dated (features/clubs.py)
 """
 
 from __future__ import annotations
@@ -112,8 +113,9 @@ class _EW:
 
 class FeatureState:
     def __init__(self, fcfg: dict | None = None, team_info: pd.DataFrame | None = None,
-                 weather: pd.DataFrame | None = None):
+                 weather: pd.DataFrame | None = None, clubs=None):
         f = fcfg or {}
+        self.clubs = clubs        # owner / sponsor categories (features.clubs), or None
         self.w_short, self.w_long = (f.get("windows") or [5, 10])[:2]
         self.w_venue = f.get("venue_window", 8)
         self.halflife = f.get("ew_halflife", 8)
@@ -261,6 +263,12 @@ class FeatureState:
         f["w_temp"] = w.temp_c if w is not None else np.nan
         f["w_precip"] = w.precip_mm if w is not None else np.nan
         f["w_wind"] = w.wind_kmh if w is not None else np.nan
+
+        # owner and sponsor categories, one-hot (states saved before 3.0 have none)
+        clubs = getattr(self, "clubs", None)
+        if clubs is not None:
+            f.update(clubs.encode(home, league, date, "h"))
+            f.update(clubs.encode(away, league, date, "a"))
         return f
 
     # -------------------------------------------------------------- update
@@ -318,7 +326,9 @@ class FeatureBuilder:
         self.state: FeatureState | None = None
 
     def _new_state(self) -> FeatureState:
-        return FeatureState(self.params, self.db.load_team_info(), self.db.load_weather())
+        from footypred.features import clubs
+        cats = clubs.load(self.cfg, self.db) if self.params.get("club_flags", True) else None
+        return FeatureState(self.params, self.db.load_team_info(), self.db.load_weather(), cats)
 
     def build_training_frame(self, matches: pd.DataFrame | None = None) -> pd.DataFrame:
         """Replay all played matches; returns one leakage-safe row per match.

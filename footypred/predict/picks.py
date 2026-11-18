@@ -10,19 +10,26 @@ counts how often each team scored and conceded (1+, 2+, 3+), kept clean
 sheets, failed to score, and how often games had BTTS / over 2.5, then
 scores every selection in the four markets by how often it would have
 landed in those windows (the *form rate*). The best pick is the selection
-that the form supports most strongly, with the calibrated model
-probability as a sanity check:
+as evidence next to the model's probability.
 
-    score = form_weight * form_rate(shrunk) + (1 - form_weight) * model_prob
+Which selections count as picks is decided by probability alone:
 
-A selection is only eligible when both form and model back it
-(form >= min_form, model >= min_model), it beats a typical game in that
-league (min_lift), and its fair odds sit inside the style's range
-(safe / balanced / bold). In a lopsided match the favourite's safe lines
-are too short to be worth a bet, so the pick moves up the ladder: bigger
-team lines, the win, total goals, BTTS. The "vs similar opponents" window
-is what makes those bigger lines judgeable: it shows how the favourite
-does against teams like this opponent, not against an average side.
+    valid  =  model probability >= the style's threshold (min_prob)
+              OR  EV = probability x market odds - 1  >  min_edge (default 0)
+
+where a market price is known (Polymarket, or bookmaker odds in a
+backtest). There is no upper odds cap: a long price is never a reason to
+drop a pick. Form, and how a selection compares with a typical game in the
+league, are shown as evidence but don't decide anything. Valid picks are
+ranked by model probability (high stake mode puts the match result,
+handicaps and BTTS + over 2.5 first).
+
+Each style also has a payout floor (min_odds): the shortest price worth
+taking (safe 1.15, balanced 1.25, bold 1.60; high stake 1.70 / 2.20). It
+only removes selections that pay too little; with a market price it
+applies to that price. In a lopsided match the favourite's safe lines are
+below the floor, so the pick moves up the ladder: bigger team lines, the
+win, total goals, BTTS.
 
 Windows are read from match history strictly before the fixture date, so
 the same code is used for live picks and for the out-of-sample backtest.
@@ -39,10 +46,7 @@ import pandas as pd
 MARKETS = ("1x2", "totals", "btts", "team_totals")          # the default "pick from"
 ALL_MARKETS = MARKETS + ("first_half",)                     # first half: opt-in
 # high stake mode adds handicaps (+0.5 / +1.5) and BTTS + over 2.5, and puts the
-# match result, handicaps and the combo first. Those three skip the "beats a typical
-# game" rule (min_lift): at odds of 1.70+ an underdog's line is below the league's
-# typical rate by definition (EPL: away +0.5 lands 56% of the time, but 1.70+ means
-# at most 59%), so the rule would block every one of them.
+# match result, handicaps and the combo first
 HIGH_EXTRA = ("handicap", "combo")
 HIGH_MARKETS = ("1x2", "handicap", "combo", "totals", "btts", "team_totals")
 FOCUS_MARKETS = ("1x2", "handicap", "combo")
@@ -51,25 +55,30 @@ MARKET_NAMES = {"1x2": "Match result", "totals": "Total goals", "btts": "Both te
                 "handicap": "Handicap +0.5 / +1.5", "combo": "BTTS + over 2.5"}
 MARKET_ALIASES = {"ou25": "totals", "ou": "totals", "total": "totals"}
 
-# pick styles = fair-odds range + how strongly form and model must agree
+# pick styles = the chance a pick needs (min_prob) + the shortest price worth
+# taking (min_odds, a payout floor). No upper odds limit.
 STYLES = {
-    "safe":     {"min_odds": 1.15, "max_odds": 1.60, "min_model": 0.60, "min_form": 0.60},
-    "balanced": {"min_odds": 1.25, "max_odds": 2.20, "min_model": 0.45, "min_form": 0.55},
-    "bold":     {"min_odds": 1.60, "max_odds": 3.50, "min_model": 0.30, "min_form": 0.45},
+    "safe":     {"min_prob": 0.60, "min_odds": 1.15},
+    "balanced": {"min_prob": 0.45, "min_odds": 1.25},
+    "bold":     {"min_prob": 0.30, "min_odds": 1.60},
 }
-# high stake mode: the same three risk levels, all at fair odds of 1.70 or more
+# high stake mode: the same three risk levels, all paying 1.70 or more
 HIGH_MIN_ODDS = 1.70
 HIGH_STYLES = {
-    "safe":     {"min_odds": 1.70, "max_odds": 2.30, "min_model": 0.43, "min_form": 0.50},
-    "balanced": {"min_odds": 1.70, "max_odds": 3.20, "min_model": 0.31, "min_form": 0.45},
-    "bold":     {"min_odds": 2.20, "max_odds": 6.00, "min_model": 0.17, "min_form": 0.33},
+    "safe":     {"min_prob": 0.43, "min_odds": 1.70},
+    "balanced": {"min_prob": 0.31, "min_odds": 1.70},
+    "bold":     {"min_prob": 0.17, "min_odds": 2.20},
 }
 MODES = ("balanced", "high")
 # goal lines (total goals, team goals) can be limited to overs or unders
 DIRECTIONS = ("over", "under")
-DEFAULTS = {"window": 5, "style": "balanced", "form_weight": 0.6, "min_lift": 0.05,
-            "shrink": 5.0, "markets": list(MARKETS), "directions": list(DIRECTIONS),
-            **STYLES["balanced"]}
+# a priced selection is also valid when its expected value beats this (0 = any +EV)
+DEFAULTS = {"window": 5, "style": "balanced", "min_edge": 0.0,
+            "markets": list(MARKETS), "directions": list(DIRECTIONS), **STYLES["balanced"]}
+# settings from older versions that no longer decide anything (ignored)
+RETIRED = ("max_odds", "min_form", "form_weight", "min_lift", "shrink")
+# "form disagrees" notes: the model likes it, the last 5 games clearly don't
+FORM_WARN = 0.5
 
 # window weights: games against similar opponents count most, then the venue
 # that matches the fixture
@@ -78,8 +87,12 @@ W_SIMILAR, W_VENUE, W_LAST, W_OTHER, W_H2H = 1.5, 1.25, 1.0, 0.5, 0.75
 
 def resolve_opts(opts: dict | None) -> dict:
     """Defaults <- style preset <- explicit settings (None values ignored).
-    mode "high" (high stake) uses the 1.70+ styles and never goes below 1.70."""
-    opts = {k: v for k, v in (opts or {}).items() if v is not None}
+    mode "high" (high stake) uses the 1.70+ styles and never goes below 1.70.
+    Settings retired in 3.0 (max_odds, min_form, form_weight, min_lift) are
+    ignored; min_model is read as min_prob."""
+    opts = {k: v for k, v in (opts or {}).items() if v is not None and k not in RETIRED}
+    if "min_model" in opts:                        # its old name
+        opts.setdefault("min_prob", opts.pop("min_model"))
     mode = opts.get("mode") or "balanced"
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
@@ -428,8 +441,27 @@ def base_rates(matches: pd.DataFrame, min_league_games: int = 200) -> dict:
     return out
 
 
+def market_price(prices: dict | None, key: str) -> tuple[float | None, str | None]:
+    """(decimal odds, source) for a selection, or (None, None). prices maps a
+    selection key to decimal odds or to {"odds": .., "source": ..}."""
+    v = (prices or {}).get(key)
+    if isinstance(v, dict):
+        odds, src = v.get("odds"), v.get("source")
+    else:
+        odds, src = v, None
+    try:
+        odds = float(odds)
+    except (TypeError, ValueError):
+        return None, None
+    return (odds, src or "market") if np.isfinite(odds) and odds > 1.0 else (None, None)
+
+
 def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dict | None = None,
-                     neutral: bool = False, base: dict | None = None) -> list[dict]:
+                     neutral: bool = False, base: dict | None = None,
+                     prices: dict | None = None) -> list[dict]:
+    """Every selection with its probability, evidence and validity. prices:
+    market odds per selection key (see market_price); a priced selection is
+    also valid when its EV beats min_edge."""
     o = resolve_opts(opts)
     out = []
     for c in CANDIDATES:
@@ -455,20 +487,16 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
                              "hits": hits, "n": len(recs), "weight": w})
         p = _model_prob(probs, c)
         form = hits_w / n_w if n_w else None
-        shrunk = (hits_w + o["shrink"] * p) / (n_w + o["shrink"]) if n_w else p
-        score = o["form_weight"] * shrunk + (1 - o["form_weight"]) * p
         typical = (base or {}).get(c.key)
         lift = None if typical is None else p - typical
-        odds = 1 / max(p, 1e-9)
+        fair = 1 / max(p, 1e-9)
+        odds_mkt, source = market_price(prices, c.key)
+        ev = p * odds_mkt - 1 if odds_mkt else None
+        value = ev is not None and ev > o["min_edge"]
+        payout = odds_mkt if odds_mkt else fair       # what the pick would pay
         fails = [name for name, ok in (
-            ("form", form is not None and form >= o["min_form"]),
-            ("model", p >= o["min_model"]),
-            ("too short", round(odds, 2) >= o["min_odds"]),
-            ("too long", round(odds, 2) <= o.get("max_odds", 99.0)),
-            # high stake mode: an underdog's line at 1.70+ is below the league's typical
-            # rate by definition, so the match result, handicaps and the combo skip this
-            ("ordinary", lift is None or lift >= o["min_lift"]
-             or (o.get("mode") == "high" and c.market in FOCUS_MARKETS)),
+            ("model", p >= o["min_prob"] or value),    # the only test of quality
+            ("too short", round(payout, 2) >= o["min_odds"]),
             ("market off", c.market in o["markets"]),
             ("direction off", direction(c.key) is None or direction(c.key) in o["directions"]))
             if not ok]
@@ -484,7 +512,10 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
         out.append({"key": c.key, "market": c.market, "focus": c.market in FOCUS_MARKETS,
                     "label": c.label.format(home=home, away=away),
                     "model_prob": round(p, 4), "form_rate": None if form is None else round(form, 4),
-                    "score": round(score, 4), "fair_odds": round(1 / max(p, 1e-9), 2),
+                    "score": round(p, 4), "fair_odds": round(fair, 2),
+                    "market_odds": None if odds_mkt is None else round(odds_mkt, 3),
+                    "price_source": source,
+                    "ev": None if ev is None else round(ev, 4), "value": bool(value),
                     "typical": None if typical is None else round(typical, 4),
                     "lift": None if lift is None else round(lift, 4),
                     "eligible": bool(eligible), "fails": fails, "agreement": agree,
@@ -494,20 +525,22 @@ def score_candidates(windows: dict, probs: dict, home: str, away: str, opts: dic
 
 
 def rank_key(o: dict):
-    """Eligible first; in high stake mode the match result, handicaps and the
-    combo come before the other markets; then by score."""
+    """Valid first; in high stake mode the match result, handicaps and the
+    combo come before the other markets; then by model probability."""
     if o.get("mode") == "high":
-        return lambda d: (d["eligible"], d["focus"], d["score"])
-    return lambda d: (d["eligible"], d["score"])
+        return lambda d: (d["eligible"], d["focus"], d["model_prob"])
+    return lambda d: (d["eligible"], d["model_prob"])
 
 
 def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
-               opts: dict | None = None, neutral: bool = False, base: dict | None = None) -> dict:
-    """Everything the UI needs: windows, counts, profiles, ranked picks."""
+               opts: dict | None = None, neutral: bool = False, base: dict | None = None,
+               prices: dict | None = None) -> dict:
+    """Everything the UI needs: windows, counts, profiles, ranked picks.
+    prices: market odds per selection key, for the +EV route."""
     o = resolve_opts(opts)
     win = gather_windows(index, home, away, date, int(o["window"]))
     counts = {k: form_counts(v) for k, v in win.items()}
-    ranked = score_candidates(win, probs, home, away, o, neutral, base)
+    ranked = score_candidates(win, probs, home, away, o, neutral, base, prices)
     allowed = set(o["markets"])
     ranked.sort(key=rank_key(o), reverse=True)
     best = ranked[0] if ranked and ranked[0]["eligible"] else None
@@ -518,7 +551,7 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
         group = [r for r in ranked if r["market"] == mk]
         if group:
             top = max(group, key=lambda d: (d["eligible"] or mk not in allowed,
-                                            "direction off" not in d["fails"], d["score"]))
+                                            "direction off" not in d["fails"], d["model_prob"]))
             best_by_market[mk] = {**top, "market_name": MARKET_NAMES[mk]}
     profiles = {
         "home": {"at home": profile(counts["home_home"]), "overall": profile(counts["home_last"]),
@@ -538,17 +571,18 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
     follow_ups = follow_up_picks(ranked, best, lean_min=0.25 if o["mode"] == "high" else 0.40)
     by_style = {}
     style_free = {k: v for k, v in (opts or {}).items()
-                  if k not in ("style", "min_odds", "max_odds", "min_model", "min_form")}
+                  if k not in ("style", "min_odds", "min_prob", "min_model")}
     for name in STYLES:
         if name == o["style"]:
             by_style[name] = _slim(best) if best else None
             continue
-        alt = score_candidates(win, probs, home, away, {**style_free, "style": name}, neutral, base)
+        alt = score_candidates(win, probs, home, away, {**style_free, "style": name}, neutral, base,
+                               prices)                  # (ranked inside)
         top = alt[0] if alt and alt[0]["eligible"] else None
         by_style[name] = _slim(top) if top else None
     # model leans one way, recent form clearly doesn't (>= 10 points lower)
     conflicts = [r for r in ranked if r["form_rate"] is not None and r["model_prob"] >= 0.5
-                 and r["form_rate"] < o["min_form"] and r["form_rate"] <= r["model_prob"] - 0.10
+                 and r["form_rate"] < FORM_WARN and r["form_rate"] <= r["model_prob"] - 0.10
                  and r["market"] != "1x2"
                  and not {"market off", "direction off"} & set(r["fails"])][:3]
     return {"window": int(o["window"]), "counts": counts, "profiles": profiles,
@@ -557,9 +591,9 @@ def form_check(index: FormIndex, home: str, away: str, date, probs: dict,
             "too_short": too_short, "gap": gap,
             "best_by_market": best_by_market,
             "conflicts": conflicts, "candidates": ranked,
-            "settings": {k: o[k] for k in ("style", "mode", "form_weight", "min_form", "min_model",
-                                           "min_odds", "max_odds", "min_lift", "markets",
-                                           "directions")},
+            "settings": {k: o[k] for k in ("style", "mode", "min_prob", "min_odds", "min_edge",
+                                           "markets", "directions")},
+            "priced": sum(1 for r in ranked if r["market_odds"] is not None),
             "reason": _reason(best, counts, profiles, home, away, too_short, gap)}
 
 
@@ -574,14 +608,14 @@ def _group(c: dict) -> str:
 
 def _slim(c: dict, evidence: int = 2) -> dict:
     out = {k: c[k] for k in ("key", "market", "label", "model_prob", "form_rate", "fair_odds",
-                             "score", "agreement", "lift", "typical") if k in c}
+                             "score", "agreement", "lift", "typical", "market_odds",
+                             "price_source", "ev", "value") if k in c}
     out["evidence"] = sorted(c.get("evidence") or [], key=lambda e: -e["weight"])[:evidence]
     return out
 
 
-WHY_NOT = {"form": "recent form below this style's bar", "model": "model below this style's bar",
-           "too short": "odds below this style's range", "too long": "odds above this style's range",
-           "ordinary": "hardly above a typical game"}
+WHY_NOT = {"model": "chance below this style's threshold, and no value at a market price",
+           "too short": "odds below this style's minimum"}
 
 
 def follow_up_picks(ranked: list[dict], best: dict | None, n: int = 4,
@@ -589,11 +623,10 @@ def follow_up_picks(ranked: list[dict], best: dict | None, n: int = 4,
     """The next options after the best pick, from different markets first
     (one per market family), then the next-best of any market.
 
-    Eligible picks (form and model both back them, odds fit the style) come
-    first. If there are fewer than n, the list is topped up with *leans*:
-    selections that miss one of the style's rules but are still backed by
-    the model and recent form at 40%+ (25%+ in high stake mode), marked
-    lean=True with the reason."""
+    Valid picks come first. If there are fewer than n, the list is topped up
+    with *leans*: selections that miss the style's threshold or payout floor
+    but still have a 40%+ chance (25%+ in high stake mode), marked lean=True
+    with the reason."""
     def diverse(pool, used, k):
         out = []
         for c in pool:                                # a new market family each
@@ -611,14 +644,14 @@ def follow_up_picks(ranked: list[dict], best: dict | None, n: int = 4,
     skip = best["key"] if best else None
     used = {_group(best)} if best else set()
     strict = diverse([c for c in ranked if c["eligible"] and c["key"] != skip], used, n)
-    strict.sort(key=lambda c: -c["score"])
+    strict.sort(key=lambda c: -c["model_prob"])
     out = [_slim(c) for c in strict]
     if len(out) < n:
         # closest to the style first: fewest rules missed, "odds too short" last
-        near = lambda c: (len(c["fails"]), "too short" in c["fails"], -c["score"])
+        near = lambda c: (len(c["fails"]), "too short" in c["fails"], -c["model_prob"])
         soft = sorted([c for c in ranked if not c["eligible"]
                        and not {"market off", "direction off"} & set(c["fails"])
-                       and c["model_prob"] >= lean_min and (c["form_rate"] is None or c["form_rate"] >= lean_min)],
+                       and c["model_prob"] >= lean_min],
                       key=near)
         for c in sorted(diverse(soft, set(used) | {_group(x) for x in strict}, n - len(out)), key=near):
             out.append({**_slim(c), "lean": True,
@@ -633,8 +666,8 @@ def _reason(best, counts, profiles, home, away, too_short=None, gap=None) -> str
                  f"{too_short['fair_odds']:.2f}) is too short to be worth it"
                  + (" in this lopsided match" if gap and gap["lopsided"] else "") + "; ")
     if best is None:
-        return (short + "No clear pick: no selection is backed by both recent form "
-                "and the model within the chosen odds range.")
+        return (short + "No clear pick: no selection reaches this style's chance threshold "
+                "at a price above its minimum, and none is priced with positive value.")
     bits = []
     hp = profiles["home"]["at home"] or profiles["home"]["overall"]
     ap = profiles["away"]["away"] or profiles["away"]["overall"]
@@ -646,10 +679,13 @@ def _reason(best, counts, profiles, home, away, too_short=None, gap=None) -> str
     ev = "; ".join(f"{e['event']} in {e['hits']}/{e['n']} of {e['window']}" for e in top)
     typ = (f" vs {100 * best['typical']:.0f}% in a typical game"
            if best.get("typical") is not None else "")
-    return (short + f"{best['label']}: {ev}. "
-            + (" · ".join(bits) + "." if bits else "")
-            + f" Model {100 * best['model_prob']:.0f}%{typ}, form {100 * best['form_rate']:.0f}%"
-            f" ({best['agreement']}).")
+    form = (f", form {100 * best['form_rate']:.0f}% ({best['agreement']})"
+            if best.get("form_rate") is not None else "")
+    price = (f" Market price {best['market_odds']:.2f}: EV {100 * best['ev']:+.0f}%."
+             if best.get("market_odds") else "")
+    head = f"{best['label']}: model {100 * best['model_prob']:.0f}%{typ}{form}."
+    return (short + head + (f" Evidence: {ev}." if ev else "") + " "
+            + (" · ".join(bits) + "." if bits else "") + price).strip()
 
 
 # ---------------------------------------------------------------- backtest
@@ -668,12 +704,32 @@ def eval_matches(db_matches: pd.DataFrame, eval_preds: dict, eval_seasons) -> pd
     return m
 
 
+# bookmaker odds columns of a match row, per selection (for the +EV route)
+BOOK_ODDS = {"home_win": "odds_h", "draw": "odds_d", "away_win": "odds_a",
+             "over_2.5": "odds_o25", "under_2.5": "odds_u25"}
+
+
+def book_prices(row) -> dict:
+    """Bookmaker odds of a match row as prices for the pick engine."""
+    out = {}
+    for key, col in BOOK_ODDS.items():
+        v = row.get(col) if hasattr(row, "get") else None
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(v) and v > 1:
+            out[key] = {"odds": v, "source": "bookmaker"}
+    return out
+
+
 def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | None = None,
              mask: np.ndarray | None = None, base: dict | None = None,
-             keep_rows: bool = False) -> dict:
+             keep_rows: bool = False, use_book_odds: bool = True) -> dict:
     """Best pick per match from pre-match form + out-of-fold model
     probabilities; reports how often picks landed vs what was claimed.
-    keep_rows: also return the per-match picks (out["rows"])."""
+    use_book_odds: the match rows' bookmaker odds count as market prices
+    (the +EV route). keep_rows: also return the per-match picks."""
     o = resolve_opts(opts)
     cand = {c.key: c for c in CANDIDATES}
     rows = []
@@ -683,8 +739,8 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
         win = gather_windows(index, r["home"], r["away"], r["date"], int(o["window"]))
         p_i = {k: (v[i] if np.ndim(v) == 1 else v[i]) for k, v in probs.items()}
         b = (base or {}).get(r["league"]) or (base or {}).get("_all")
-        ranked = score_candidates(win, p_i, r["home"], r["away"], o, bool(r.get("neutral") or 0), b)
-
+        ranked = score_candidates(win, p_i, r["home"], r["away"], o, bool(r.get("neutral") or 0), b,
+                                  book_prices(r) if use_book_odds else None)
         best = ranked[0] if ranked and ranked[0]["eligible"] else None
         if best is None:
             rows.append({"pick": None})
@@ -697,8 +753,11 @@ def backtest(index: FormIndex, matches: pd.DataFrame, probs: dict, opts: dict | 
         else:
             hit = bool(c.test_home_side(int(r["fthg"]), int(r["ftag"])))
         rows.append({"pick": best["key"], "label": best["label"], "market": best["market"],
-                     "hit": hit, "model": best["model_prob"], "form": best["form_rate"],
-                     "score": best["score"], "odds": best["fair_odds"]})
+                     "hit": hit, "model": best["model_prob"],
+                     "form": np.nan if best["form_rate"] is None else best["form_rate"],
+                     "score": best["score"], "odds": best["fair_odds"],
+                     "market_odds": best["market_odds"], "ev": best["ev"],
+                     "value": best["value"]})
     df = pd.DataFrame(rows)
     picked = df[df["pick"].notna()] if "pick" in df else df
     if "hit" in picked:                        # a first-half pick without a half-time score

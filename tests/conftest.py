@@ -12,6 +12,7 @@ def cfg(tmp_path_factory):
         "seasons": [2022, 2023, 2024, 2025],
         "training": {"models": ["poisson", "dixon_coles", "lightgbm"],
                      "dc_half_life_grid": [240, 480]},
+        "polymarket": {"enabled": False},          # tests never touch the network
     })
     c.paths.ensure()
     return c

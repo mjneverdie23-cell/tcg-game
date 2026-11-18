@@ -325,6 +325,7 @@ def _score(cfg, allm, start, end, rows, grids, probs, trainings, pick_opts, valu
         rows[f"pick_{style}"] = [p.get("label") for p in prs]
         rows[f"pick_{style}_hit"] = [p.get("hit") for p in prs]
         rows[f"pick_{style}_fair_odds"] = [p.get("odds") for p in prs]
+        rows[f"pick_{style}_ev"] = [p.get("ev") for p in prs]        # at the bookmaker's odds
         rows[f"pick_{style}_book_odds"] = [
             _book(rows.iloc[i], p.get("pick")) for i, p in enumerate(prs)]
         picks[style] = r

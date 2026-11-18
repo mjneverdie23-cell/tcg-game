@@ -31,8 +31,11 @@ def summary_row(pred) -> dict:
         "best_model": b["model_prob"] if b else None,
         "best_form": b["form_rate"] if b else None,
         "best_odds": b["fair_odds"] if b else None,
+        "best_market_odds": b.get("market_odds") if b else None,
+        "best_ev": b.get("ev") if b else None,
         "follow_ups": [{"label": c["label"], "model": c["model_prob"], "odds": c["fair_odds"],
-                        "form": c["form_rate"]} for c in (f.get("follow_ups") or [])],
+                        "form": c["form_rate"], "market_odds": c.get("market_odds"),
+                        "ev": c.get("ev")} for c in (f.get("follow_ups") or [])],
         "by_style": {k: (v["label"] if v else None) for k, v in (f.get("by_style") or {}).items()},
         "home_win": m["1x2"]["home"], "draw": m["1x2"]["draw"], "away_win": m["1x2"]["away"],
         "over_2.5": m["over_under_2.5"]["over"], "btts": m["btts"]["yes"],
@@ -76,7 +79,8 @@ def pick_summary(pred) -> dict:
     follow-up picks, best pick per style and the headline markets."""
     m, f = pred.markets, pred.form or {}
     slim = lambda c: None if not c else {k: c.get(k) for k in (
-        "label", "market", "model_prob", "form_rate", "fair_odds", "agreement", "lean", "why")}
+        "label", "market", "model_prob", "form_rate", "fair_odds", "agreement", "lean", "why",
+        "market_odds", "ev", "value", "price_source")}
     return {"home": pred.home, "away": pred.away, "date": pred.date, "league": pred.league,
             "best": slim(f.get("best_pick")),
             "follow_ups": [slim(c) for c in f.get("follow_ups") or []],
@@ -88,5 +92,7 @@ def pick_summary(pred) -> dict:
                     "btts": pred.halftime["btts"]["yes"]} if pred.halftime else None),
             "warnings": pred.warnings[:2],
             "mode": pred.mode, "alerts": pred.alerts,
+            "market": {k: pred.market.get(k) for k in ("source", "status", "event", "url")}
+            if pred.market else None,
             "high_stake": ({k: pred.high_stake.get(k) for k in ("applied", "factor", "before", "after", "text")}
                            if pred.high_stake else None)}

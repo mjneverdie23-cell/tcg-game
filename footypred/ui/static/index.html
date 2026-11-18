@@ -315,6 +315,42 @@ body.mode-high label.inline.hs-only { display: flex !important; }
 .card.hs { border-left: 4px solid var(--alert); }
 .card.hs .kick { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--alert); }
 td.up { color: var(--good); font-weight: 600; } td.down { color: var(--alert); font-weight: 600; }
+/* schedule: the league table under a clicked match */
+.match[aria-expanded="true"] { background: var(--surface); }
+.stand { padding: 2px 16px 14px; background: var(--surface); border-top: 1px dashed var(--grid); }
+.stand h4 { margin: 10px 0 2px; font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.stand h4 small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.stand .where { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; margin: 4px 0 8px; }
+.stand .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.stand .scroll { max-width: 100%; overflow-x: auto; }
+table.lt { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.lt th, table.lt td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+table.lt th:nth-child(2), table.lt td:nth-child(2) { text-align: left; width: 100%; white-space: normal; }
+table.lt th { color: var(--muted); font-weight: 600; font-size: 11.5px; }
+table.lt tr.hl-home td { background: color-mix(in srgb, var(--home) 16%, transparent); font-weight: 700; }
+table.lt tr.hl-away td { background: color-mix(in srgb, var(--away) 16%, transparent); font-weight: 700; }
+table.lt tr.hl-home td:first-child { box-shadow: inset 3px 0 var(--home); }
+table.lt tr.hl-away td:first-child { box-shadow: inset 3px 0 var(--away); }
+.stand .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+@media (max-width: 420px) { table.lt th, table.lt td { padding: 4px 4px; font-size: 12.5px; } }
+/* schedule: Polymarket combos */
+.combos { margin-top: 14px; }
+.combos .ctl { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 4px 0 10px; font-size: 13px; }
+.combos .ctl label { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); }
+.combos .ctl select { font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--baseline);
+  background: var(--card); color: var(--ink); }
+.combos .sum { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
+.combos .clist { max-height: 70vh; overflow-y: auto; display: grid; gap: 8px; padding-right: 2px; }
+.combo { border: 1px solid var(--grid); border-radius: 10px; padding: 10px 12px; background: var(--card); }
+.combo .chead { display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; font-size: 13px; color: var(--ink-2); }
+.combo .chead .rk { font-weight: 700; color: var(--ink); }
+.combo .chead b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.combo .chead .evv { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.up { color: var(--good); } .down { color: var(--alert); }
+.combo ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+.combo li { margin: 3px 0; } .combo li .m { color: var(--muted); }
+.pmline { font-size: 13px; color: var(--ink-2); margin: 2px 0 10px; }
+.pmline a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -366,6 +402,7 @@ td.up { color: var(--good); font-weight: 600; } td.down { color: var(--alert); f
       <div class="sched-note" id="sch-note"></div>
     </div>
     <div id="sch-list"></div>
+    <div id="sch-combos" class="card section combos"></div>
   </section>
 
   <section id="tab-predict">
@@ -516,8 +553,9 @@ const store = {
 };
 // ------------------------------------------------------------ mode bar
 const MODE = Object.assign({ mode: "balanced", factor: 0 }, store.get("mode") || {});
-const STYLE_ODDS = { balanced: { safe: "1.15–1.60", balanced: "1.25–2.20", bold: "1.60–3.50" },
-                     high: { safe: "1.70–2.30", balanced: "1.70–3.20", bold: "2.20–6.00" } };
+// pick styles: the chance a pick needs + the shortest price (no upper odds limit)
+const STYLE_RULES = { balanced: { safe: "60%+ · 1.15+", balanced: "45%+ · 1.25+", bold: "30%+ · 1.60+" },
+                      high: { safe: "43%+ · 1.70+", balanced: "31%+ · 1.70+", bold: "17%+ · 2.20+" } };
 const isHigh = () => MODE.mode === "high";
 function modeParams() { return isHigh() ? { mode: "high", factor: String(MODE.factor) } : { mode: "balanced" }; }
 function applyMode() {
@@ -529,8 +567,8 @@ function applyMode() {
   $("mode-hint").textContent = high
     ? `High stake: picks at odds 1.70 and up · match result, handicap +0.5/+1.5 and BTTS + over 2.5 first · the factor sets how much the upset record of clubs with an American owner or a betting sponsor moves their matches (0% = not at all)`
     : "Balanced: the current model. Switch to High stake to use the owner & sponsor factor.";
-  for (const o of $("style").options) o.textContent = `${o.value[0].toUpperCase() + o.value.slice(1)} · odds ${STYLE_ODDS[MODE.mode][o.value]}`;
-  for (const o of $("sch-style").options) o.textContent = o.value[0].toUpperCase() + o.value.slice(1) + (high ? ` · ${STYLE_ODDS.high[o.value]}` : "");
+  for (const o of $("style").options) o.textContent = `${o.value[0].toUpperCase() + o.value.slice(1)} · ${STYLE_RULES[MODE.mode][o.value]}`;
+  for (const o of $("sch-style").options) o.textContent = `${o.value[0].toUpperCase() + o.value.slice(1)} · ${STYLE_RULES[MODE.mode][o.value]}`;
   $("min-odds").placeholder = high ? "1.70+" : "auto";
 }
 if (window.ResizeObserver) new ResizeObserver(() =>
@@ -565,6 +603,19 @@ function alertShort(alerts, home, away) {
     bits.push(`${team}: ` + [a.american ? "American owner" : null, a.betting ? "betting sponsor" : null].filter(Boolean).join(" + "));
   }
   return bits.length ? "⚠ " + bits.join(" · ") : null;
+}
+const evPct = (x) => `${x >= 0 ? "+" : "−"}${Math.abs(100 * x).toFixed(Math.abs(x) < 0.1 ? 1 : 0)}%`;
+function pmCell(c) {                               // Polymarket odds + EV of a selection
+  if (!c.market_odds) return "–";
+  return el("span", {}, c.market_odds.toFixed(2), " ", el("span", { class: c.ev > 0 ? "up" : "down" }, evPct(c.ev)));
+}
+function marketLine(p) {                           // where the Polymarket prices came from
+  const mk = p.market || {};
+  if (!mk.source) return null;
+  if (mk.status === "ok") return el("div", { class: "pmline" }, "Polymarket: ", mk.url ? el("a", { href: mk.url, target: "_blank", rel: "noopener" }, mk.event) : mk.event,
+    ` · prices ${mk.fetched_at ? new Date(mk.fetched_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""} · a priced selection with positive EV counts as a pick`);
+  if (mk.status === "off") return null;
+  return el("div", { class: "pmline" }, mk.status === "not listed" ? "Polymarket: this match isn't listed (no market prices)." : `Polymarket prices unavailable${mk.error ? ": " + mk.error : ""}.`);
 }
 function alertTitle(alerts, home, away) {      // the names, on hover
   return [["home", home], ["away", away]].filter(([s]) => alerts && alerts[s])
@@ -683,7 +734,7 @@ function bestPickCard(p) {
   const st = f.settings || {};
   const dirs = st.directions || ["over", "under"];
   const dirNote = dirs.length === 2 ? "" : dirs.length ? ` · ${dirs[0]}s only` : " · no over/under picks";
-  const kids = [el("div", { class: "kicker" }, `★ Best pick${st.mode === "high" ? " (high stake)" : ""} — last ${f.window} form + model · ${st.style || ""} style, odds ${(st.min_odds || 0).toFixed(2)}–${(st.max_odds || 0).toFixed(2)}${dirNote}`)];
+  const kids = [el("div", { class: "kicker" }, `★ Best pick${st.mode === "high" ? " (high stake)" : ""} — by model probability · ${st.style || ""} style: ${pct(st.min_prob || 0)}+ chance, odds ${(st.min_odds || 0).toFixed(2)}+${f.priced ? " or positive value on Polymarket" : ""}${dirNote}`)];
   if (f.gap && f.gap.lopsided)
     kids.push(el("div", { class: "pick", style: "margin:6px 0 0" }, el("b", {}, "Big strength gap: "),
       `${f.gap.favourite} win ${pct(f.gap.win_prob)} (Elo gap ${Math.abs(f.gap.elo_gap).toFixed(0)}) — the favourite's safe lines are too short, so bigger lines are considered.`));
@@ -693,29 +744,31 @@ function bestPickCard(p) {
   if (b) {
     kids.push(el("div", { class: "top" }, el("div", { class: "big" }, b.label),
       el("div", { class: "nums" }, el("span", {}, "model ", el("b", {}, pct(b.model_prob))),
-        el("span", {}, "form ", el("b", {}, pct(b.form_rate))),
-        el("span", {}, "fair odds ", el("b", {}, b.fair_odds.toFixed(2))))));
-    kids.push(el("div", { class: "pick", style: "margin:0 0 8px" }, b.agreement));
+        b.form_rate != null ? el("span", {}, "form ", el("b", {}, pct(b.form_rate))) : null,
+        el("span", {}, "fair odds ", el("b", {}, b.fair_odds.toFixed(2))),
+        b.market_odds ? el("span", {}, "Polymarket ", el("b", {}, b.market_odds.toFixed(2)), " · EV ", el("b", { class: b.ev > 0 ? "up" : "down" }, evPct(b.ev))) : null)));
+    kids.push(el("div", { class: "pick", style: "margin:0 0 8px" }, (b.value && b.model_prob < (st.min_prob || 0) ? "a value pick: below your style's chance, but Polymarket pays more than it should · " : "") + b.agreement + " (form is shown as evidence, it doesn't decide)"));
     kids.push(el("ul", { class: "ticks" }, [...b.evidence].sort((x, y) => y.weight - x.weight).slice(0, 4)
       .map((e) => el("li", {}, `${e.event}: ${e.hits}/${e.n} (${e.window})`))));
   } else {
     kids.push(el("div", { class: "top" }, el("div", { class: "big" }, "No clear pick")),
-      el("p", { class: "pick" }, "No selection is backed by both recent form and the model with the current market and odds settings."));
+      el("p", { class: "pick" }, `No selection reaches your style's ${pct(st.min_prob || 0)} chance at odds of ${(st.min_odds || 0).toFixed(2)} or more${f.priced ? ", and none is priced on Polymarket with positive value" : ""}.`));
   }
   const fu = f.follow_ups || [];
   if (fu.length) kids.push(el("div", { class: "fu" }, el("h3", {}, b ? "Follow-up picks" : "Options anyway"),
     el("div", { class: "scroll" }, el("table", {},
-      el("thead", {}, el("tr", {}, ["#", "Selection", "Model", "Form", "Fair odds", ""].map((t) => el("th", {}, t)))),
+      el("thead", {}, el("tr", {}, ["#", "Selection", "Model", "Form", "Fair odds", "Polymarket", ""].map((t) => el("th", {}, t)))),
       el("tbody", {}, fu.map((c, i) => el("tr", {}, el("td", {}, String(b ? i + 2 : i + 1)),
-        el("td", { class: "team" }, c.label, c.lean ? el("span", { class: "chip" }, "lean") : null),
+        el("td", { class: "team" }, c.label, c.lean ? el("span", { class: "chip" }, "lean") : null, c.value ? el("span", { class: "chip" }, "value") : null),
         el("td", {}, pct(c.model_prob)), el("td", {}, c.form_rate == null ? "–" : pct(c.form_rate)),
-        el("td", {}, c.fair_odds.toFixed(2)), el("td", { class: "src", title: c.lean ? c.why : c.agreement }, c.lean ? c.why : c.agreement)))))),
-    fu.some((c) => c.lean) ? el("p", { class: "pick", style: "margin:6px 0 0" }, "A lean misses one of your style's rules (shown in the last column), so treat it as a weaker option.") : null));
+        el("td", {}, c.fair_odds.toFixed(2)), el("td", {}, pmCell(c)),
+        el("td", { class: "src", title: c.lean ? c.why : c.agreement }, c.lean ? c.why : c.agreement)))))),
+    fu.some((c) => c.lean) ? el("p", { class: "pick", style: "margin:6px 0 0" }, "A lean misses your style's chance threshold or minimum odds (last column), so treat it as a weaker option.") : null));
   const bs = f.by_style || {};
   if (Object.keys(bs).length) kids.push(el("div", { class: "styles3" }, ["safe", "balanced", "bold"].map((k) => {
     const c = bs[k], yours = k === st.style;
     return el("div", { class: yours ? "yours" : "" }, el("div", { class: "k" }, k + (yours ? " · your style" : "")),
-      c ? [el("b", {}, c.label), `${pct(c.model_prob)} · odds ${c.fair_odds.toFixed(2)}`] : el("span", { class: "muted" }, "no clear pick"));
+      c ? [el("b", {}, c.label), `${pct(c.model_prob)} · odds ${c.fair_odds.toFixed(2)}` + (c.market_odds ? ` · Polymarket ${c.market_odds.toFixed(2)}` : "")] : el("span", { class: "muted" }, "no clear pick"));
   })));
   for (const [side, team, venue] of [["home", p.home, "at home"], ["away", p.away, "away"]]) {
     const tags = f.profiles[side][venue].length ? f.profiles[side][venue] : f.profiles[side].overall;
@@ -725,10 +778,10 @@ function bestPickCard(p) {
     if (sim.length) kids.push(el("div", { class: "tags" }, el("b", {}, `${team} vs teams rated like ${other}: `), sim.join(" · ")));
   }
   kids.push(el("div", { class: "scroll", style: "margin-top:10px" }, el("table", {},
-    el("thead", {}, el("tr", {}, ["Best in each market", "Selection", "Model", "Odds", "Form", ""].map((t) => el("th", {}, t)))),
+    el("thead", {}, el("tr", {}, ["Best in each market", "Selection", "Model", "Odds", "Polymarket", "Form", ""].map((t) => el("th", {}, t)))),
     el("tbody", {}, Object.values(f.best_by_market).map((r) => el("tr", {},
       el("td", {}, r.market_name), el("td", {}, r.label), el("td", {}, pct(r.model_prob)),
-      el("td", {}, r.fair_odds.toFixed(2)),
+      el("td", {}, r.fair_odds.toFixed(2)), el("td", {}, pmCell(r)),
       el("td", {}, r.form_rate == null ? "–" : pct(r.form_rate)),
       el("td", {}, r.eligible ? strongChip("pick") : el("span", { class: "chip" }, "no clear pick"))))))));
   for (const c of f.conflicts || [])
@@ -792,6 +845,7 @@ function render(p) {
   out.push(el("div", { class: "headline" }, el("h1", {}, `${p.home} vs ${p.away}`),
     el("div", { class: "meta" }, `${p.league_name} · ${p.date}${p.neutral ? " · neutral venue" : ""} · xG ${eg.home.toFixed(2)} – ${eg.away.toFixed(2)} (total ${eg.total.toFixed(2)}) · overall confidence ${c.overall}/100 · model ${p.model}${p.mode === "high" ? ` · high stake, factor ${pct(p.high_stake.factor)}` : ""}`)));
   out.push(alertLines(p.alerts, p.home, p.away));
+  out.push(marketLine(p));
   for (const w of p.warnings || []) out.push(el("div", { class: "msg warn" }, w));
   if (p.mode === "high") out.push(highStakeCard(p));
 
@@ -1438,22 +1492,60 @@ function schPickLine(m) {
   if (!r.ok) return el("div", { class: "mpicks" }, el("span", { class: "err" }, r.error.length > 90 ? r.error.slice(0, 90) + "…" : r.error));
   const b = r.best, fu = r.follow_ups.slice(0, 2);
   const list = (xs) => xs.map((c) => `${c.label} ${c.fair_odds.toFixed(2)}${c.lean && b ? " (lean)" : ""}`).join(" · ");
-  return el("div", { class: "mpicks" }, b ? [el("b", {}, "★ " + b.label), ` ${b.fair_odds.toFixed(2)} · model ${pct(b.model_prob)}` + (b.form_rate != null ? ` · form ${pct(b.form_rate)}` : "")]
+  return el("div", { class: "mpicks" }, b ? [el("b", {}, "★ " + b.label), ` ${b.fair_odds.toFixed(2)} · model ${pct(b.model_prob)}`,
+    b.market_odds ? [` · Polymarket ${b.market_odds.toFixed(2)} `, el("span", { class: b.ev > 0 ? "up" : "down" }, evPct(b.ev))] : null]
     : el("span", { class: "err" }, "no clear pick"),
     fu.length ? el("span", { class: "then" }, (b ? "  ·  then: " : "  ·  leans: ") + list(fu)) : null);
 }
+const matchKey = (m) => `${m.competition}|${m.home}|${m.away}|${matchDay(m)}`;
+let SCH_OPEN = null;                                // the match whose league table is shown
+const STANDINGS = {};
 function matchRow(m, showComp) {
-  const row = el("div", { class: "match", role: "button", tabindex: "0", title: m.known ? "Open the full prediction" : "Not enough history for one of these teams in your data" },
+  const open = SCH_OPEN === matchKey(m);
+  const row = el("div", { class: "match", role: "button", tabindex: "0", "aria-expanded": String(open),
+    title: "Show the league table" },
     el("span", { class: "t home" + (m.home_known ? "" : " unknown"), title: m.home_known ? "" : `${m.home}: no matches in your data` }, m.home),
     crest(m.home_crest, m.home), midCell(m), crest(m.away_crest, m.away),
     el("span", { class: "t away" + (m.away_known ? "" : " unknown"), title: m.away_known ? "" : `${m.away}: no matches in your data` }, m.away),
     showComp ? el("span", { class: "comp-tag" }, m.competition_name || m.competition) : null);
-  const open = () => { if (STATUS && STATUS.ready) openFixture(m.home, m.away, matchDay(m), m.competition); else openTab("data"); };
-  row.addEventListener("click", open);
-  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  const toggle = () => { SCH_OPEN = open ? null : matchKey(m); renderScheduleRowsOnly(); };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
   const warn = alertShort(m.alerts, m.home, m.away);
-  return [row, warn ? el("div", { class: "malert", role: "note", title: alertTitle(m.alerts, m.home, m.away) }, warn) : null, schPickLine(m)];
+  return [row, warn ? el("div", { class: "malert", role: "note", title: alertTitle(m.alerts, m.home, m.away) }, warn) : null, schPickLine(m),
+    open ? standingsPanel(m) : null];
 }
+function standingsPanel(m) {
+  const k = matchKey(m), st = STANDINGS[k];
+  if (st === undefined) {
+    STANDINGS[k] = null;
+    api(`/api/standings?${new URLSearchParams({ competition: m.competition, home: m.home, away: m.away, date: matchDay(m) })}`)
+      .then((r) => { STANDINGS[k] = r; }).catch((err) => { STANDINGS[k] = { error: err.message }; })
+      .finally(() => { if (SCH_OPEN === k) renderScheduleRowsOnly(); });
+  }
+  const close = el("button", { type: "button", class: "ghost small" }, "Close");
+  close.addEventListener("click", () => { SCH_OPEN = null; renderScheduleRowsOnly(); });
+  const full = el("button", { type: "button", class: "primary small" }, "Full prediction");
+  full.addEventListener("click", () => { if (STATUS && STATUS.ready) openFixture(m.home, m.away, matchDay(m), m.competition); else openTab("data"); });
+  full.disabled = !m.known;
+  if (!m.known) full.title = "Not enough history for one of these teams in your data";
+  const acts = el("div", { class: "acts" }, close, full);
+  if (!st) return el("div", { class: "stand", role: "region", "aria-label": "League table" }, el("p", { class: "muted" }, "Loading the table…"), acts);
+  if (st.error) return el("div", { class: "stand" }, el("p", { class: "msg err" }, st.error), acts);
+  const place = (x, team, color) => el("span", {}, el("span", { class: "sw", style: `background:${color}` }), el("b", {}, team + ": "),
+    x ? `${ordinal(x.pos)} · ${x.pts} pts (${x.p} played)` : "not in this table");
+  const tables = (st.tables || []).map((t) => {
+    const rows = t.rows.map((r) => el("tr", { class: r.team === m.home ? "hl-home" : r.team === m.away ? "hl-away" : "" },
+      el("td", {}, String(r.pos)), el("td", {}, r.team + (r.deducted ? ` (−${r.deducted})` : "")),
+      ...[r.p, r.w, r.d, r.l].map((v) => el("td", {}, String(v))), el("td", {}, (r.gd > 0 ? "+" : "") + r.gd), el("td", {}, el("b", {}, String(r.pts)))));
+    return [el("h4", {}, `${t.name} ${t.season}`, el("small", {}, t.matches ? `${t.matches} games · up to ${t.as_of} · ${t.tiebreak === "h2h" ? "level on points: head-to-head first" : "level on points: goal difference"}` : "no games played yet")),
+      el("div", { class: "where" }, place(t.home, m.home, "var(--home)"), place(t.away, m.away, "var(--away)")),
+      t.rows.length ? el("div", { class: "scroll" }, el("table", { class: "lt" },
+        el("thead", {}, el("tr", {}, ["#", "Team", "P", "W", "D", "L", "GD", "Pts"].map((h) => el("th", {}, h)))), el("tbody", {}, rows))) : null];
+  });
+  return el("div", { class: "stand", role: "region", "aria-label": "League table" }, st.note ? el("p", { class: "pick" }, st.note) : null, tables, acts);
+}
+const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
 function dayMatches() {
   if (!SCH) return [];
   const want = localDay(dayOffset(SCH_DAY));
@@ -1477,6 +1569,7 @@ function renderSchedule() {
     put(box, el("div", { class: "card empty" }, none
       ? (SCH.has_key ? "No schedule yet — click ↻ to fetch it from football-data.org." : ["No schedule yet. Add your football-data.org API key in ", setupButton("Data → Settings"), " to see upcoming matches."])
       : schPrefs.live ? "No live matches right now." : `No matches ${SCH_DAY === 0 ? "today" : "on " + dayLabel(SCH_DAY)} in your leagues.`));
+    renderCombos();
     return;
   }
   if (schPrefs.bytime) {
@@ -1493,6 +1586,91 @@ function renderSchedule() {
     }));
   }
   if (schPrefs.picks) loadPicks(list);
+  renderCombos();
+}
+// ----------------------------------------------- Polymarket Optimal Combos
+const COMBOS = {}, comboPrefs = Object.assign({ sort: "ev", legs: "any", limit: 50, value_only: false }, store.get("combos") || {});
+let COMBO_BUSY = null, comboSeen = null;
+const upcoming = (m) => m.predictable && !m.live && !["FINISHED", "AWARDED", "POSTPONED", "SUSPENDED", "CANCELLED"].includes(m.status)
+  && (!m.utc || new Date(m.utc) > new Date());
+function comboFixtures() { return dayMatches().filter(upcoming); }
+function comboKey(fx) {
+  const o = pickSettings();
+  return [localDay(dayOffset(SCH_DAY)), fx.map((m) => m.home + m.away).join(","), o.style, o.markets, o.directions, o.min_odds || "",
+    o.mode, o.factor || "", comboPrefs.sort, comboPrefs.legs, comboPrefs.limit, comboPrefs.value_only].join("|");
+}
+function renderCombos() {
+  const box = $("sch-combos");
+  if (!box) return;
+  const fx = SCH && SCH.ready ? comboFixtures() : [];
+  const head = el("h2", {}, "Polymarket Optimal Combos", el("span", { class: "conf" }, `${dayLabel(SCH_DAY)} · one pick per match · 2+ legs`));
+  if (!fx.length) {
+    put(box, head, el("p", { class: "muted" }, !SCH || !SCH.ready ? "Train a model first (Data tab)." : "No upcoming matches you can predict on this day."));
+    return;
+  }
+  const sel = (label, key, options) => {
+    const s = el("select", { "aria-label": label }, options.map(([v, t]) => el("option", { value: String(v) }, t)));
+    s.value = String(comboPrefs[key]);
+    s.addEventListener("change", () => { comboPrefs[key] = key === "limit" ? +s.value : s.value; store.set("combos", comboPrefs); renderCombos(); });
+    return el("label", {}, label, s);
+  };
+  const vo = el("input", { type: "checkbox" }); vo.checked = !!comboPrefs.value_only;
+  vo.addEventListener("change", () => { comboPrefs.value_only = vo.checked; store.set("combos", comboPrefs); renderCombos(); });
+  const again = el("button", { type: "button", class: "ghost small", title: "Fetch Polymarket prices again" }, "↻ Prices");
+  again.addEventListener("click", () => { delete COMBOS[comboKey(fx)]; loadCombos(fx, true); });
+  const ctl = el("div", { class: "ctl" },
+    sel("Rank by", "sort", [["ev", "Expected value"], ["prob", "Probability"]]),
+    sel("Legs", "legs", [["any", "Any (2+)"], [2, "2"], [3, "3"], [4, "4"], [5, "5"], ["6+", "6+"]]),
+    sel("Show", "limit", [[50, "Top 50"], [100, "Top 100"]]),
+    el("label", {}, vo, "+EV legs only"), again);
+  const key = comboKey(fx), r = COMBOS[key];
+  let body;
+  if (r === undefined || r === null) body = el("p", { class: "muted" }, r === null ? "Fetching Polymarket prices and ranking every combo…" : "Scroll here to load the combos.");
+  else if (r.error) body = el("p", { class: "msg err" }, r.error);
+  else body = comboBody(r);
+  put(box, head, ctl, body, el("p", { class: "pick", style: "margin:10px 0 0" },
+    "Chance = the legs' model probabilities multiplied (matches treated as independent). Odds = Polymarket prices multiplied (best ask now; ≈ = midpoint, not guaranteed). " +
+    "EV = chance × odds − 1 per 1 staked, before fees. Legs are your current style's valid picks that Polymarket lists."));
+  if (r === undefined) watchCombos(fx);
+}
+function watchCombos(fx) {                          // load when the section comes into view
+  if (comboSeen) comboSeen.disconnect();
+  if (!("IntersectionObserver" in window)) { loadCombos(fx); return; }
+  comboSeen = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { comboSeen.disconnect(); loadCombos(comboFixtures()); } }, { rootMargin: "200px" });
+  comboSeen.observe($("sch-combos"));
+}
+async function loadCombos(fx, force) {
+  const key = comboKey(fx);
+  if (COMBO_BUSY === key || (!force && COMBOS[key])) return;
+  COMBO_BUSY = key; COMBOS[key] = null; renderCombos();
+  try {
+    COMBOS[key] = await api("/api/combos", { fixtures: fx.map((m, i) => ({ id: i, home: m.home, away: m.away, date: matchDay(m),
+      competition: m.competition, neutral: m.neutral ? 1 : 0, utc: m.utc })), pick_opts: pickSettings(),
+      sort: comboPrefs.sort, legs: comboPrefs.legs, limit: comboPrefs.limit, value_only: comboPrefs.value_only });
+  } catch (err) { COMBOS[key] = { error: err.message }; }
+  finally { if (COMBO_BUSY === key) COMBO_BUSY = null; }
+  if (!$("tab-schedule").classList.contains("hidden")) renderCombos();
+}
+function comboBody(r) {
+  const pmk = r.polymarket || {};
+  if (pmk.status === "error") return el("p", { class: "msg err" }, `Couldn't get Polymarket prices: ${(pmk.errors || []).join("; ")}`);
+  const priced = r.matches.filter((m) => m.priced).length, withLegs = r.matches_with_legs;
+  const total = BigInt(r.total_combos);
+  const t = pmk.fetched_at ? new Date(pmk.fetched_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  const sum = el("p", { class: "sum" }, `${priced} of ${r.matches.length} upcoming matches listed on Polymarket · ${r.legs_total} legs from ${withLegs} matches · ` +
+    `ranked all ${total.toLocaleString()} possible combos${r.legs !== "any" ? ` with ${r.legs} legs` : ""} · showing the top ${Math.min(r.combos.length, r.limit)} by ${r.sort === "ev" ? "expected value" : "probability"}` +
+    (t ? ` · prices ${t}` : "") + (r.fee ? ` · fee ${pct(r.fee)}` : ""));
+  if (!r.combos.length) return [sum, el("p", { class: "muted" }, withLegs < 2
+    ? "Fewer than two matches have a valid pick that Polymarket prices, so there's no combo. Try another style, more markets, or a busier day."
+    : "No combo fits these filters.")];
+  const list = el("div", { class: "clist" }, r.combos.map((c) => el("div", { class: "combo" },
+    el("div", { class: "chead" }, el("span", { class: "rk" }, `#${c.rank}`), `${c.n_legs} legs`,
+      el("span", {}, "odds ", el("b", {}, c.odds >= 100 ? c.odds.toFixed(0) : c.odds.toFixed(2))),
+      el("span", {}, "chance ", el("b", {}, pct(c.prob, c.prob < 0.1 ? 2 : 1))),
+      el("span", { class: "evv " + (c.ev > 0 ? "up" : "down") }, "EV " + evPct(c.ev))),
+    el("ol", {}, c.legs.map((l) => el("li", {}, el("b", {}, l.label), ` · ${l.match}`,
+      el("span", { class: "m" }, ` · model ${pct(l.prob)} · ${l.kind === "mid" ? "≈" : ""}${l.odds.toFixed(2)} (${(100 * l.price).toFixed(1)}¢) · EV ${evPct(l.ev)}`)))))));
+  return [sum, list];
 }
 async function loadPicks(list) {
   const need = list.filter((m) => m.predictable && SCH_PICKS[pickKey(m)] === undefined);
@@ -1502,7 +1680,7 @@ async function loadPicks(list) {
     for (let i = 0; i < need.length; i += 12) {
       const chunk = need.slice(i, i + 12);
       const res = await api("/api/predict-batch", { fixtures: chunk.map((m, j) => ({ id: j, home: m.home, away: m.away,
-        date: matchDay(m), competition: m.competition, neutral: m.neutral ? 1 : 0 })), pick_opts: pickSettings() });
+        date: matchDay(m), competition: m.competition, neutral: m.neutral ? 1 : 0, utc: m.utc })), pick_opts: pickSettings() });
       res.forEach((r, j) => { SCH_PICKS[pickKey(chunk[j])] = r; });
       renderScheduleRowsOnly();
     }
@@ -1633,7 +1811,7 @@ function highStakeBacktest(r) {
   const styles = ["safe", "balanced", "bold"];
   const markets = [...new Set(styles.flatMap((s) => Object.keys(r.picks[s].by_market || {})))];
   const byMarket = markets.length ? el("div", { class: "scroll" }, el("table", {},
-    el("thead", {}, el("tr", {}, ["Picks by market", ...styles.map((s) => `${s} ${STYLE_ODDS.high[s]}`)].map((t) => el("th", {}, t)))),
+    el("thead", {}, el("tr", {}, ["Picks by market", ...styles.map((s) => `${s} ${STYLE_RULES.high[s]}`)].map((t) => el("th", {}, t)))),
     el("tbody", {}, markets.map((mk) => el("tr", {}, el("td", { class: "team" }, MARKET_LABEL[mk] || mk),
       styles.map((s) => { const x = (r.picks[s].by_market || {})[mk];
         return el("td", {}, x ? `${x.n} · landed ${pct(x.hit_rate)} · model ${pct(x.mean_model)}` : "–"); })))))) : null;

@@ -59,6 +59,7 @@ class Prediction:
     mode: str = "balanced"                            # balanced | high (high stake)
     alerts: dict = field(default_factory=dict)        # American owner / betting sponsor, per side
     high_stake: dict = field(default_factory=dict)    # what the owner & sponsor factor did
+    market: dict = field(default_factory=dict)        # market prices used (Polymarket)
     # raw objects for charts (not serialised)
     score_matrix: ScoreMatrix | None = None
     model_matrices: dict = field(default_factory=dict)
@@ -167,6 +168,10 @@ class Predictor:
         self.flags = highstake.load_flags(highstake.flags_path(cfg), self.db.teams(),
                                           self.db.load_aliases())
         self.upsets = highstake.UpsetProfiles(self.form_index)
+        # a model trained with owner / sponsor features reads the club file as it is now
+        from footypred.features import clubs
+        if any(clubs.is_club_column(c) for c in self.res.feature_cols):
+            self.state.clubs = clubs.ClubCategories(self.flags)
 
     def _sync_state(self):
         """Use the cached state; replay only results newer than it. Fall back
@@ -211,9 +216,12 @@ class Predictor:
 
     def predict(self, home: str, away: str, date=None, neutral: bool = False,
                 pick_opts: dict | None = None, competition: str | None = None,
-                mode: str = "balanced", factor: float = 0.0) -> Prediction:
+                mode: str = "balanced", factor: float = 0.0, prices: dict | None = None,
+                market: dict | None = None) -> Prediction:
         """mode "high" = high stake: the owner & sponsor factor (0-1) reweights
-        the score grid, and picks are at fair odds of 1.70 or more."""
+        the score grid, and picks pay 1.70 or more. prices: market odds per
+        selection key (a priced selection with positive EV is a pick too);
+        market: where they came from (shown with the prediction)."""
         if mode not in ("balanced", "high"):
             raise ValueError("mode must be 'balanced' or 'high'")
         home, away = self.resolver.resolve(home), self.resolver.resolve(away)
@@ -286,7 +294,9 @@ class Predictor:
             drivers=drivers(res.direct, row, fcols, home, away),
             form=form_check(self.form_index, home, away, date, p_all,
                             {**self.pick_opts, **(pick_opts or {}), "mode": mode}, neutral,
-                            self.base_rates.get(league) or self.base_rates.get("_all")),
+                            self.base_rates.get(league) or self.base_rates.get("_all"),
+                            prices=prices),
+            market=market or {},
             warnings=warn, halftime=halftime, mode=mode, high_stake=high,
             alerts={"home": highstake.alerts_for(self.flags, home),
                     "away": highstake.alerts_for(self.flags, away)},

@@ -159,12 +159,10 @@ def _pick_opts(args) -> dict:
         o["markets"] = [m.strip() for m in args.markets.split(",") if m.strip()]
     if getattr(args, "min_odds", None) is not None:
         o["min_odds"] = args.min_odds
-    if getattr(args, "form_weight", None) is not None:
-        o["form_weight"] = args.form_weight
-    if getattr(args, "min_lift", None) is not None:
-        o["min_lift"] = args.min_lift
-    if getattr(args, "max_odds", None) is not None:
-        o["max_odds"] = args.max_odds
+    if getattr(args, "min_prob", None) is not None:
+        o["min_prob"] = args.min_prob
+    if getattr(args, "min_edge", None) is not None:
+        o["min_edge"] = args.min_edge
     if getattr(args, "style", None):
         o["style"] = args.style
     if getattr(args, "no_under", False) or getattr(args, "no_over", False):
@@ -175,17 +173,16 @@ def _pick_opts(args) -> dict:
 
 def _add_pick_args(p):
     p.add_argument("--style", choices=["safe", "balanced", "bold"],
-                   help="pick style = fair-odds range: safe 1.15-1.60, balanced 1.25-2.20 "
-                        "(default), bold 1.60-3.50")
+                   help="pick style = the chance a pick needs + the shortest price: safe 60%%+ "
+                        "at 1.15+, balanced 45%%+ at 1.25+ (default), bold 30%%+ at 1.60+")
     p.add_argument("--markets", help="markets the best pick may come from, comma separated: "
                    "1x2,totals,btts,team_totals,first_half (default: all but first_half)")
-    p.add_argument("--max-odds", type=float, help="skip selections with fair odds above this")
-    p.add_argument("--min-odds", type=float, help="skip selections with fair odds below this "
+    p.add_argument("--min-prob", type=float, help="chance a pick needs, 0-1 (default: set by "
+                   "--style)")
+    p.add_argument("--min-odds", type=float, help="skip selections paying less than this "
                    "(default: set by --style)")
-    p.add_argument("--form-weight", type=float, help="0..1, how much last-5 form decides the "
-                   "best pick vs the model (default 0.6)")
-    p.add_argument("--min-lift", type=float, help="how far above a typical game a pick must be "
-                   "(default 0.05; 0 allows ordinary safe picks)")
+    p.add_argument("--min-edge", type=float, help="a selection with a market price is also a "
+                   "pick when its EV beats this (default 0 = any positive EV)")
     p.add_argument("--no-under", action="store_true",
                    help="never pick unders (total goals and team goals)")
     p.add_argument("--no-over", action="store_true",
@@ -213,18 +210,16 @@ def cmd_backtest_picks(cfg, args):
     print(f"Best-pick backtest on {len(em)} out-of-sample matches "
           f"({', '.join(map(str, periods))}); form from games "
           "before each match, model = out-of-fold probabilities.\n")
-    print(f"{'strategy':<26}{'picks':>7}{'landed':>9}{'model said':>12}{'form said':>11}"
+    print(f"{'style':<26}{'picks':>7}{'landed':>9}{'model said':>12}{'avg odds':>10}"
           "   most common picks")
-    for name, o in (("model only", {"form_weight": 0.0, "min_form": 0.0}),
-                    ("form only", {"form_weight": 1.0, "min_model": 0.0}),
-                    (f"your settings (fw={base.get('form_weight', 0.6)})", {})):
-        r = backtest(idx, em, probs, {**base, **o}, base=typical)
+    for style in ("safe", "balanced", "bold"):
+        r = backtest(idx, em, probs, {**base, "style": style}, base=typical)
         if not r["picks"]:
-            print(f"{name:<26}{0:>7}")
+            print(f"{style:<26}{0:>7}")
             continue
         common = ", ".join(f"{k} {v}" for k, v in list(r["by_pick"].items())[:3])
-        print(f"{name:<26}{r['picks']:>7}{100 * r['hit_rate']:8.1f}%{100 * r['mean_model']:11.1f}%"
-              f"{100 * r['mean_form']:10.1f}%   {common}")
+        print(f"{style:<26}{r['picks']:>7}{100 * r['hit_rate']:8.1f}%{100 * r['mean_model']:11.1f}%"
+              f"{r['mean_odds']:10.2f}   {common}")
     print("\nHow often selections landed by their raw last-5 form rate:")
     for row in form_reliability(idx, em, limit=args.limit):
         print(f"  form {100 * row['form_from']:3.0f}-{100 * row['form_to']:3.0f}%  "

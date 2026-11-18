@@ -47,8 +47,8 @@ def _best_pick_lines(pred: Prediction) -> list[str]:
     if not f:
         return []
     st = f.get("settings", {})
-    rng = (f"{st.get('style', '')} style, fair odds {st.get('min_odds', 0):.2f}–"
-           f"{st.get('max_odds', 0):.2f}" if st.get("max_odds") else "")
+    rng = (f"{st.get('style', '')} style: {100 * st['min_prob']:.0f}%+ chance, odds "
+           f"{st.get('min_odds', 0):.2f}+" if st.get("min_prob") is not None else "")
     dirs = st.get("directions")
     if dirs is not None and len(dirs) < 2:
         rng += ("; " if rng else "") + (f"{dirs[0]}s only" if dirs else "no over/under picks")

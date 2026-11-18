@@ -67,16 +67,61 @@ def test_model_gate_and_market_filter():
     assert f["settings"]["markets"] == ["totals"]
 
 
-def test_lift_requires_beating_the_typical_game():
+def test_typical_game_is_evidence_not_a_gate():
     idx = FormIndex(_scenario())
     typical = {c.key: 0.5 for c in CANDIDATES}
     typical["home_over_0.5"] = 0.80                    # 82% is ordinary in this league
-    f = form_check(idx, "A", "B", "2025-10-20", _probs(), {"min_lift": 0.05, "style": "safe"},
-                   base=typical)
-    assert f["best_pick"] is None or f["best_pick"]["key"] != "home_over_0.5"
-    f = form_check(idx, "A", "B", "2025-10-20", _probs(), {"min_lift": 0.0, "style": "safe"},
-                   base=typical)
-    assert f["best_pick"]["key"] == "home_over_0.5"
+    f = form_check(idx, "A", "B", "2025-10-20", _probs(), {"style": "safe"}, base=typical)
+    b = f["best_pick"]
+    assert b["key"] == "home_over_0.5" and b["typical"] == 0.8 and b["lift"] == 0.02
+    # settings retired in 3.0 change nothing (and aren't reported)
+    old = form_check(idx, "A", "B", "2025-10-20", _probs(),
+                     {"style": "safe", "min_lift": 0.5, "form_weight": 1.0, "max_odds": 1.1,
+                      "min_form": 0.99}, base=typical)
+    assert old["best_pick"]["key"] == "home_over_0.5"
+    assert not {"min_lift", "form_weight", "max_odds", "min_form"} & set(old["settings"])
+    assert form_check(idx, "A", "B", "2025-10-20", _probs(),
+                      {"min_model": 0.9})["settings"]["min_prob"] == 0.9    # its old name
+
+
+def test_probability_decides_and_value_counts():
+    """Valid = chance >= the style's threshold OR positive EV at a market
+    price; no upper odds limit; form doesn't gate; ranked by probability."""
+    idx = FormIndex(_scenario())
+    when = "2025-10-20"
+    cand = lambda f, key: next(c for c in f["candidates"] if c["key"] == key)   # noqa: E731
+    f = form_check(idx, "A", "B", when, _probs())                       # balanced: 45%+ at 1.25+
+    aw = cand(f, "away_win")
+    assert aw["model_prob"] == 0.2 and not aw["eligible"] and aw["fails"] == ["model"]
+    assert aw["market_odds"] is None and aw["ev"] is None
+    # a market price with positive EV makes it a pick, however long the odds
+    f = form_check(idx, "A", "B", when, _probs(), prices={"away_win": 6.0})
+    aw = cand(f, "away_win")
+    assert aw["eligible"] and aw["value"] and aw["ev"] == 0.2 and aw["market_odds"] == 6.0
+    long = form_check(idx, "A", "B", when, _probs(**{"1x2": np.array([0.85, 0.07, 0.08])}),
+                      {"style": "bold", "mode": "high"}, prices={"away_win": 15.0})
+    assert cand(long, "away_win")["eligible"]                          # 8% at 15.0: EV +20%
+    # -EV below the threshold: still out; min_edge raises the bar
+    assert cand(form_check(idx, "A", "B", when, _probs(), prices={"away_win": 4.5}),
+                "away_win")["fails"] == ["model"]
+    assert not cand(form_check(idx, "A", "B", when, _probs(), {"min_edge": 0.25},
+                               prices={"away_win": 6.0}), "away_win")["eligible"]
+    assert cand(form_check(idx, "A", "B", when, _probs(),
+                           prices={"away_win": {"odds": 6.0, "source": "polymarket"}}),
+                "away_win")["price_source"] == "polymarket"
+    # the payout floor applies to the market price when there is one
+    safe = form_check(idx, "A", "B", when, _probs(), {"style": "safe"}, prices={"home_over_0.5": 1.10})
+    h = cand(safe, "home_over_0.5")
+    assert h["fair_odds"] == 1.22 and "too short" in h["fails"]
+    # form no longer gates: B scored in every away game (form 26%), the model says 70%
+    f = form_check(idx, "A", "B", when, _probs(a_o05=0.30))
+    under = cand(f, "away_under_0.5")
+    assert under["form_rate"] < 0.3 and under["eligible"]
+    assert under["agreement"] == "model stronger than form"             # shown, not a gate
+    # ranked by probability: the best pick is the likeliest valid selection
+    valid = [c for c in f["candidates"] if c["eligible"]]
+    assert f["best_pick"]["model_prob"] == max(c["model_prob"] for c in valid)
+    assert [c["model_prob"] for c in valid] == sorted((c["model_prob"] for c in valid), reverse=True)
 
 
 def test_candidate_outcomes_and_base_rates():
@@ -136,7 +181,7 @@ def test_lopsided_match_climbs_the_ladder():
     assert f["too_short"] is not None and f["too_short"]["fair_odds"] < 1.25
     b = f["best_pick"]
     assert b is not None and b["key"] != "home_over_0.5"
-    assert 1.25 <= b["fair_odds"] <= 2.20
+    assert b["fair_odds"] >= 1.25                                     # no upper limit any more
     assert b["key"] in {"home_win", "home_over_1.5", "home_over_2.5", "over_2.5", "btts_no",
                         "away_under_0.5"}
     assert "too short" in f["reason"]

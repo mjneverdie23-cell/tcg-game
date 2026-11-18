@@ -1,4 +1,4 @@
-# footypred 2.9 — four-market football prediction
+# footypred 3.0 — four-market football prediction
 
 Offline football prediction built around four markets, driven by each
 team's past match details:
@@ -40,7 +40,7 @@ Everything you need afterwards is in the page:
 
 | Tab | What you do there |
 |---|---|
-| **Schedule** | Today's matches, three days back and five days ahead, grouped by competition. Times are in your time zone; live games show ● LIVE, finished ones the score. Filter by team or league, show live games only, or sort **by time**. **★ Picks** puts the best pick and follow-ups under every upcoming match. Click a match for the full prediction. |
+| **Schedule** | Today's matches, three days back and five days ahead, grouped by competition. Times are in your time zone; live games show ● LIVE, finished ones the score. Filter by team or league, show live games only, or sort **by time**. **★ Picks** puts the best pick and follow-ups under every upcoming match. Click a match to see its **league table** (both teams highlighted) and a **Full prediction** button. At the bottom, **Polymarket Optimal Combos** ranks parlays of the day's picks. |
 | **Predict** | Pick league, teams, date and competition. You get the four markets, the best pick, past-match evidence and the analysis dashboard. |
 | **From image** | Drop a screenshot of fixtures, then predict them all. |
 | **Backtest** | Pick a date range with the slider. The system trains on matches before the start and predicts each day after it. You get hit rates, profit, charts and a CSV. |
@@ -93,33 +93,45 @@ file, which only ever holds finished results.
 Teams with no matches in your data (e.g. a Champions League club from a
 league you don't follow) are shown greyed out; they can't be predicted.
 
+**League table under a match.** Click a match and its league's current
+table opens below it: position, team, played, won, drawn, lost, goal
+difference and points, with both teams highlighted. A line above the table
+gives their places, e.g. "Chelsea: 3rd · 24 pts (12 played)". The table is
+built from your results, including finished games the schedule has
+fetched but your match file doesn't have yet, so it works offline and for
+every league you follow. Points are 3 / 1 / 0, then the league's tie-break:
+
+- goal difference, then goals scored: most leagues
+- head-to-head first: La Liga, Serie A and Süper Lig
+
+Points deductions aren't in the results, so add them in
+`config/local.yaml` (`standings.deductions: {E0: {2026: {Everton: 10}}}`).
+A Champions League match shows the league-phase table (from 2024-25).
+Other cup matches show each team's domestic table. **Full prediction**
+opens the match in the Predict tab.
+
 ## High stake mode (odds 1.70+, owner & sponsor factor)
 
 The bar at the top of the page switches between two modes:
 
-* **Balanced:** the model as before.
-* **High stake:** the same page, but it only picks at fair odds of 1.70
-  and up. Match result, handicap and BTTS + over 2.5 come first.
+* **Balanced:** the standard picks.
+* **High stake:** the same page, but every pick pays 1.70 or more. Match
+  result, handicap and BTTS + over 2.5 come first.
 
 The mode applies to Schedule, Predict, From image and Backtest, and the
 browser remembers it. Model report and Data don't use it, so the bar hides
 on those tabs.
 
 In high stake mode:
-- **Pick styles** become Safe 1.70–2.30, Balanced 1.70–3.20 and Bold
-  2.20–6.00 (fair odds). Min odds can't be set below 1.70.
+- **Pick styles** become Safe (43%+ chance), Balanced (31%+) and Bold
+  (17%+). Safe and Balanced pay 1.70+ and Bold pays 2.20+. Min odds can't be
+  set below 1.70.
 - **Two new markets** join the picks:
   - Handicap +0.5 / +1.5 for either side (+0.5 = win or draw, +1.5 = doesn't
     lose by two or more).
   - BTTS + over 2.5 (both teams score and there are 3+ goals).
 - **Order:** match result, handicap and the combo are picked first. Total
   goals, BTTS and team goals still appear when their odds are 1.70 or more.
-- **No "typical game" bar for the focus markets:** match result, handicap
-  and the combo don't have to beat the league's typical rate by 5 points.
-  At odds of 1.70+, an underdog's line is below the typical rate by
-  definition. In the Premier League, away +0.5 lands 56% of the time, but
-  odds of 1.70+ mean at most 59%. They still need the style's minimum model
-  probability and supporting form. The other markets keep the rule.
 - **Extra cards:** a *High stake adjustment* card shows the 1X2 before and
   after the factor, with each team's upset record. A *Handicap & BTTS +
   over 2.5* card shows the new markets.
@@ -251,17 +263,17 @@ lists, after the best pick:
 
 * **Follow-up picks:** up to four more selections, taken from different
   markets first (match result, total goals, BTTS, each team's goals), then
-  the next best. They pass the same rules as the best pick: form and model
-  both back them and the fair odds fit your style.
-* **Leans:** when fewer selections pass those rules (or none, so there's no
-  clear pick), the list is topped up with the closest misses. Each is
-  marked *lean* with the rule it missed ("odds below this style's range",
-  "hardly above a typical game", …), and none is offered below 40% model
-  and form.
+  the next most likely. They pass the same rule as the best pick (see
+  below).
+* **Leans:** when fewer selections pass (or none does, so there's no clear
+  pick), the list is topped up with the closest misses. Each is marked
+  *lean* with what it missed: "chance below this style's threshold" or
+  "odds below this style's minimum". None is offered below a 40% chance
+  (25% in high stake mode).
 * **By style:** the best pick under each of Safe, Balanced and Bold, so you
   can see the safer and the bolder option side by side.
 
-## Best pick from last-5 form
+## Best pick: probability decides, last-5 form is evidence
 
 For every fixture the system looks at:
 * each team's **last 5 matches**
@@ -276,24 +288,38 @@ profiles for each team, e.g. "Arsenal at home: scores often (4/5), keeps
 clean sheets (3/5)".
 
 Every selection in the four markets (23 in total, including total goals
-over/under 1.5, 2.5 and 3.5) is then scored by how often it landed in
+over/under 1.5, 2.5 and 3.5) gets a form rate: how often it landed in
 those games. Games against similar opponents count most, then the venue
-that matches the fixture (the home team's home games and the away team's
-away games). The **best pick** is the selection that recent form supports
-most, using the model probability as a sanity check:
+that matches the fixture. The form rate is **evidence**: it is shown with
+every pick but decides nothing.
+
+**What counts as a pick (3.0): probability, nothing else.**
 
 ```
-score = 0.6 × form rate + 0.4 × model probability        (form_weight, configurable)
-eligible only if  fair odds are inside the pick style's range,
-                  form and model clear the style's minimums,
-                  and it is ≥ 5 points above a typical game in that league
+valid  =  model probability >= the style's threshold
+          OR  EV = probability x market odds - 1  >  min_edge (default 0)
+              (where the selection has a market price, e.g. on Polymarket)
 ```
 
-| Pick style | Fair odds | Min model | Min form |
-|---|---|---|---|
-| safe | 1.15 – 1.60 | 60% | 60% |
-| **balanced** (default) | 1.25 – 2.20 | 45% | 55% |
-| bold | 1.60 – 3.50 | 30% | 45% |
+There's no upper odds limit: a long price never drops a pick. A
+selection the model rates 40% that Polymarket pays 3.50 on (EV +40%) is a
+pick even in a style that asks for 45%. The form rate and the league's
+typical rate no longer gate anything. Valid picks are **ranked by model
+probability**; high stake mode puts the match result, handicaps and the
+combo first.
+
+| Pick style | Chance needed | Shortest price taken |
+|---|---|---|
+| safe | 60% | 1.15 |
+| **balanced** (default) | 45% | 1.25 |
+| bold | 30% | 1.60 |
+| high stake safe / balanced / bold | 43% / 31% / 17% | 1.70 / 1.70 / 2.20 |
+
+The shortest price is a payout floor, not a quality rule. It keeps
+near-certainties (e.g. 1.05 lines) out. With a market price, it applies to
+that price. Because picks are ranked by probability, the best pick is
+usually the likeliest selection just above the floor. Raise **Min odds**
+(or choose Bold) for bigger lines.
 
 **Lopsided matches.** When one side is a big favourite, its "safe" lines
 (favourite over 0.5, underdog under 2.5) are about 1.03–1.10: not worth a
@@ -332,19 +358,86 @@ Total over/under 1.5 and 3.5 are read off the reconciled score matrix and
 are well calibrated out of sample: calibration error 1.2% and 0.5%
 (O/U 2.5: 1.5%).
 
-Two things follow. **The model's probability is the honest number** (picks
-land as often as it says), while **raw last-5 streaks overstate**: a 5/5
-streak is not 100%. That is why the headline figure is the model's and form
-is shown as evidence. The 5-point "above typical" rule stops trivially safe
-lines winning every time. Without it, "<team> under 2.5 goals" won most
-fixtures. Re-run the backtest on real data after `footy update`, because
-form may carry more signal there than in the synthetic world.
+Two things follow, and they are why 3.0 lets probability decide. **The
+model's probability is the honest number** (picks land as often as it
+says), while **raw last-5 streaks overstate**: a 5/5 streak is not 100%.
+(The table above was measured with the 2.x rules: form-weighted ranking
+and a 5-point "above a typical game" bar. Run `footy backtest-picks` again
+to see the 3.0 picks.)
 
 Options: `--style safe|balanced|bold`, `--markets 1x2,totals,btts,team_totals`,
-`--min-odds`, `--max-odds`, `--form-weight` (1.0 lets form decide alone),
-`--min-lift`, `--no-under`, `--no-over`. The web app has a pick-style menu,
-market checkboxes, **Goal lines: Over / Under** tick boxes and a min-odds
-box (blank means the style decides).
+`--min-prob` (the chance a pick needs), `--min-odds` (the shortest price),
+`--min-edge` (EV a priced selection needs; default 0), `--no-under`,
+`--no-over`. `--max-odds`, `--form-weight`, `--min-lift` and `--min-form`
+are gone; old settings with them still load and the values are ignored.
+The web app has a pick-style menu, market checkboxes, **Goal lines: Over
+/ Under** tick boxes and a min-odds box (blank means the style decides).
+
+## Polymarket prices and Optimal Combos
+
+The app reads Polymarket's public prices (Gamma API, read-only, no account
+or key). Each match on Polymarket is an event with Yes/No markets ("Will
+Arsenal FC win?", "... end in a draw?") and sometimes totals, spreads and
+BTTS. A share pays $1, so its price is a probability and the odds are
+1 / price:
+
+| Pick | Bought as | Price |
+|---|---|---|
+| team to win / draw | Yes | best ask |
+| team +0.5 (win or draw) | No on the other team winning | 1 − best bid |
+| over / under 2.5, BTTS | Over / Under, Yes / No | ask / 1 − bid |
+| team +1.5 | the other side of the opponent's −1.5 | ask / 1 − bid |
+
+Where a market has no order-book quote, the midpoint is used and marked
+≈. Team goals, first-half lines and BTTS + over 2.5 aren't priced there.
+
+**In predictions.** Predict, the Schedule's ★ Picks and From image show
+each priced selection's Polymarket odds and EV = model probability × odds
+− 1. A priced selection with positive EV counts as a pick (see above).
+Prices are re-read at most every two minutes. When Polymarket can't be
+reached, predictions carry on without them and say so.
+
+**Polymarket Optimal Combos** (the bottom of the Schedule tab, for the
+day you're looking at):
+
+- **Legs:** a combo takes at most **one pick per match** and has **two
+  legs or more**. A leg is a pick that is valid under your current style
+  and mode and that Polymarket prices. Untick **+EV legs only** to also
+  use valid picks with negative EV.
+- **The maths:** matches are treated as independent.
+
+  ```
+  chance  = product of the legs' model probabilities
+  odds    = product of the legs' Polymarket odds
+  EV      = chance x odds - 1        (per 1 staked, before fees)
+  ```
+- **Ranking:** by EV or by probability, over *every* combo. A busy day has
+  millions to trillions of them, so they aren't listed one by one. The
+  objective is a product over legs, so its log is a sum. The best k
+  combos with exactly l legs are then built match by match, keeping only
+  the best k partial combos per leg count. That's exact: a combo whose
+  partial part isn't among the best k can't be in the top k, because each
+  better part could take the same remaining legs. It takes milliseconds,
+  and the total count is exact too.
+- **Options:** the top 50 or 100 is shown, with a **Legs** filter (2, 3,
+  4, 5, 6+ or any).
+
+Things to know before staking:
+* EV compounds: if each leg's edge is a model error, the combo multiplies
+  the error. Ranked by EV, long combos of small edges rise to the top.
+  Their chance is small, so look at the chance column too, or rank by
+  probability.
+* The prices are what you could pay now (best ask), before any fees
+  (`polymarket.fee`). A parlay pays the product of the odds only if you
+  can actually get those prices together, e.g. by rolling winnings from
+  one leg into the next, or if the platform offers that parlay.
+* Polymarket isn't available everywhere. If it can't be reached from your
+  network, the combos say so.
+
+Settings: `polymarket` in `config/local.yaml`: `enabled`, `fee`,
+`cache_seconds`, and `sports` to name the Polymarket sport code of a
+league if the default doesn't find it. `gamma-api.polymarket.com/sports`
+lists the codes.
 
 The Over / Under boxes apply to total goals (1.5 / 2.5 / 3.5) and team
 goals (0.5 / 1.5 / 2.5). With **Under** unticked, no under is picked
@@ -667,6 +760,22 @@ For each team:
   xG, plus the market probabilities those ratings imply.
 * **Context**: league scoring environment, rest and fixture congestion,
   ClubElo, market value, FIFA points, weather.
+* **Owner and sponsor** (3.0): two categorical features per team, one-hot
+  encoded (each category is its own 0/1 column), from
+  `config/club_flags.csv`:
+  - owner: American majority / American joint / American largest
+    investor / other / unknown
+  - sponsor: betting company / none / unknown
+
+  Owners are dated: an American takeover counts from `owner_since`, so
+  Everton is "other" until December 2024. A club missing from the file is
+  "other" / "none" when its league was researched, else "unknown": missing
+  data stays a category of its own. Owner *names* aren't encoded: nearly
+  every name is one club, so they would only be a second team identifier
+  that a model overfits. The training report shows what the model made of
+  these features: their share of the gradient-boosting gain and the
+  Poisson GLM's coefficients. Turn them off with
+  `features.club_flags: false`.
 
 Every prediction prints the evidence as raw counts (e.g. "scored in 7/8
 home games · BTTS 2/8 away") and the features that moved each market.
@@ -780,16 +889,19 @@ footypred/
 │              extra_leagues.py (Süper Lig + Eliteserien from football-data.co.uk)
 │              schedule.py (fixtures window for the Schedule tab)
 │              synthetic.py (minute-level game-state simulator, incl. a Champions League)
+│              standings.py (league tables for the Schedule's match panel)
 │              pipeline.py
 │              sources/ football_data_org · football_data · understat · clubelo ·
-│                       transfermarkt · fifa · weather
+│                       transfermarkt · fifa · weather · polymarket (prices, Gamma API)
 ├── features/  engineering.py (replay, windows, market rates) · ratings.py · tuning.py
+│              clubs.py (owner & sponsor categories, one-hot, dated)
 ├── models/    scorematrix.py · goal_models.py · market_head.py (direct, stacking, IPF)
 │              trainer.py (nested CV, selection) · halftime.py (first-half model) ·
 │              pipeline.py (train + save) ·
 │              metrics.py · registry.py · summary.py
 ├── predict/   predictor.py · picks.py (last-5 form check, best pick, backtest)
 │              highstake.py (high stake mode: club flags, upset records, the factor)
+│              combos.py (Polymarket Optimal Combos: exact top-k, exact count)
 │              walkforward.py (date-range backtest) · explain.py · report.py · charts.py ·
 │              batch.py
 ├── vision/    ocr.py (RapidOCR) · fixtures.py (layout parser) · claude_reader.py · reader.py
@@ -800,7 +912,7 @@ config/club_flags.csv       clubs with an American owner / betting sponsor (high
 start_footypred.bat         double-click launchers (Windows / macOS + Linux): install on first
 start_footypred.command     run, then open the web app
 scripts/extra_leagues.py    Süper Lig + Eliteserien files from football-data.co.uk
-tests/                      69 tests: market identities, reconciliation, leakage,
+tests/                      92 tests: market identities, reconciliation, leakage,
                             state pickling/replay, DC recovery, parsers, end-to-end,
                             web API, terminal menu, past dates, packaging, form
                             windows & best pick (incl. the A/B example), backtest,
@@ -819,5 +931,8 @@ tests/                      69 tests: market identities, reconciliation, leakage
                             import & aliases, walk-forward backtest (no look-ahead),
                             data and backtest endpoints, high stake mode (club list,
                             upset records, the factor, 1.70+ picks, handicaps,
-                            BTTS + over 2.5, alerts on the schedule, backtests)
+                            BTTS + over 2.5, alerts on the schedule, backtests), 3.0: probability-
+                            driven picks (+EV route, no odds cap), Polymarket parsing (mock API),
+                            exact combo ranking vs brute force, league tables, owner & sponsor
+                            features (dated, one-hot, unknown)
 ```

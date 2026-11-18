@@ -49,8 +49,7 @@ def pick_opts(q: dict) -> dict:
         o["style"] = q["style"]
     if q.get("directions"):                       # "over", "under", "over,under" or "none"
         o["directions"] = [d for d in q["directions"].split(",") if d in ("over", "under")]
-    for key, lo, hi in (("min_odds", 1.0, 10.0), ("max_odds", 1.0, 50.0), ("form_weight", 0.0, 1.0),
-                        ("min_lift", 0.0, 0.5)):
+    for key, lo, hi in (("min_odds", 1.0, 10.0), ("min_prob", 0.0, 1.0), ("min_edge", -0.5, 1.0)):
         try:
             if q.get(key) not in (None, ""):
                 o[key] = min(max(float(q[key]), lo), hi)
@@ -128,7 +127,10 @@ def make_handler(service):
                         q["home"], q["away"], q.get("date") or None,
                         q.get("neutral") in ("1", "true", "on"), pick_opts=pick_opts(q),
                         chart=q.get("chart", "1") != "0", competition=q.get("competition"),
-                        mode=mode, factor=factor))
+                        mode=mode, factor=factor, use_market=q.get("market", "1") != "0"))
+                elif url.path == "/api/standings":
+                    self._json(service.standings(q.get("competition") or "", q.get("home") or "",
+                                                 q.get("away") or "", q.get("date") or None))
                 elif url.path == "/api/team-index":
                     self._json(service.team_index())
                 elif url.path == "/api/evaluation":
@@ -186,7 +188,19 @@ def make_handler(service):
                     po = {k: str(v) for k, v in (b.get("pick_opts") or {}).items()}
                     mode, factor = mode_opts({**po, **{k: str(b[k]) for k in ("mode", "factor") if k in b}})
                     self._json(service.predict_batch(b.get("fixtures") or [], pick_opts(po),
-                                                     mode=mode, factor=factor))
+                                                     mode=mode, factor=factor,
+                                                     use_market=b.get("market", True) is not False))
+                elif url.path == "/api/combos":
+                    b = self._body_json()
+                    po = {k: str(v) for k, v in (b.get("pick_opts") or {}).items()}
+                    mode, factor = mode_opts({**po, **{k: str(b[k]) for k in ("mode", "factor") if k in b}})
+                    try:
+                        limit = int(b.get("limit") or 100)
+                    except (TypeError, ValueError):
+                        limit = 100
+                    self._json(service.combos(b.get("fixtures") or [], pick_opts(po), mode, factor,
+                                              sort=b.get("sort") or "ev", legs=b.get("legs") or "any",
+                                              limit=limit, value_only=bool(b.get("value_only"))))
                 elif url.path == "/api/data/merge":
                     self._json(service.merge_files(self._body_json()))
                 elif url.path == "/api/data/update":

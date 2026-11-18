@@ -298,6 +298,8 @@ class Trainer:
         head = MarketHead(report["heads"][selected]).fit(src, direct, yh, ya)
         dm = DirectMarkets(self.rs).fit(frame, fcols)
         importances = self._importances(dm, models, fcols)
+        from footypred.features import clubs
+        report["club_features"] = clubs.importance(importances, models, fcols)
         report["train_seconds"] = round(time.time() - t0, 1)
         report["n_matches"] = len(frame)
         report["n_features"] = len(fcols)
